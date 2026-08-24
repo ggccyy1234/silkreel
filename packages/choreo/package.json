@@ -8,5 +8,11 @@
   },
   "dependencies": {
     "@silk-reel/ingest": "0.1.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "build": "tsc --noEmit"
   }
 }

@@ -5,7 +5,7 @@ import { ingest } from './ingest.js'
 import { IngestError } from './errors.js'
 
 import { join } from 'node:path'
-const boardsDir = join(process.cwd(), 'fixtures', 'boards')
+const boardsDir = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'boards')
 
 function loadBoard(name: string): string {
   return readFileSync(`${boardsDir}/${name}`, 'utf8')

@@ -4,7 +4,7 @@ import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseKicadPcb, ingest, IngestError } from './index.js'
 
-const repoRoot = process.cwd()
+const repoRoot = join(import.meta.dirname, '..', '..', '..')
 const boardsDir = join(repoRoot, 'fixtures', 'boards')
 
 function loadBoard(name: string): string {

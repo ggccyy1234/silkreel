@@ -28,5 +28,16 @@ export default tseslint.config(
     rules: {
       'no-console': 'off'
     }
+  },
+  {
+    files: ['**/*.tsx'],
+    languageOptions: {
+      parserOptions: {
+        projectService: {
+          defaultProject: 'tsconfig.json'
+        },
+        tsconfigRootDir: import.meta.dirname
+      }
+    }
   }
 )
