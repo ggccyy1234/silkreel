@@ -1,0 +1,32 @@
+{
+  "name": "silk-reel",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest run",
+    "lint": "eslint packages"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.515",
+    "@remotion/cli": "4.0.515",
+    "@remotion/player": "4.0.515",
+    "@remotion/renderer": "4.0.515",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "4.0.515"
+  },
+  "devDependencies": {
+    "@tracespace/parser": "^5.0.0-alpha.0",
+    "@types/node": "^24.3.0",
+    "eslint": "^9.35.0",
+    "happy-dom": "^20.11.6",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.43.0",
+    "vitest": "^4.1.11"
+  }
+}

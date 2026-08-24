@@ -1,0 +1,7 @@
+node_modules
+dist
+coverage
+*.tsbuildinfo
+.DS_Store
+exports/*.mp4
+fixtures/canonical.mp4

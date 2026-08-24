@@ -1,0 +1,783 @@
+import type {
+  BoardModel,
+  CopperLayers,
+  DrillHit,
+  Footprint,
+  IngestWarning,
+  Layer,
+  LayerSide,
+  Net,
+  NetNodeRef,
+  Pad,
+  PadShape,
+  Path,
+  SilkLayer,
+  Trace,
+  Vec2,
+  Via,
+  Zone
+} from './types.js'
+import type { SExprNode } from './sexp.js'
+import {
+  isAtom,
+  isList,
+  head,
+  children,
+  listsNamed,
+  firstListNamed,
+  atomsAfterHead,
+  toNumber,
+  parseXY
+} from './sexp-query.js'
+import { ParseError } from './errors.js'
+
+interface IdSeq {
+  n: number
+}
+
+function nextId(ids: IdSeq): number {
+  ids.n += 1
+  return ids.n
+}
+
+class BBoxAccumulator {
+  minX = Infinity
+  minY = Infinity
+  maxX = -Infinity
+  maxY = -Infinity
+
+  point(p: Vec2): void {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return
+    if (p.x < this.minX) this.minX = p.x
+    if (p.y < this.minY) this.minY = p.y
+    if (p.x > this.maxX) this.maxX = p.x
+    if (p.y > this.maxY) this.maxY = p.y
+  }
+
+  radius(p: Vec2, r: number): void {
+    this.point({ x: p.x - r, y: p.y - r })
+    this.point({ x: p.x + r, y: p.y + r })
+  }
+
+  get started(): boolean {
+    return Number.isFinite(this.minX)
+  }
+}
+
+function sideOf(layerId: string): LayerSide {
+  if (/^In\d+\.Cu$/.test(layerId)) return 'inner'
+  const m = /^([FB])\./.exec(layerId)
+  return m ? (m[1] as LayerSide) : null
+}
+
+function layerKindOf(layerId: string): Layer['kind'] | undefined {
+  if (/\.Cu$/.test(layerId)) return 'copper'
+  if (/\.SilkS$/.test(layerId)) return 'silk'
+  if (layerId === 'Edge.Cuts') return 'outline'
+  if (
+    /\.Mask$/.test(layerId) ||
+    /\.(Adhes|Paste|Fab|CrtYd)$/.test(layerId) ||
+    /^(Dwgs|Cmts|Eco\d?)\.User$/.test(layerId) ||
+    layerId === 'Margin'
+  ) {
+    return 'mask'
+  }
+  return undefined
+}
+
+function rotatePoint(p: Vec2, origin: Vec2, rotDeg: number): Vec2 {
+  if (rotDeg === 0) return p
+  const rad = (rotDeg * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  const dx = p.x - origin.x
+  const dy = p.y - origin.y
+  return { x: origin.x + dx * cos - dy * sin, y: origin.y + dx * sin + dy * cos }
+}
+
+function padShapeOf(token: string): PadShape {
+  switch (token) {
+    case 'rect':
+    case 'circle':
+    case 'oval':
+    case 'roundrect':
+      return token
+    case 'trapezoid':
+    case 'custom':
+      return 'rect'
+    default:
+      return 'roundrect'
+  }
+}
+
+interface KicadTextInfo {
+  value: string
+  at: Vec2
+  rot: number
+  height: number
+  mirrored: boolean
+  hidden: boolean
+  layerId: string
+}
+
+function extractTextLike(node: SExprNode[], file: string): KicadTextInfo {
+  const atoms = atomsAfterHead(node)
+  const valueAtomIndex = atoms[0] === 'user' || atoms[0] === 'reference' || atoms[0] === 'value' ? 1 : 0
+  const info: KicadTextInfo = {
+    value: atoms[valueAtomIndex] ?? '',
+    at: { x: 0, y: 0 },
+    rot: 0,
+    height: 1,
+    mirrored: false,
+    hidden: false,
+    layerId: 'F.SilkS'
+  }
+  for (const child of children(node)) {
+    if (!isList(child)) continue
+    const h = head(child)
+    if (h === 'at') {
+      const atAtoms = atomsAfterHead(child)
+      info.at = {
+        x: toNumber(atAtoms[0] ?? '0', file, 'text x'),
+        y: toNumber(atAtoms[1] ?? '0', file, 'text y')
+      }
+      if (atAtoms[2] !== undefined) info.rot = toNumber(atAtoms[2], file, 'text rotation')
+    } else if (h === 'layer') {
+      const layerAtoms = atomsAfterHead(child)
+      info.layerId = layerAtoms[0] ?? info.layerId
+      if (layerAtoms.includes('mirror')) info.mirrored = true
+    } else if (h === 'hide' || h === 'hidden') {
+      info.hidden = true
+    } else if (h === 'effects') {
+      const font = firstListNamed(child, 'font')
+      if (font) {
+        const size = firstListNamed(font, 'size')
+        if (size) {
+          const hVal = Number.parseFloat(atomsAfterHead(size)[0] ?? '')
+          if (Number.isFinite(hVal)) info.height = hVal
+        }
+        if (firstListNamed(font, 'mirror')) info.mirrored = true
+      }
+    }
+  }
+  return info
+}
+
+function propertyValue(fpNode: SExprNode[], propName: string): string | undefined {
+  for (const prop of listsNamed(fpNode, 'property')) {
+    const atoms = atomsAfterHead(prop)
+    if ((atoms[0] ?? '') === propName) return atoms[1]
+  }
+  return undefined
+}
+
+export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
+  const warnings: IngestWarning[] = []
+  const layers: Layer[] = []
+  const copper: Record<string, CopperLayers> = {}
+  const silkscreen: Record<string, SilkLayer> = {}
+  const footprints: Footprint[] = []
+  const drill: DrillHit[] = []
+  const outline: Path[] = []
+  const bbox = new BBoxAccumulator()
+  const ids: IdSeq = { n: 0 }
+
+  const netNamesById = new Map<number, string>()
+  const netNodesById = new Map<number, NetNodeRef[]>()
+
+  function copperFor(layerId: string): CopperLayers {
+    let c = copper[layerId]
+    if (!c) {
+      c = { traces: [], pads: [], vias: [], zones: [] }
+      copper[layerId] = c
+    }
+    return c
+  }
+
+  function silkFor(layerId: string): SilkLayer {
+    let s = silkscreen[layerId]
+    if (!s) {
+      s = { lines: [], arcs: [], texts: [] }
+      silkscreen[layerId] = s
+    }
+    return s
+  }
+
+  function ensureLayer(layerId: string): void {
+    if (layers.some((l) => l.id === layerId)) return
+    const kind = layerKindOf(layerId)
+    if (kind === undefined) return
+    layers.push({ id: layerId, name: layerId, kind, side: sideOf(layerId) })
+  }
+
+  function bindNet(
+    netAtom: string | undefined,
+    elementKind: NetNodeRef['elementKind'],
+    elementId: string,
+    footprintRef?: string
+  ): number | undefined {
+    if (netAtom === undefined) return undefined
+    const id = Number.parseInt(netAtom, 10)
+    if (!Number.isFinite(id)) return undefined
+    let nodes = netNodesById.get(id)
+    if (nodes === undefined) {
+      nodes = []
+      netNodesById.set(id, nodes)
+    }
+    nodes.push(footprintRef === undefined ? { elementKind, elementId } : { elementKind, elementId, footprintRef })
+    return id
+  }
+
+  function netAtomOf(node: SExprNode[]): string | undefined {
+    const netNode = firstListNamed(node, 'net')
+    return netNode ? atomsAfterHead(netNode)[0] : undefined
+  }
+
+  function pushTrace(layerId: string, points: Vec2[], width: number, netAtom: string | undefined): void {
+    ensureLayer(layerId)
+    const eid = nextId(ids)
+    const trace: Trace = { points, width, netId: bindNet(netAtom, 'trace', `t:${eid}`) }
+    copperFor(layerId).traces.push(trace)
+    for (const p of points) bbox.point(p)
+  }
+
+  for (const seg of listsNamed(root, 'segment')) {
+    const startNode = firstListNamed(seg, 'start')
+    const endNode = firstListNamed(seg, 'end')
+    if (!startNode || !endNode) {
+      warnings.push({ code: 'segment-incomplete', message: 'segment without start/end skipped' })
+      continue
+    }
+    const widthNode = firstListNamed(seg, 'width')
+    const width = widthNode ? toNumber(atomsAfterHead(widthNode)[0] ?? '0.25', fileName, 'segment width') : 0.25
+    const layerNode = firstListNamed(seg, 'layer')
+    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'F.Cu') : 'F.Cu'
+    pushTrace(layerId, [parseXY(startNode, fileName), parseXY(endNode, fileName)], width, netAtomOf(seg))
+  }
+
+  for (const arcSeg of listsNamed(root, 'arc')) {
+    const startNode = firstListNamed(arcSeg, 'start')
+    const midNode = firstListNamed(arcSeg, 'mid')
+    const endNode = firstListNamed(arcSeg, 'end')
+    if (!startNode || !endNode) {
+      warnings.push({ code: 'arc-incomplete', message: 'copper arc without endpoints skipped' })
+      continue
+    }
+    const mid = midNode ? parseXY(midNode, fileName) : undefined
+    const widthNode = firstListNamed(arcSeg, 'width')
+    const width = widthNode ? toNumber(atomsAfterHead(widthNode)[0] ?? '0.25', fileName, 'arc width') : 0.25
+    const layerNode = firstListNamed(arcSeg, 'layer')
+    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'F.Cu') : 'F.Cu'
+    const points = mid ? approximateArc(parseXY(startNode, fileName), mid, parseXY(endNode, fileName)) : [parseXY(startNode, fileName), parseXY(endNode, fileName)]
+    pushTrace(layerId, points, width, netAtomOf(arcSeg))
+  }
+
+  for (const viaNode of listsNamed(root, 'via')) {
+    const atNode = firstListNamed(viaNode, 'at')
+    if (!atNode) {
+      warnings.push({ code: 'via-incomplete', message: 'via without position skipped' })
+      continue
+    }
+    const pos = parseXY(atNode, fileName)
+    const sizeNode = firstListNamed(viaNode, 'size')
+    const dia = sizeNode ? toNumber(atomsAfterHead(sizeNode)[0] ?? '0.8', fileName, 'via diameter') : 0.8
+    const drillNode = firstListNamed(viaNode, 'drill')
+    const drillDia = drillNode ? toNumber(atomsAfterHead(drillNode)[0] ?? String(dia / 2), fileName, 'via drill') : dia / 2
+    const eid = nextId(ids)
+    const via: Via = { pos, dia, drill: drillDia, netId: bindNet(netAtomOf(viaNode), 'via', `v:${eid}`) }
+    const viaLayers = listsNamed(viaNode, 'layers')
+    const targetLayer = viaLayers.length > 0 ? (atomsAfterHead(viaLayers[0] as SExprNode[])[0] ?? 'F.Cu') : 'F.Cu'
+    ensureLayer(targetLayer)
+    copperFor(targetLayer).vias.push(via)
+    bbox.radius(pos, dia / 2)
+  }
+
+  for (const zoneNode of listsNamed(root, 'zone')) {
+    const polyNode = firstListNamed(zoneNode, 'polygon')
+    const ptsNode = polyNode ? firstListNamed(polyNode, 'pts') : undefined
+    if (!ptsNode) continue
+    const points = listsNamed(ptsNode, 'xy').map((xy) => parseXY(xy, fileName))
+    if (points.length < 3) continue
+    const holes: Vec2[][] = []
+    for (const filled of listsNamed(zoneNode, 'filled_polygon')) {
+      const fpts = firstListNamed(filled, 'pts')
+      if (fpts) holes.push(listsNamed(fpts, 'xy').map((xy) => parseXY(xy, fileName)))
+    }
+    const eid = nextId(ids)
+    const zone: Zone = { outline: points, holes, netId: bindNet(netAtomOf(zoneNode), 'zone', `z:${eid}`) }
+    const zoneLayers = listsNamed(zoneNode, 'layer')
+    const layerId = zoneLayers.length > 0 ? (atomsAfterHead(zoneLayers[0] as SExprNode[])[0] ?? 'F.Cu') : 'F.Cu'
+    ensureLayer(layerId)
+    copperFor(layerId).zones.push(zone)
+    for (const p of points) bbox.point(p)
+  }
+
+  interface PadRecord {
+    key: string
+    pad: Pad
+    netId: number | undefined
+  }
+  const padRecords: PadRecord[] = []
+
+  function collectPad(fp: Footprint, fpOrigin: Vec2, fpRot: number, node: SExprNode[]): void {
+    const atoms = atomsAfterHead(node)
+    const padType = atoms[1] ?? 'smd'
+    const shapeToken = atoms[2] ?? 'circle'
+    const atNode = firstListNamed(node, 'at')
+    const sizeNode = firstListNamed(node, 'size')
+    const localAt = atNode ? parseXY(atNode, fileName) : { x: 0, y: 0 }
+    let padRot = 0
+    if (atNode) {
+      const atAtoms = atomsAfterHead(atNode)
+      if (atAtoms[2] !== undefined) padRot = toNumber(atAtoms[2], fileName, 'pad rotation')
+    }
+    const sizeAtoms = sizeNode ? atomsAfterHead(sizeNode) : []
+    const sx = toNumber(sizeAtoms[0] ?? '1', fileName, 'pad size')
+    const syRaw = sizeAtoms[1] ?? sizeAtoms[0] ?? '1'
+    const sy = toNumber(syRaw, fileName, 'pad size')
+    const globalPos = rotatePoint({ x: fpOrigin.x + localAt.x, y: fpOrigin.y + localAt.y }, fpOrigin, fpRot)
+    const eid = nextId(ids)
+    const key = `p:${eid}`
+    const pad: Pad = {
+      id: key,
+      pos: globalPos,
+      size: { x: sx, y: sy },
+      shape: padShapeOf(shapeToken),
+      rot: fpRot + padRot,
+      footprintRef: fp.ref
+    }
+    const netId = bindNet(netAtomOf(node), 'pad', key, fp.ref)
+    padRecords.push({ key, pad, netId })
+    fp.padRefs.push(key)
+
+    if (padType === 'np_thru_hole') {
+      const drillNode = firstListNamed(node, 'drill')
+      const d = drillNode ? Number.parseFloat(atomsAfterHead(drillNode)[0] ?? String(Math.max(sx, sy))) : Math.max(sx, sy)
+      drill.push({ pos: globalPos, dia: Number.isFinite(d) && d > 0 ? d : Math.max(sx, sy), plated: false })
+    } else if (padType !== 'smd') {
+      const drillNode = firstListNamed(node, 'drill')
+      const d = drillNode ? Number.parseFloat(atomsAfterHead(drillNode)[0] ?? '0') : 0
+      if (Number.isFinite(d) && d > 0) drill.push({ pos: globalPos, dia: d, plated: true })
+    }
+
+    const layerNodes = listsNamed(node, 'layers')
+    const layerSpec = layerNodes.length > 0 ? atomsAfterHead(layerNodes[0] as SExprNode[]) : []
+    const throughHole = padType === 'thru_hole' || padType === 'connect' || padType === 'np_thru_hole'
+    const targetLayers = throughHole ? ['F.Cu', 'B.Cu'] : resolveSmdPadLayers(layerSpec)
+    for (const layerId of targetLayers) {
+      ensureLayer(layerId)
+      copperFor(layerId).pads.push(pad)
+    }
+    bbox.radius(globalPos, Math.max(sx, sy) / 2)
+  }
+
+  function collectFpSilkLine(fp: Footprint, fpOrigin: Vec2, fpRot: number, node: SExprNode[]): void {
+    const startNode = firstListNamed(node, 'start')
+    const endNode = firstListNamed(node, 'end')
+    if (!startNode || !endNode) return
+    const layerNode = firstListNamed(node, 'layer')
+    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'F.SilkS') : 'F.SilkS'
+    const strokeNode = firstListNamed(node, 'stroke')
+    const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
+    const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'fp_line width') : 0.12
+    const a = parseXY(startNode, fileName)
+    const b = parseXY(endNode, fileName)
+    const pts = [
+      rotatePoint({ x: fpOrigin.x + a.x, y: fpOrigin.y + a.y }, fpOrigin, fpRot),
+      rotatePoint({ x: fpOrigin.x + b.x, y: fpOrigin.y + b.y }, fpOrigin, fpRot)
+    ]
+    if (/\.SilkS$/.test(layerId)) {
+      ensureLayer(layerId)
+      silkFor(layerId).lines.push({ points: pts, width })
+      fp.silkRefs.push(`sl:${nextId(ids)}`)
+    }
+    for (const p of pts) bbox.point(p)
+  }
+
+  function collectFpSilkArc(fp: Footprint, fpOrigin: Vec2, _fpRotUnused: number, node: SExprNode[]): void {
+    const startNode = firstListNamed(node, 'start')
+    const midNode = firstListNamed(node, 'mid')
+    const endNode = firstListNamed(node, 'end')
+    if (!startNode || !midNode || !endNode) return
+    const layerNode = firstListNamed(node, 'layer')
+    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'F.SilkS') : 'F.SilkS'
+    if (!/\.SilkS$/.test(layerId)) return
+    const strokeNode = firstListNamed(node, 'stroke')
+    const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
+    const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'fp_arc width') : 0.12
+    const approx = approximateArc(parseXY(startNode, fileName), parseXY(midNode, fileName), parseXY(endNode, fileName))
+    const shifted = approx.map((p) => ({ x: fpOrigin.x + p.x, y: fpOrigin.y + p.y }))
+    ensureLayer(layerId)
+    silkFor(layerId).lines.push({ points: shifted, width })
+    fp.silkRefs.push(`sa:${nextId(ids)}`)
+    for (const p of shifted) bbox.point(p)
+  }
+
+  function collectFpCircle(fp: Footprint, node: SExprNode[]): void {
+    const centerNode = firstListNamed(node, 'center')
+    const endNode = firstListNamed(node, 'end')
+    const layerNode = firstListNamed(node, 'layer')
+    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'F.SilkS') : 'F.SilkS'
+    if (!centerNode || !endNode) return
+    const c = parseXY(centerNode, fileName)
+    const e = parseXY(endNode, fileName)
+    const radius = Math.hypot(e.x - c.x, e.y - c.y)
+    const strokeNode = firstListNamed(node, 'stroke')
+    const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
+    const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'fp_circle width') : 0.12
+    if (/\.SilkS$/.test(layerId)) {
+      ensureLayer(layerId)
+      silkFor(layerId).lines.push({ points: approximateFullCircle(c, radius), width })
+      fp.silkRefs.push(`sc:${nextId(ids)}`)
+    }
+    bbox.radius(c, radius)
+  }
+
+  function collectFpText(
+    fp: Footprint,
+    fpOrigin: Vec2,
+    fpRot: number,
+    node: SExprNode[],
+    kind: 'fp_text' | 'property'
+  ): void {
+    const info = extractTextLike(node, fileName)
+    if (info.hidden) return
+    if (kind === 'property') {
+      const propName = atomsAfterHead(node)[0] ?? ''
+      const propValue = atomsAfterHead(node)[1]
+      if (propValue === undefined) return
+      info.value = propValue
+      if (propName !== 'Reference' && propName !== 'Value') return
+    } else {
+      if (info.value.includes('${REFERENCE}')) {
+        const ref = propertyValue(fpNodeOf(fp), 'Reference')
+        if (ref !== undefined) info.value = ref
+      }
+    }
+    const globalAt = rotatePoint({ x: fpOrigin.x + info.at.x, y: fpOrigin.y + info.at.y }, fpOrigin, fpRot)
+    if (/\.SilkS$/.test(info.layerId)) {
+      ensureLayer(info.layerId)
+      silkFor(info.layerId).texts.push({
+        value: info.value,
+        refdes: fp.ref,
+        pos: globalAt,
+        rot: fpRot + info.rot,
+        height: info.height,
+        mirrored: info.mirrored,
+        footprintRef: fp.ref
+      })
+      fp.silkRefs.push(`tx:${nextId(ids)}`)
+    }
+    bbox.point(globalAt)
+  }
+
+  const footprintNodeById = new Map<string, SExprNode[]>()
+
+  function fpNodeOf(fp: Footprint): SExprNode[] {
+    return footprintNodeById.get(fp.ref) ?? []
+  }
+
+  for (const fpNode of listsNamed(root, 'footprint')) {
+    const second: SExprNode | undefined = fpNode[1]
+    const libId = second !== undefined && isAtom(second) ? second : undefined
+    const atNode = firstListNamed(fpNode, 'at')
+    const fpOrigin = atNode ? parseXY(atNode, fileName) : { x: 0, y: 0 }
+    let fpRot = 0
+    if (atNode) {
+      const atAtoms = atomsAfterHead(atNode)
+      if (atAtoms[2] !== undefined) fpRot = toNumber(atAtoms[2], fileName, 'footprint rotation')
+    }
+    const layerNode = firstListNamed(fpNode, 'layer')
+    const fpLayer = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'F.Cu') : 'F.Cu'
+    const ref =
+      propertyValue(fpNode, 'Reference') ??
+      (libId !== undefined ? libId.replace(/^[^:]*:/, '').replace(/[^A-Za-z0-9_.-]/g, '_') : `fp${footprints.length + 1}`)
+    const fp: Footprint = {
+      ref,
+      value: propertyValue(fpNode, 'Value') ?? undefined,
+      pos: fpOrigin,
+      rot: fpRot,
+      layer: fpLayer,
+      padRefs: [],
+      silkRefs: []
+    }
+    footprintNodeById.set(ref, fpNode)
+    for (const child of children(fpNode)) {
+      if (!isList(child)) continue
+      const h = head(child)
+      if (h === 'pad') collectPad(fp, fpOrigin, fpRot, child)
+      else if (h === 'fp_line') collectFpSilkLine(fp, fpOrigin, fpRot, child)
+      else if (h === 'fp_arc') collectFpSilkArc(fp, fpOrigin, fpRot, child)
+      else if (h === 'fp_circle') collectFpCircle(fp, child)
+      else if (h === 'fp_text') collectFpText(fp, fpOrigin, fpRot, child, 'fp_text')
+      else if (h === 'property') collectFpText(fp, fpOrigin, fpRot, child, 'property')
+      else if (h === 'fp_poly' || h === 'fp_rect') collectFpPolyOrRect(fp, fpOrigin, fpRot, child, h)
+    }
+    footprints.push(fp)
+    bbox.point(fpOrigin)
+  }
+
+  function collectFpPolyOrRect(
+    fp: Footprint,
+    fpOrigin: Vec2,
+    fpRot: number,
+    node: SExprNode[],
+    h: string
+  ): void {
+    const layerNode = firstListNamed(node, 'layer')
+    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'F.SilkS') : 'F.SilkS'
+    if (!/\.SilkS$/.test(layerId)) return
+    const strokeNode = firstListNamed(node, 'stroke')
+    const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
+    const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'fp_poly width') : 0.12
+    let localPts: Vec2[] = []
+    const ptsNode = firstListNamed(node, 'pts')
+    if (ptsNode) {
+      localPts = listsNamed(ptsNode, 'xy').map((xy) => parseXY(xy, fileName))
+    } else {
+      const startNode = firstListNamed(node, 'start')
+      const endNode = firstListNamed(node, 'end')
+      if (startNode && endNode) {
+        const a = parseXY(startNode, fileName)
+        const b = parseXY(endNode, fileName)
+        localPts = [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }]
+      }
+    }
+    if (localPts.length < 2) return
+    const globalPts = localPts.map((p) => rotatePoint({ x: fpOrigin.x + p.x, y: fpOrigin.y + p.y }, fpOrigin, fpRot))
+    ensureLayer(layerId)
+    silkFor(layerId).lines.push({ points: [...globalPts, globalPts[0] as Vec2], width })
+    fp.silkRefs.push(`${h === 'fp_rect' ? 'sr' : 'sp'}:${nextId(ids)}`)
+    for (const p of globalPts) bbox.point(p)
+  }
+
+  for (const gt of listsNamed(root, 'gr_text')) {
+    const info = extractTextLike(gt, fileName)
+    if (info.hidden) continue
+    if (/\.SilkS$/.test(info.layerId)) {
+      ensureLayer(info.layerId)
+      silkFor(info.layerId).texts.push({
+        value: info.value,
+        pos: info.at,
+        rot: info.rot,
+        height: info.height,
+        mirrored: info.mirrored
+      })
+    }
+    bbox.point(info.at)
+  }
+
+  for (const gl of listsNamed(root, 'gr_line')) {
+    const startNode = firstListNamed(gl, 'start')
+    const endNode = firstListNamed(gl, 'end')
+    if (!startNode || !endNode) continue
+    const a = parseXY(startNode, fileName)
+    const b = parseXY(endNode, fileName)
+    const layerNode = firstListNamed(gl, 'layer')
+    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'Edge.Cuts') : 'Edge.Cuts'
+    const strokeNode = firstListNamed(gl, 'stroke')
+    const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
+    const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.1', fileName, 'gr_line width') : 0.1
+    if (layerId === 'Edge.Cuts') {
+      outline.push({ points: [a, b], closed: false, layerId })
+    } else if (/\.SilkS$/.test(layerId)) {
+      ensureLayer(layerId)
+      silkFor(layerId).lines.push({ points: [a, b], width })
+    }
+    bbox.point(a)
+    bbox.point(b)
+  }
+
+  for (const gr of [...listsNamed(root, 'gr_rect'), ...listsNamed(root, 'gr_poly')]) {
+    const isRect = head(gr) === 'gr_rect'
+    const ptsNode = firstListNamed(gr, 'pts')
+    const startNode = firstListNamed(gr, 'start')
+    const endNode = firstListNamed(gr, 'end')
+    let points: Vec2[] = []
+    if (ptsNode) points = listsNamed(ptsNode, 'xy').map((xy) => parseXY(xy, fileName))
+    else if (startNode && endNode) {
+      const a = parseXY(startNode, fileName)
+      const b = parseXY(endNode, fileName)
+      points = [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }]
+    }
+    if (points.length < 2) continue
+    const layerNode = firstListNamed(gr, 'layer')
+    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'Edge.Cuts') : 'Edge.Cuts'
+    const strokeNode = firstListNamed(gr, 'stroke')
+    const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
+    const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.1', fileName, 'outline width') : 0.1
+    if (layerId === 'Edge.Cuts') {
+      outline.push({ points, closed: isRect || points.length > 2, layerId })
+    } else if (/\.SilkS$/.test(layerId)) {
+      ensureLayer(layerId)
+      silkFor(layerId).lines.push({ points: [...points, points[0] as Vec2], width })
+    }
+    for (const p of points) bbox.point(p)
+  }
+
+  for (const ga of listsNamed(root, 'gr_arc')) {
+    const startNode = firstListNamed(ga, 'start')
+    const midNode = firstListNamed(ga, 'mid')
+    const endNode = firstListNamed(ga, 'end')
+    if (!startNode || !midNode || !endNode) continue
+    const layerNode = firstListNamed(ga, 'layer')
+    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'Edge.Cuts') : 'Edge.Cuts'
+    const approx = approximateArc(parseXY(startNode, fileName), parseXY(midNode, fileName), parseXY(endNode, fileName))
+    const strokeNode = firstListNamed(ga, 'stroke')
+    const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
+    const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'gr_arc width') : 0.12
+    if (layerId === 'Edge.Cuts') {
+      outline.push({ points: approx, closed: false, layerId })
+    } else if (/\.SilkS$/.test(layerId)) {
+      ensureLayer(layerId)
+      silkFor(layerId).lines.push({ points: approx, width })
+    }
+    for (const p of approx) bbox.point(p)
+  }
+
+  const layersDecl = firstListNamed(root, 'layers')
+  if (layersDecl) {
+    for (const entry of children(layersDecl)) {
+      if (!isList(entry)) continue
+      const layerId = atomsAfterHead(entry)[0]
+      if (layerId !== undefined) ensureLayer(layerId)
+    }
+  }
+
+  const netDecls: SExprNode[][] = listsNamed(root, 'net')
+  for (const nd of netDecls) {
+    const atoms = atomsAfterHead(nd)
+    const idTok = atoms[0]
+    if (idTok === undefined) continue
+    const id = Number.parseInt(idTok, 10)
+    if (!Number.isFinite(id)) continue
+    const name = atoms[1] ?? ''
+    netNamesById.set(id, name)
+  }
+  for (const id of netNodesById.keys()) {
+    if (!netNamesById.has(id)) netNamesById.set(id, `net${id}`)
+  }
+  const netsOut: Net[] = []
+  for (const entry of netNamesById) {
+    const id: number = entry[0]
+    const name: string = entry[1]
+    const refs = netNodesById.get(id)
+    const nodeRefs: NetNodeRef[] = refs === undefined ? [] : [...refs]
+    netsOut.push({ id, name: name === '' ? `net${id}` : name, nodeRefs })
+  }
+  netsOut.sort((a, b) => a.id - b.id)
+
+  if (!bbox.started) throw new ParseError(fileName, 'board contains no geometric elements')
+
+  const stats = {
+    traces: Object.values(copper).reduce((n, c) => n + c.traces.length, 0),
+    pads: countUniquePads(padRecords),
+    vias: Object.values(copper).reduce((n, c) => n + c.vias.length, 0),
+    zones: Object.values(copper).reduce((n, c) => n + c.zones.length, 0),
+    texts: Object.values(silkscreen).reduce((n, s) => n + s.texts.length, 0),
+    drills: drill.length
+  }
+
+  return {
+    source: { format: 'kicad', files: [fileName], boardName: boardNameOf(fileName) },
+    bbox: { min: { x: bbox.minX, y: bbox.minY }, max: { x: bbox.maxX, y: bbox.maxY } },
+    outline,
+    layers,
+    copper,
+    silkscreen,
+    footprints,
+    drill,
+    nets: netsOut,
+    stats,
+    warnings
+  }
+}
+
+function countUniquePads(records: { key: string }[]): number {
+  const seen = new Set<string>()
+  for (const r of records) seen.add(r.key)
+  return seen.size
+}
+
+function boardNameOf(fileName: string): string {
+  const base = fileName.split('/').at(-1) ?? fileName
+  return base.replace(/\.kicad_pcb$/i, '')
+}
+
+function resolveSmdPadLayers(layerSpec: string[]): string[] {
+  const out: string[] = []
+  for (const tok of layerSpec) {
+    if (tok === '*.Cu') return ['F.Cu']
+    if (tok === 'F.Cu' || tok === 'B.Cu') out.push(tok)
+  }
+  return out.length > 0 ? out : ['F.Cu']
+}
+
+interface ArcGeo {
+  cx: number
+  cy: number
+  r: number
+  startAngle: number
+  midAngle: number
+  endAngle: number
+}
+
+function circleFrom3(a: Vec2, m: Vec2, b: Vec2): ArcGeo | undefined {
+  const ax = a.x
+  const ay = a.y
+  const bx = m.x
+  const by = m.y
+  const cx = b.x
+  const cy = b.y
+  const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+  if (Math.abs(d) < 1e-9) return undefined
+  const a2 = ax * ax + ay * ay
+  const b2 = bx * bx + by * by
+  const c2 = cx * cx + cy * cy
+  const ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
+  const uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
+  const r = Math.hypot(ax - ux, ay - uy)
+  if (!Number.isFinite(r) || r <= 0) return undefined
+  return {
+    cx: ux,
+    cy: uy,
+    r,
+    startAngle: Math.atan2(ay - uy, ax - ux),
+    midAngle: Math.atan2(by - uy, bx - ux),
+    endAngle: Math.atan2(cy - uy, cx - ux)
+  }
+}
+
+function normalizeAngle(a: number): number {
+  let x = a
+  while (x > Math.PI) x -= 2 * Math.PI
+  while (x < -Math.PI) x += 2 * Math.PI
+  return x
+}
+
+export function approximateArc(a: Vec2, m: Vec2, b: Vec2, maxSegmentLength = 0.4): Vec2[] {
+  const geo = circleFrom3(a, m, b)
+  if (geo === undefined) return [a, b]
+  const dir = normalizeAngle(geo.midAngle - geo.startAngle) >= 0 ? 1 : -1
+  let sweep = dir * normalizeAngle(geo.endAngle - geo.startAngle)
+  if (sweep < 0) sweep += 2 * Math.PI
+  if (sweep === 0) sweep = 2 * Math.PI
+  const steps = Math.min(96, Math.max(2, Math.ceil((geo.r * sweep) / maxSegmentLength)))
+  const out: Vec2[] = []
+  for (let i = 0; i <= steps; i++) {
+    const t = geo.startAngle + (sweep * i) / steps
+    out.push({ x: geo.cx + geo.r * Math.cos(t), y: geo.cy + geo.r * Math.sin(t) })
+  }
+  return out
+}
+
+function approximateFullCircle(c: Vec2, r: number, maxSegmentLength = 0.4): Vec2[] {
+  const safeR = r > 0 ? r : 0.01
+  const steps = Math.min(96, Math.max(8, Math.ceil((2 * Math.PI * safeR) / maxSegmentLength)))
+  const out: Vec2[] = []
+  for (let i = 0; i <= steps; i++) {
+    const t = (2 * Math.PI * i) / steps
+    out.push({ x: c.x + safeR * Math.cos(t), y: c.y + safeR * Math.sin(t) })
+  }
+  return out
+}
