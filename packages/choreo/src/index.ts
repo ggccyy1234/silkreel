@@ -1,7 +1,5 @@
-export interface TimelinePlaceholder {
-  status: 'pending-implementation'
-}
-
-export function pendingTimeline(): TimelinePlaceholder {
-  return { status: 'pending-implementation' }
-}
+export * from './types.js'
+export * from './errors.js'
+export { compileTimeline } from './compile.js'
+export { sampleElement } from './sample.js'
+export { ease } from './curves.js'

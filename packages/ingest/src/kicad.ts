@@ -236,7 +236,7 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
   function pushTrace(layerId: string, points: Vec2[], width: number, netAtom: string | undefined): void {
     ensureLayer(layerId)
     const eid = nextId(ids)
-    const trace: Trace = { points, width, netId: bindNet(netAtom, 'trace', `t:${eid}`) }
+    const trace: Trace = { id: `t:${eid}`, points, width, netId: bindNet(netAtom, 'trace', `t:${eid}`) }
     copperFor(layerId).traces.push(trace)
     for (const p of points) bbox.point(p)
   }
@@ -284,7 +284,7 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const drillNode = firstListNamed(viaNode, 'drill')
     const drillDia = drillNode ? toNumber(atomsAfterHead(drillNode)[0] ?? String(dia / 2), fileName, 'via drill') : dia / 2
     const eid = nextId(ids)
-    const via: Via = { pos, dia, drill: drillDia, netId: bindNet(netAtomOf(viaNode), 'via', `v:${eid}`) }
+    const via: Via = { id: `v:${eid}`, pos, dia, drill: drillDia, netId: bindNet(netAtomOf(viaNode), 'via', `v:${eid}`) }
     const viaLayers = listsNamed(viaNode, 'layers')
     const targetLayer = viaLayers.length > 0 ? (atomsAfterHead(viaLayers[0] as SExprNode[])[0] ?? 'F.Cu') : 'F.Cu'
     ensureLayer(targetLayer)
@@ -304,7 +304,7 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
       if (fpts) holes.push(listsNamed(fpts, 'xy').map((xy) => parseXY(xy, fileName)))
     }
     const eid = nextId(ids)
-    const zone: Zone = { outline: points, holes, netId: bindNet(netAtomOf(zoneNode), 'zone', `z:${eid}`) }
+    const zone: Zone = { id: `z:${eid}`, outline: points, holes, netId: bindNet(netAtomOf(zoneNode), 'zone', `z:${eid}`) }
     const zoneLayers = listsNamed(zoneNode, 'layer')
     const layerId = zoneLayers.length > 0 ? (atomsAfterHead(zoneLayers[0] as SExprNode[])[0] ?? 'F.Cu') : 'F.Cu'
     ensureLayer(layerId)
@@ -347,17 +347,17 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
       footprintRef: fp.ref
     }
     const netId = bindNet(netAtomOf(node), 'pad', key, fp.ref)
-    padRecords.push({ key, pad, netId })
+    padRecords.push({ key, pad: { ...pad, netId }, netId })
     fp.padRefs.push(key)
 
     if (padType === 'np_thru_hole') {
       const drillNode = firstListNamed(node, 'drill')
       const d = drillNode ? Number.parseFloat(atomsAfterHead(drillNode)[0] ?? String(Math.max(sx, sy))) : Math.max(sx, sy)
-      drill.push({ pos: globalPos, dia: Number.isFinite(d) && d > 0 ? d : Math.max(sx, sy), plated: false })
+      drill.push({ id: `d:${nextId(ids)}`, pos: globalPos, dia: Number.isFinite(d) && d > 0 ? d : Math.max(sx, sy), plated: false })
     } else if (padType !== 'smd') {
       const drillNode = firstListNamed(node, 'drill')
       const d = drillNode ? Number.parseFloat(atomsAfterHead(drillNode)[0] ?? '0') : 0
-      if (Number.isFinite(d) && d > 0) drill.push({ pos: globalPos, dia: d, plated: true })
+      if (Number.isFinite(d) && d > 0) drill.push({ id: `d:${nextId(ids)}`, pos: globalPos, dia: d, plated: true })
     }
 
     const layerNodes = listsNamed(node, 'layers')
@@ -388,8 +388,9 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     ]
     if (/\.SilkS$/.test(layerId)) {
       ensureLayer(layerId)
-      silkFor(layerId).lines.push({ points: pts, width })
-      fp.silkRefs.push(`sl:${nextId(ids)}`)
+      const lineId = `sl:${nextId(ids)}`
+      silkFor(layerId).lines.push({ id: lineId, points: pts, width })
+      fp.silkRefs.push(lineId)
     }
     for (const p of pts) bbox.point(p)
   }
@@ -407,9 +408,10 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'fp_arc width') : 0.12
     const approx = approximateArc(parseXY(startNode, fileName), parseXY(midNode, fileName), parseXY(endNode, fileName))
     const shifted = approx.map((p) => ({ x: fpOrigin.x + p.x, y: fpOrigin.y + p.y }))
+    const arcId = `sa:${nextId(ids)}`
     ensureLayer(layerId)
-    silkFor(layerId).lines.push({ points: shifted, width })
-    fp.silkRefs.push(`sa:${nextId(ids)}`)
+    silkFor(layerId).lines.push({ id: arcId, points: shifted, width })
+    fp.silkRefs.push(arcId)
     for (const p of shifted) bbox.point(p)
   }
 
@@ -427,8 +429,9 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'fp_circle width') : 0.12
     if (/\.SilkS$/.test(layerId)) {
       ensureLayer(layerId)
-      silkFor(layerId).lines.push({ points: approximateFullCircle(c, radius), width })
-      fp.silkRefs.push(`sc:${nextId(ids)}`)
+      const circleId = `sc:${nextId(ids)}`
+      silkFor(layerId).lines.push({ id: circleId, points: approximateFullCircle(c, radius), width })
+      fp.silkRefs.push(circleId)
     }
     bbox.radius(c, radius)
   }
@@ -457,7 +460,9 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const globalAt = rotatePoint({ x: fpOrigin.x + info.at.x, y: fpOrigin.y + info.at.y }, fpOrigin, fpRot)
     if (/\.SilkS$/.test(info.layerId)) {
       ensureLayer(info.layerId)
+      const textId = `tx:${nextId(ids)}`
       silkFor(info.layerId).texts.push({
+        id: textId,
         value: info.value,
         refdes: fp.ref,
         pos: globalAt,
@@ -466,7 +471,7 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
         mirrored: info.mirrored,
         footprintRef: fp.ref
       })
-      fp.silkRefs.push(`tx:${nextId(ids)}`)
+      fp.silkRefs.push(textId)
     }
     bbox.point(globalAt)
   }
@@ -545,9 +550,10 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     }
     if (localPts.length < 2) return
     const globalPts = localPts.map((p) => rotatePoint({ x: fpOrigin.x + p.x, y: fpOrigin.y + p.y }, fpOrigin, fpRot))
+    const polyId = `${h === 'fp_rect' ? 'sr' : 'sp'}:${nextId(ids)}`
     ensureLayer(layerId)
-    silkFor(layerId).lines.push({ points: [...globalPts, globalPts[0] as Vec2], width })
-    fp.silkRefs.push(`${h === 'fp_rect' ? 'sr' : 'sp'}:${nextId(ids)}`)
+    silkFor(layerId).lines.push({ id: polyId, points: [...globalPts, globalPts[0] as Vec2], width })
+    fp.silkRefs.push(polyId)
     for (const p of globalPts) bbox.point(p)
   }
 
@@ -557,6 +563,7 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     if (/\.SilkS$/.test(info.layerId)) {
       ensureLayer(info.layerId)
       silkFor(info.layerId).texts.push({
+        id: `tx:${nextId(ids)}`,
         value: info.value,
         pos: info.at,
         rot: info.rot,
@@ -579,10 +586,10 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
     const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.1', fileName, 'gr_line width') : 0.1
     if (layerId === 'Edge.Cuts') {
-      outline.push({ points: [a, b], closed: false, layerId })
+      outline.push({ id: `o:${nextId(ids)}`, points: [a, b], closed: false, layerId })
     } else if (/\.SilkS$/.test(layerId)) {
       ensureLayer(layerId)
-      silkFor(layerId).lines.push({ points: [a, b], width })
+      silkFor(layerId).lines.push({ id: `sl:${nextId(ids)}`, points: [a, b], width })
     }
     bbox.point(a)
     bbox.point(b)
@@ -607,10 +614,10 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
     const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.1', fileName, 'outline width') : 0.1
     if (layerId === 'Edge.Cuts') {
-      outline.push({ points, closed: isRect || points.length > 2, layerId })
+      outline.push({ id: `o:${nextId(ids)}`, points, closed: isRect || points.length > 2, layerId })
     } else if (/\.SilkS$/.test(layerId)) {
       ensureLayer(layerId)
-      silkFor(layerId).lines.push({ points: [...points, points[0] as Vec2], width })
+      silkFor(layerId).lines.push({ id: `sl:${nextId(ids)}`, points: [...points, points[0] as Vec2], width })
     }
     for (const p of points) bbox.point(p)
   }
@@ -627,10 +634,10 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
     const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'gr_arc width') : 0.12
     if (layerId === 'Edge.Cuts') {
-      outline.push({ points: approx, closed: false, layerId })
+      outline.push({ id: `o:${nextId(ids)}`, points: approx, closed: false, layerId })
     } else if (/\.SilkS$/.test(layerId)) {
       ensureLayer(layerId)
-      silkFor(layerId).lines.push({ points: approx, width })
+      silkFor(layerId).lines.push({ id: `sl:${nextId(ids)}`, points: approx, width })
     }
     for (const p of approx) bbox.point(p)
   }

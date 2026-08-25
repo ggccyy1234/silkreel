@@ -27,16 +27,19 @@ export interface Pad {
   size: Vec2
   shape: PadShape
   rot: number
+  netId?: number | undefined
   footprintRef?: string | undefined
 }
 
 export interface Trace {
+  id: string
   points: Vec2[]
   width: number
   netId?: number | undefined
 }
 
 export interface Via {
+  id: string
   pos: Vec2
   dia: number
   drill: number
@@ -44,12 +47,14 @@ export interface Via {
 }
 
 export interface Zone {
+  id: string
   outline: Vec2[]
   holes: Vec2[][]
   netId?: number | undefined
 }
 
 export interface Arc {
+  id: string
   center: Vec2
   radius: number
   startAngle: number
@@ -58,6 +63,7 @@ export interface Arc {
 }
 
 export interface Text {
+  id: string
   value: string
   refdes?: string | undefined
   pos: Vec2
@@ -80,6 +86,7 @@ export interface Footprint {
 export type DrillPlated = boolean
 
 export interface DrillHit {
+  id: string
   pos: Vec2
   dia: number
   plated: DrillPlated
@@ -140,6 +147,7 @@ export interface BoardModel {
 }
 
 export interface Path {
+  id: string
   points: Vec2[]
   closed: boolean
   layerId: string
