@@ -42,7 +42,7 @@ const PALETTES: Record<PaletteName, PaletteDef> = {
 }
 
 export function resolvePalette(name: PaletteName | undefined): PaletteDef {
-  return PALETTES[name ?? 'mono'] ?? PALETTES['mono'] as PaletteDef
+  return PALETTES[name ?? 'mono']
 }
 
 export function paletteIsGrayscale(p: PaletteDef): boolean {

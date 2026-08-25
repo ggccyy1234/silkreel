@@ -1,5 +1,5 @@
 import type { BoardModel, Vec2 } from '@silk-reel/ingest'
-import { clamp, clamp01, ease } from './curves.js'
+import { clamp01, ease } from './curves.js'
 import type { Keyframe, PhaseSpec, TimelineElement, ActId } from './types.js'
 
 export interface Member {
@@ -706,7 +706,7 @@ function selectCore(plans: GroupPlan[], center: Vec2): Set<GroupPlan> {
   const sortedByCenter = [...withScore].sort((a, b) => a.d - b.d)
   const targetCount = Math.max(1, Math.round(plans.length * 0.02))
   for (const entry of sortedByCenter.slice(0, targetCount)) {
-    if (entry.plan) result.add(entry.plan)
+    result.add(entry.plan)
   }
   return result
 }

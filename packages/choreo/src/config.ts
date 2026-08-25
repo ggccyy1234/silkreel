@@ -93,14 +93,14 @@ export function resolveAutoSymmetry(board: BoardModel): Exclude<SymmetryMode, 'a
 }
 
 export function resolveConfig(board: BoardModel, config: FilmConfig): ResolvedConfig {
-  if (config === null || typeof config !== 'object') {
+  if (typeof config !== 'object') {
     throw new ChoreoConfigError('config', config, 'expected a FilmConfig object')
   }
   if (config.seed !== null && (typeof config.seed !== 'number' || !Number.isFinite(config.seed))) {
     throw new ChoreoConfigError('seed', config.seed, 'expected a finite number or null')
   }
 
-  const knobs: Knobs = config.knobs ?? {}
+  const knobs: Knobs = config.knobs
   if (typeof knobs !== 'object') throw new ChoreoConfigError('knobs', knobs, 'expected a knobs object')
 
   const symmetryRaw = requireEnum('symmetry', knobs.symmetry, SYMMETRY_MODES, 'auto')
@@ -129,7 +129,7 @@ export function resolveConfig(board: BoardModel, config: FilmConfig): ResolvedCo
   if (grain.requested !== undefined && grain.value !== grain.requested) pushWarning('grain', grain.requested, grain.value)
   if (exposureRaw.requested !== undefined && exposureRaw.value !== exposureRaw.requested) pushWarning('exposure', exposureRaw.requested, exposureRaw.value)
 
-  const durationRaw: 'auto' | number = config.duration ?? 'auto'
+  const durationRaw: 'auto' | number = config.duration
   if (durationRaw !== 'auto') {
     if (typeof durationRaw !== 'number' || !Number.isFinite(durationRaw)) {
       throw new ChoreoConfigError('duration', durationRaw, "expected 'auto' or a finite number of seconds")
@@ -139,18 +139,18 @@ export function resolveConfig(board: BoardModel, config: FilmConfig): ResolvedCo
     }
   }
 
-  const output = config.output ?? { width: 1080, height: 1350, fps: 15 }
+  const output = config.output
   if (typeof output !== 'object' || !Number.isInteger(output.width) || output.width <= 0 || output.width > 8192) {
-    throw new ChoreoConfigError('output.width', output?.width, 'expected an integer in [1, 8192]')
+    throw new ChoreoConfigError('output.width', output.width, 'expected an integer in [1, 8192]')
   }
   if (!Number.isInteger(output.height) || output.height <= 0 || output.height > 8192) {
-    throw new ChoreoConfigError('output.height', output?.height, 'expected an integer in [1, 8192]')
+    throw new ChoreoConfigError('output.height', output.height, 'expected an integer in [1, 8192]')
   }
   if (!Number.isFinite(output.fps) || output.fps <= 0 || output.fps > 240) {
-    throw new ChoreoConfigError('output.fps', output?.fps, 'expected fps in (0, 240]')
+    throw new ChoreoConfigError('output.fps', output.fps, 'expected fps in (0, 240]')
   }
 
-  const actOrder = config.actOrder ?? []
+  const actOrder = config.actOrder
   if (!Array.isArray(actOrder)) throw new ChoreoConfigError('actOrder', actOrder, 'expected an array of act ids')
 
   return {

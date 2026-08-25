@@ -393,7 +393,7 @@ describe('VAL-FILM-010 easing knob reaches render parameters and curves', () => 
       if (prev && cur && frame <= cur.frame) {
         const t = (frame - prev.frame) / Math.max(1, cur.frame - prev.frame)
         const eased = ease(t, easing)
-        return (prev?.opacity ?? 0) + ((cur?.opacity ?? 0) - (prev?.opacity ?? 0)) * eased
+        return prev.opacity + (cur.opacity - prev.opacity) * eased
       }
     }
     return kfs[kfs.length - 1]?.opacity ?? 0
@@ -484,16 +484,6 @@ describe('VAL-FILM-020 seedPairs and rotational180', () => {
   })
 
   const PAIR_TOL_TEST = 3
-
-  function seedElements(tl: ReturnType<typeof compileTimeline>, actId: string): string[] {
-    const act = tl.acts.find((a) => a.id === actId)
-    const seedPhase = act?.phases.find((p) => p.kind === 'seed')
-    if (!act || !seedPhase) return []
-    return tl.elements
-      .filter((e) => e.actId === actId)
-      .filter((e) => e.keyframes.some((k) => k.opacity > 0 && k.frame >= seedPhase.startFrame && k.frame <= seedPhase.endFrame))
-      .map((e) => e.id)
-  }
 
   function syntheticAsymmetricBoard() {
     const elements: SyntheticElement[] = []
