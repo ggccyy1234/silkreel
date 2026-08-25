@@ -3,8 +3,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'happy-dom',
-    include: ['src/**/*.test.ts'],
-    maxThreads: 2,
-    minThreads: 1
+    include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
+    maxWorkers: 2,
   }
 })

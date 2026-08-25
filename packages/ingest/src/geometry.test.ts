@@ -143,6 +143,106 @@ describe('VAL-INGEST-014 stats recomputed truth', () => {
   }
 })
 
+describe('VAL-INGEST-016b footprint geometry under rotation', () => {
+  it('silk arcs land on their rotated footprint positions on StickHub', () => {
+    const board = parseKicadPcb(loadBoard('StickHub.kicad_pcb'), 'StickHub.kicad_pcb')
+    const arcIds = new Set(
+      Object.values(board.silkscreen)
+        .flatMap((s) => s.lines)
+        .filter((l) => l.id.startsWith('sa:'))
+        .map((l) => l.id)
+    )
+    expect(arcIds.size, 'StickHub should carry fp_arc silk lines').toBeGreaterThan(0)
+
+    let checked = 0
+    for (const fp of board.footprints) {
+      const ownedArcs = [...fp.silkRefs].filter((id) => arcIds.has(id))
+      if (ownedArcs.length === 0) continue
+      const pads = Object.values(board.copper).flatMap((c) => c.pads.filter((p) => p.footprintRef === fp.ref))
+      const maxPadSpan = Math.max(...pads.map((p) => Math.hypot(p.pos.x - fp.pos.x, p.pos.y - fp.pos.y)), 1)
+      for (const id of ownedArcs) {
+        const line = Object.values(board.silkscreen)
+          .flatMap((s) => s.lines)
+          .find((l) => l.id === id)
+        expect(line, `arc ${id} missing from silkscreen`).toBeDefined()
+        if (!line) continue
+        for (const p of line.points) {
+          const d = Math.hypot(p.x - fp.pos.x, p.y - fp.pos.y)
+          expect(d, `silk arc of ${fp.ref} (rot ${fp.rot}) lands ${(d - maxPadSpan).toFixed(2)}mm outside its extent`).toBeLessThanOrEqual(maxPadSpan + 6)
+        }
+        checked++
+      }
+    }
+    expect(checked, 'expected rotated-footprint silk arcs to be checked').toBeGreaterThanOrEqual(3)
+  })
+
+  it('a 90° footprint rotates its silk arc exactly like its silk line', () => {
+    const doc = `(kicad_pcb (version 20241229) (generator pcbnew)
+      (footprint "RotProbe" (layer "F.Cu")
+        (at 10 10 90)
+        (property "Reference" "RP1" (at 0 -1.5 90) (layer "F.SilkS"))
+        (fp_line (start 0 -1.5) (end 0 1.5) (stroke (width 0.12)) (layer "F.SilkS"))
+        (fp_arc (start 1.5 0) (mid 1.0607 1.0607) (end 0 1.5) (stroke (width 0.12)) (layer "F.SilkS"))
+        (pad "1" smd circle (at 0 0 90) (size 1 1) (layers "F.Cu"))
+      )
+    )`
+    const model = parseKicadPcb(doc, 'rot-probe.kicad_pcb')
+    const silk = model.silkscreen['F.SilkS']
+    expect(silk).toBeDefined()
+    if (!silk) return
+    const line = silk.lines.find((l) => l.id.startsWith('sl:'))
+    const arc = silk.lines.find((l) => l.id.startsWith('sa:'))
+    expect(line).toBeDefined()
+    expect(arc).toBeDefined()
+    if (!line || !arc) return
+
+    const origin = { x: 10, y: 10 }
+    for (const p of line.points) {
+      expect(Math.hypot(p.x - origin.x, p.y - origin.y), 'line endpoint must stay on the radius-1.5 circle after rotation').toBeCloseTo(1.5, 6)
+    }
+    const arcCenter = { x: 10, y: 10 }
+    for (const p of [arc.points[0], arc.points[Math.floor(arc.points.length / 2)], arc.points[arc.points.length - 1]]) {
+      if (!p) continue
+      expect(Math.hypot(p.x - arcCenter.x, p.y - arcCenter.y), 'arc points must keep their radius about the rotated center').toBeCloseTo(1.5, 3)
+    }
+
+    expect(arc.points[0]).toEqual({ x: 10, y: 11.5 })
+    expect(arc.points[arc.points.length - 1]).toEqual({ x: 8.5, y: 10 })
+  })
+
+  it('circle bbox uses the global center after footprint rotation', () => {
+    const doc = `(kicad_pcb (version 20241229) (generator pcbnew)
+      (footprint "CircleProbe" (layer "F.Cu")
+        (at 100 50 45)
+        (property "Reference" "CP1" (at 0 -3 45) (layer "F.SilkS"))
+        (fp_circle (center 0 -2) (end 0 -1) (stroke (width 0.12)) (fill none) (layer "F.SilkS"))
+        (pad "1" smd circle (at 0 0 45) (size 1 1) (layers "F.Cu"))
+      )
+    )`
+    const m = parseKicadPcb(doc, 'circle-probe.kicad_pcb')
+    const rad = (45 * Math.PI) / 180
+    const cos = Math.cos(rad)
+    const sin = Math.sin(rad)
+    const rotate = (x: number, y: number) => ({ x: 100 + x * cos - y * sin, y: 50 + x * sin + y * cos })
+    const expectedCenter = rotate(0, -2)
+    expect(m.bbox.min.x).toBeCloseTo(99.5, 5)
+    expect(m.bbox.max.x).toBeCloseTo(expectedCenter.x + 1, 5)
+    expect(m.bbox.min.y).toBeCloseTo(expectedCenter.y - 1, 5)
+    expect(m.bbox.max.y).toBeCloseTo(50.5, 5)
+    const circleLine = Object.values(m.silkscreen)
+      .flatMap((s) => s.lines)
+      .find((l) => l.id.startsWith('sc:'))
+    expect(circleLine).toBeDefined()
+    if (!circleLine) return
+    const xs = circleLine.points.map((p) => p.x)
+    const ys = circleLine.points.map((p) => p.y)
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+    const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+    expect(cx).toBeCloseTo(expectedCenter.x, 5)
+    expect(cy).toBeCloseTo(expectedCenter.y, 5)
+  })
+})
+
 describe('VAL-INGEST-016 vias are first-class', () => {
   const model = parseKicadPcb(loadBoard('video.kicad_pcb'), 'video.kicad_pcb')
 

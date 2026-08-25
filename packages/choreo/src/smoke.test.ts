@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from './index.js'
-import { boardModel } from './helpers.js'
+import { boardModel } from '../test/helpers.js'
 
 describe('choreo package smoke', () => {
   it('compiles a real board to a timeline with acts and elements', () => {

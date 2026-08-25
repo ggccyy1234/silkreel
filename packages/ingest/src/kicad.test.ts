@@ -229,4 +229,74 @@ describe('VAL-INGEST-011 nets rich for KiCad', () => {
       expect(model.nets.some((n) => n.nodeRefs.length >= 2), `${name} has no multi-node net`).toBe(true)
     }
   })
+
+  it('refdes-tagged texts bind to existing footprints and only refdes text carries footprint refs', () => {
+    for (const name of ['ecc83-pp.kicad_pcb', 'StickHub.kicad_pcb']) {
+      const model = parseKicadPcb(loadBoard(name), name)
+      const refs = new Set(model.footprints.map((f) => f.ref))
+      const refdesTagged = Object.values(model.silkscreen)
+        .flatMap((s) => s.texts)
+        .filter((t) => t.refdes !== undefined)
+      expect(refdesTagged.length, `${name} should carry refdes-tagged texts`).toBeGreaterThan(0)
+      for (const s of Object.values(model.silkscreen)) {
+        for (const t of s.texts) {
+          if (t.refdes !== undefined) {
+            expect(refs.has(t.refdes), `${name}: refdes ${t.refdes} has no footprint`).toBe(true)
+          } else if (t.footprintRef !== undefined) {
+            expect.fail(`${name}: non-refdes text ${JSON.stringify(t.value)} leaks footprintRef ${t.footprintRef}`)
+          }
+        }
+      }
+      const visibleRefs = new Set(
+        refdesTagged
+          .filter((t) => !/^\s*$/.test(t.value))
+          .map((t) => t.value)
+      )
+      expect(visibleRefs.size, `${name} distinct visible refdes values`).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('VAL-INGEST-010 mirrored silk text stays readable', () => {
+  it('layer-mirror and font-mirror texts keep un-reversed values with mirrored: true', () => {
+    const doc = `(kicad_pcb (version 20241229) (generator pcbnew)
+      (gr_text "SILK-BOTH" (at 10 0) (layer "F.SilkS" mirror) (effects (font (size 1 1))))
+      (gr_text "SILK-FONT" (at 20 0) (layer "F.SilkS") (effects (font (size 1 1) mirror)))
+      (gr_text "PLAIN" (at 30 0) (layer "F.SilkS"))
+    )`
+    const model = parseKicadPcb(doc, 'mirror-probe.kicad_pcb')
+    const texts = Object.values(model.silkscreen).flatMap((s) => s.texts)
+    const byValue = new Map(texts.map((t) => [t.value, t]))
+    expect([...byValue.keys()].sort()).toEqual(['PLAIN', 'SILK-BOTH', 'SILK-FONT'])
+    const both = byValue.get('SILK-BOTH')
+    const font = byValue.get('SILK-FONT')
+    const plain = byValue.get('PLAIN')
+    expect(both?.mirrored).toBe(true)
+    expect(font?.mirrored).toBe(true)
+    expect(plain?.mirrored).toBe(false)
+    for (const t of texts) {
+      expect(t.value).not.toContain('\ufffd')
+      expect(t.value.length, `value ${JSON.stringify(t.value)} must stay un-reversed`).toBeGreaterThan(0)
+    }
+  })
+
+  it('footprint property Reference text on a mirrored layer keeps the readable ref', () => {
+    const doc = `(kicad_pcb (version 20241229) (generator pcbnew)
+      (footprint "Test0_R_0805" (layer "F.Cu")
+        (at 5 5 90)
+        (property "Reference" "R7" (at 0 -1.2 90) (layer "F.SilkS") (effects (font (size 1 1) mirror)))
+        (property "Value" "10k" (at 0 1.2 90) (layer "F.Fab"))
+        (pad "1" smd roundrect (at -0.9 0 90) (size 1 1.2) (layers "F.Cu"))
+        (pad "2" smd roundrect (at 0.9 0 90) (size 1 1.2) (layers "F.Cu"))
+      )
+    )`
+    const model = parseKicadPcb(doc, 'mirror-fp.kicad_pcb')
+    const texts = Object.values(model.silkscreen).flatMap((s) => s.texts)
+    const r7 = texts.find((t) => t.value === 'R7')
+    expect(r7).toBeDefined()
+    if (!r7) return
+    expect(r7.mirrored).toBe(true)
+    expect(r7.refdes).toBe('R7')
+    expect(model.footprints[0]?.ref).toBe('R7')
+  })
 })

@@ -4,7 +4,6 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     include: ['src/**/*.test.ts'],
-    maxThreads: 2,
-    minThreads: 1
+    maxWorkers: 2,
   }
 })

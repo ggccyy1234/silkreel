@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline, sampleElement, ease } from './index.js'
-import type { FilmConfig } from './index.js'
-import { boardModel, makeSyntheticBoard, syntheticBoardFrom, type SyntheticElement } from './helpers.js'
+import type { FilmConfig, TimelineElement } from './index.js'
+import { boardModel } from '../test/helpers.js'
+import { makeSyntheticBoard, syntheticBoardFrom, type SyntheticElement } from '../test/synthetic.js'
 
 function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   return {
@@ -136,15 +137,22 @@ describe('VAL-FILM-006 symmetry knob pairing topology', () => {
       return pairedIds(tl).size
     }
 
+    const placementCountUnder = (symmetry: 'mirror-x' | 'mirror-y' | 'quad' | 'none'): number => {
+      const tl = compileTimeline(board, cfg({ knobs: { symmetry } }))
+      return tl.elements.filter((e) => e.placement.dx !== 0 || e.placement.dy !== 0).length
+    }
+
     const mirrorXCount = pairCountUnder('mirror-x')
     const mirrorYCount = pairCountUnder('mirror-y')
     const quadCount = pairCountUnder('quad')
-    const noneCount = pairCountUnder('none')
 
     expect(mirrorXCount).toBeGreaterThan(10)
     expect(mirrorYCount).toBeGreaterThan(10)
-    expect(quadCount).toBeGreaterThan(mirrorXCount)
-    expect(noneCount).toBeLessThan(mirrorXCount / 3)
+    expect(quadCount).toBeGreaterThan(10)
+
+    expect(placementCountUnder('mirror-x')).toBeGreaterThan(board.footprints.length)
+    expect(placementCountUnder('quad')).toBeGreaterThanOrEqual(placementCountUnder('mirror-x'))
+    expect(placementCountUnder('none')).toBe(0)
 
     const mirrorXTl = compileTimeline(board, cfg({ knobs: { symmetry: 'mirror-x' } }))
     const mirrorYTl = compileTimeline(board, cfg({ knobs: { symmetry: 'mirror-y' } }))
@@ -245,6 +253,138 @@ describe('VAL-FILM-008 beatCount intra-act placement', () => {
     }
     return el.keyframes[el.keyframes.length - 1]?.opacity
   }
+})
+
+describe('VAL-FILM-013 beat flash-reset drops to symmetric sliver', () => {
+  const MIRROR_MODES = ['mirror-x', 'mirror-y', 'quad', 'rotational180'] as const
+  const PAIR_TOL = 3
+
+  function opacityAt(el: { keyframes: Array<{ frame: number; opacity: number }> }, frame: number): number | undefined {
+    if (el.keyframes.length === 0) return undefined
+    if (frame <= (el.keyframes[0]?.frame ?? 0)) return el.keyframes[0]?.opacity
+    for (let i = 1; i < el.keyframes.length; i++) {
+      const prev = el.keyframes[i - 1]
+      const cur = el.keyframes[i]
+      if (prev && cur && frame <= cur.frame) return cur.opacity
+    }
+    return el.keyframes[el.keyframes.length - 1]?.opacity
+  }
+
+  function basePositionOf(board: ReturnType<typeof boardModel>, id: string): { x: number; y: number } | undefined {
+    for (const c of Object.values(board.copper)) {
+      for (const t of c.traces) if (t.id === id) return t.points[0]
+      for (const p of c.pads) if (p.id === id) return p.pos
+      for (const v of c.vias) if (v.id === id) return v.pos
+      for (const z of c.zones) if (z.id === id) return z.outline[0]
+    }
+    for (const s of Object.values(board.silkscreen)) {
+      for (const l of s.lines) if (l.id === id) return l.points[0]
+      for (const t of s.texts) if (t.id === id) return t.pos
+    }
+    for (const o of board.outline) if (o.id === id) return o.points[0]
+    return undefined
+  }
+
+  function drawnPositionAt(
+    board: ReturnType<typeof boardModel>,
+    el: TimelineElement,
+    frame: number
+  ): { x: number; y: number } {
+    const base = basePositionOf(board, el.id)
+    let dx = 0
+    let dy = 0
+    for (const k of el.keyframes) {
+      if (k.frame > frame) break
+      if (k.dx !== undefined) dx = k.dx
+      if (k.dy !== undefined) dy = k.dy
+    }
+    return { x: (base?.x ?? 0) + dx, y: (base?.y ?? 0) + dy }
+  }
+
+  interface Snapshot {
+    beatFrame: number
+    cx: number
+    cy: number
+    visibleCount: number
+    sliver: Array<{ id: string; x: number; y: number; opacity: number }>
+  }
+
+  function snapshotAtBeat(
+    board: ReturnType<typeof boardModel>,
+    symmetry: (typeof MIRROR_MODES)[number],
+    intensity: number
+  ): Snapshot {
+    const tl = compileTimeline(board, cfg({
+      knobs: { symmetry, beatCount: 1, beatIntensity: intensity },
+      actOrder: ['outline', 'drill', 'copper:B.Cu', 'copper:F.Cu']
+    }))
+    const beat = tl.beats[0]
+    expect(beat, `${symmetry} must carry a beat`).toBeDefined()
+    const carryingAct = tl.acts.find((a) =>
+      a.phases.some((p) => p.kind === 'beat' && beat !== undefined && beat.frame >= p.startFrame && beat.frame <= p.endFrame)
+    )
+    expect(carryingAct).toBeDefined()
+    const cx = (board.bbox.min.x + board.bbox.max.x) / 2
+    const cy = (board.bbox.min.y + board.bbox.max.y) / 2
+    const sliver: Array<{ id: string; x: number; y: number; opacity: number }> = []
+    let visibleCount = 0
+    if (!beat || !carryingAct) return { beatFrame: -1, cx, cy, visibleCount: 0, sliver }
+    for (const el of tl.elements) {
+      if (el.actId !== carryingAct.id) continue
+      const before = opacityAt(el, beat.frame - 1) ?? 0
+      const atBeat = opacityAt(el, beat.frame) ?? 0
+      if (before > 0.05) visibleCount++
+      if (atBeat >= 0.05) {
+        const pos = drawnPositionAt(board, el, beat.frame)
+        sliver.push({ id: el.id, ...pos, opacity: atBeat })
+      }
+    }
+    return { beatFrame: beat.frame, cx, cy, visibleCount, sliver }
+  }
+
+  it('sliver elements reflect pairwise under every mirror mode at the beat frame', () => {
+    const board = ecc83()
+    for (const mode of MIRROR_MODES) {
+      const snap = snapshotAtBeat(board, mode, 0.15)
+      expect(snap.visibleCount, `${mode}: expected a populated act before the beat`).toBeGreaterThan(20)
+      expect(snap.sliver.length, `${mode}: residual must not be empty`).toBeGreaterThan(0)
+      expect(snap.sliver.length, `${mode}: residual sliver must stay thin`).toBeLessThan(Math.max(4, snap.visibleCount * 0.1))
+
+      const remaining = [...snap.sliver]
+      let matched = 0
+      while (remaining.length > 0) {
+        const a = remaining.shift()
+        if (!a) break
+        const idx = remaining.findIndex((b) => {
+          const reflectX = Math.abs(a.x + b.x - 2 * snap.cx) < PAIR_TOL
+          const reflectY = Math.abs(a.y + b.y - 2 * snap.cy) < PAIR_TOL
+          if (mode === 'rotational180') return reflectX && reflectY
+          if (mode === 'mirror-x') return reflectX
+          if (mode === 'mirror-y') return reflectY
+          return reflectX && reflectY
+        })
+        if (idx >= 0) {
+          remaining.splice(idx, 1)
+          matched += 2
+        }
+      }
+      expect(
+        matched,
+        `${mode}: sliver positions must reflect pairwise about the center AT the beat frame; matched ${matched} of ${snap.sliver.length}`
+      ).toBe(snap.sliver.length)
+    }
+  })
+
+  it('beat clears ≥95% of previously visible elements and high intensity raises residual opacity', () => {
+    const board = ecc83()
+    const low = snapshotAtBeat(board, 'mirror-x', 0.15)
+    expect(low.sliver.length / Math.max(1, low.visibleCount), 'low-intensity reset must clear ≥95% of the act').toBeLessThan(0.05)
+
+    const high = snapshotAtBeat(board, 'mirror-x', 0.9)
+    const avgLow = low.sliver.reduce((s, e) => s + e.opacity, 0) / Math.max(1, low.sliver.length)
+    const avgHigh = high.sliver.reduce((s, e) => s + e.opacity, 0) / Math.max(1, high.sliver.length)
+    expect(avgHigh, 'higher beatIntensity must raise residual opacity').toBeGreaterThan(avgLow)
+  })
 })
 
 describe('VAL-FILM-009 dissolveStyle exit ordering', () => {

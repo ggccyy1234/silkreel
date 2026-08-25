@@ -1,6 +1,6 @@
 import type { BoardModel, Vec2 } from '@silk-reel/ingest'
 import { clamp01, ease } from './curves.js'
-import type { Keyframe, PhaseSpec, TimelineElement, ActId } from './types.js'
+import type { Keyframe, PhaseSpec, PhaseKind, TimelineElement, ActId } from './types.js'
 
 export interface Member {
   id: string
@@ -394,6 +394,16 @@ export function pairPlacement(group: SymGroup): Placement[] {
 
 const MIN_PHASE_FRAMES = { seed: 2, populate: 3, build: 3, sustain: 2, dissolve: 2 } as const
 
+function sumMins(): number {
+  return (
+    MIN_PHASE_FRAMES.seed +
+    MIN_PHASE_FRAMES.populate +
+    MIN_PHASE_FRAMES.build +
+    MIN_PHASE_FRAMES.sustain +
+    MIN_PHASE_FRAMES.dissolve
+  )
+}
+
 
 export interface SplitPhasesResult {
   phases: PhaseSpec[]
@@ -405,19 +415,38 @@ export interface SplitPhasesResult {
   dissolve: PhaseSpec
 }
 
-export function splitActPhases(start: number, end: number, fps: number, withBeat: boolean): SplitPhasesResult {
-  const len = end - start + 1
-  const beatLen = withBeat ? Math.max(2, Math.round(0.4 * fps)) : 0
-  const flexibleBudget = len - beatLen
-  const minSum =
-    MIN_PHASE_FRAMES.seed +
-    MIN_PHASE_FRAMES.populate +
-    MIN_PHASE_FRAMES.build +
-    MIN_PHASE_FRAMES.sustain +
-    MIN_PHASE_FRAMES.dissolve
-  const flex = Math.max(minSum, flexibleBudget)
+const MIN_ACT_FRAMES_WITH_BEAT = 12
 
-  const weights = withBeat
+export function splitActPhases(
+  start: number,
+  end: number,
+  fps: number,
+  withBeat: boolean
+): SplitPhasesResult {
+  const len = end - start + 1
+  const minSum = sumMins()
+
+  let carryBeat = withBeat && len >= MIN_ACT_FRAMES_WITH_BEAT
+  if (withBeat && !carryBeat) {
+    const beatLenOnly = Math.max(2, Math.round(0.4 * fps))
+    if (len - beatLenOnly >= minSum) carryBeat = true
+  }
+  return layout(start, end, fps, carryBeat)
+}
+
+function layout(start: number, end: number, fps: number, withBeatRequested: boolean): SplitPhasesResult {
+  const len = end - start + 1
+  const minSum = sumMins()
+
+  let withBeatFinal = withBeatRequested && len >= MIN_ACT_FRAMES_WITH_BEAT + Math.max(2, Math.round(0.4 * fps))
+  if (withBeatRequested && !withBeatFinal) {
+    const beatLenOnly = Math.max(2, Math.round(0.4 * fps))
+    if (len - beatLenOnly >= minSum) withBeatFinal = true
+  }
+  const beatLen = withBeatFinal ? Math.max(2, Math.round(0.4 * fps)) : 0
+  const flex = len - beatLen
+
+  const weights = withBeatFinal
     ? ([0.13, 0.27, 0.24, 0.2, 0.16] as const)
     : ([0.15, 0.34, 0.23, 0.15, 0.13] as const)
   const mins = [
@@ -427,43 +456,65 @@ export function splitActPhases(start: number, end: number, fps: number, withBeat
     MIN_PHASE_FRAMES.sustain,
     MIN_PHASE_FRAMES.dissolve
   ]
-  let allocs = weights.map((w, i) => Math.max(mins[i] as number, Math.round(flex * w)))
-  let allocSum = allocs.reduce((a, b) => a + b, 0)
-  const scaleDown = flex / allocSum
-  allocs = allocs.map((a, i) => Math.max(mins[i] as number, Math.floor(a * scaleDown)))
-  allocSum = allocs.reduce((a, b) => a + b, 0)
-  let guard = 0
-  while (allocSum < flex && guard < 10000) {
-    const i = guard % allocs.length
-    allocs[i] = (allocs[i] as number) + 1
-    allocSum += 1
-    guard += 1
-  }
-  guard = 0
-  while (allocSum > flex && guard < 10000) {
-    const orderIdx = [1, 3, 2, 4, 0]
-    for (const i of orderIdx) {
-      if (allocSum <= flex) break
-      const cur = allocs[i] as number
-      const min = mins[i] as number
-      if (cur > min) {
-        allocs[i] = cur - 1
-        allocSum -= 1
-      }
+
+  let allocs: number[]
+  if (flex >= minSum) {
+    allocs = weights.map((w, i) => Math.max(mins[i] as number, Math.round(flex * w)))
+    let allocSum = allocs.reduce((a, b) => a + b, 0)
+    if (allocSum > flex) {
+      allocs = allocs.map((a, i) => Math.max(mins[i] as number, Math.floor(a * (flex / allocSum))))
+      allocSum = allocs.reduce((a, b) => a + b, 0)
     }
-    guard += 1
+    let guard = 0
+    while (allocSum < flex && guard < 10000) {
+      const i = guard % allocs.length
+      allocs[i] = (allocs[i] as number) + 1
+      allocSum += 1
+      guard += 1
+    }
+    guard = 0
+    while (allocSum > flex && guard < 10000) {
+      const orderIdx = [1, 3, 2, 4, 0]
+      for (const i of orderIdx) {
+        if (allocSum <= flex) break
+        const cur = allocs[i] as number
+        const min = mins[i] as number
+        if (cur > min) {
+          allocs[i] = cur - 1
+          allocSum -= 1
+        }
+      }
+      guard += 1
+    }
+  } else {
+    const base = Math.floor(flex / mins.length)
+    const extra = flex - base * mins.length
+    allocs = mins.map((_, i) => base + (i < extra ? 1 : 0))
   }
 
   const specs: PhaseSpec[] = []
-  const kinds = withBeat
-    ? (['seed', 'populate', 'beat', 'build', 'sustain', 'dissolve'] as const)
-    : (['seed', 'populate', 'build', 'sustain', 'dissolve'] as const)
+  const kinds: string[] = withBeatFinal
+    ? ['seed', 'populate', 'beat', 'build', 'sustain', 'dissolve']
+    : ['seed', 'populate', 'build', 'sustain', 'dissolve']
   let cursor = start
+  let allocIdx = 0
   for (const kind of kinds) {
-    const size = kind === 'beat' ? beatLen : (allocs.shift() as number)
-    specs.push({ kind, startFrame: cursor, endFrame: cursor + size - 1 })
-    cursor += size
+    if (cursor > end) break
+    const alloc = allocs[allocIdx]
+    allocIdx += kind === 'beat' ? 0 : 1
+    const size = kind === 'beat' ? beatLen : Math.max(1, alloc ?? 1)
+    const clampedSize = Math.min(size, end - cursor + 1)
+    if (clampedSize <= 0) break
+    specs.push({ kind: kind as PhaseKind, startFrame: cursor, endFrame: cursor + clampedSize - 1 })
+    cursor += clampedSize
   }
+  for (const mandatory of ['seed', 'populate', 'build', 'sustain', 'dissolve'] as const) {
+    if (!specs.some((p) => p.kind === mandatory)) {
+      specs.push({ kind: mandatory, startFrame: end, endFrame: end })
+    }
+  }
+  specs.sort((a, b) => a.startFrame - b.startFrame || a.endFrame - b.endFrame)
+
   const find = (k: string): PhaseSpec => {
     const s = specs.find((p) => p.kind === k)
     if (!s) throw new Error(`phase ${k} missing`)
@@ -776,9 +827,27 @@ function buildUnitKeyframes(
   const snapStart = Math.min(Math.max(Math.ceil(fullAt), split.build.startFrame), split.build.endFrame)
   const snapLen = Math.max(1, split.build.endFrame - split.build.startFrame)
   const frames = [...byFrame.values()].sort((a, b) => a.frame - b.frame)
+
+  let mirrorAppliedAtBeat = false
+  if (beatFrame !== undefined && plan.isSliver && (placement.dx !== 0 || placement.dy !== 0)) {
+    const beatKf = byFrame.get(beatFrame)
+    if (beatKf) {
+      beatKf.dx = placement.dx
+      beatKf.dy = placement.dy
+      for (const kf of frames) {
+        if (kf.frame > beatFrame) break
+        if (kf.dx !== undefined || kf.dy !== undefined) continue
+        kf.dx = r4(placement.dx * clamp01(kf.frame / Math.max(1, beatFrame)))
+        kf.dy = r4(placement.dy * clamp01(kf.frame / Math.max(1, beatFrame)))
+      }
+      mirrorAppliedAtBeat = true
+    }
+  }
+
   return frames.map((kf) => {
     if (placement.dx === 0 && placement.dy === 0) return kf
-    if (kf.frame < snapStart) return kf
+    if (kf.frame < snapStart && !mirrorAppliedAtBeat) return kf
+    if (mirrorAppliedAtBeat && beatFrame !== undefined && kf.frame <= beatFrame) return kf
     const t = clamp01((kf.frame - snapStart) / snapLen)
     const eased = ease(t, input.easing)
     const dx = r4(placement.dx * eased)

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Timeline } from './index.js'
 import { compileTimeline } from './index.js'
-import { boardModel, makeSyntheticBoard } from './helpers.js'
+import { splitActPhases } from './phases.js'
+import { boardModel } from '../test/helpers.js'
+import { makeSyntheticBoard } from '../test/synthetic.js'
 
 const ecc83 = () => boardModel('ecc83-pp.kicad_pcb')
 const stickhub = () => boardModel('StickHub.kicad_pcb')
@@ -215,6 +217,101 @@ describe('VAL-FILM-005 duration policy', () => {
     const tl = compileTimeline(makeSyntheticBoard(30), defaultConfig({ duration: 14 }))
     expect(Math.abs(tl.durationSeconds - 14)).toBeLessThanOrEqual(0.5 / tl.fps + 1e-9)
     expect(tl.totalFrames).toBe(Math.round(14 * tl.fps))
+  })
+})
+
+describe('beat carrier phase-allocation overrun', () => {
+  it('short carrier acts never let tail phases spill into the next act', () => {
+    const tl = compileTimeline(makeSyntheticBoard(300), defaultConfig({ knobs: { beatCount: 3 } }))
+    for (let i = 0; i < tl.acts.length; i++) {
+      const act = tl.acts[i]
+      if (!act) continue
+      for (const phase of act.phases) {
+        expect(phase.endFrame, `${act.id} phase ${phase.kind} ends past its act`).toBeLessThanOrEqual(act.endFrame)
+        expect(phase.startFrame, `${act.id} phase ${phase.kind} starts before its act`).toBeGreaterThanOrEqual(act.startFrame)
+      }
+      const next = tl.acts[i + 1]
+      if (next) {
+        expect(act.endFrame, `${act.id} must not overlap ${next.id}`).toBeLessThan(next.startFrame)
+      }
+      const beatPhases = act.phases.filter((p) => p.kind === 'beat')
+      for (const bp of beatPhases) {
+        expect(bp.endFrame - bp.startFrame + 1, 'beat phase keeps its ~0.4s length').toBe(Math.round(0.4 * tl.fps) || 6)
+      }
+    }
+    for (const act of tl.acts) {
+      if (!act.phases.some((p) => p.kind === 'beat')) continue
+      const nonBeat = act.phases.filter((p) => p.kind !== 'beat')
+      for (const p of nonBeat) {
+        expect(
+          p.endFrame - p.startFrame + 1,
+          `${act.id} ${p.kind} keeps its minimum floor`
+        ).toBeGreaterThanOrEqual(2)
+      }
+    }
+  })
+
+  it('a forced short act carrying a beat drops the beat with a documented warning', () => {
+    const board = makeSyntheticBoard(120)
+    const tl = compileTimeline(board, defaultConfig({
+      knobs: { beatCount: 5 },
+      duration: 6
+    }))
+    for (const act of tl.acts) {
+      for (const phase of act.phases) {
+        expect(phase.endFrame).toBeLessThanOrEqual(act.endFrame)
+      }
+    }
+    if (tl.beats.length < 3) {
+      const flagged = tl.warnings.find((w) => w.code === 'beat-dropped-short-act' || w.code === 'beat-dropped-phase-floors')
+      expect(flagged, `dropped beats (${3 - tl.beats.length} of 3) must be documented in warnings`).toBeDefined()
+    }
+  })
+
+  it('splitActPhases never allocates past the act end when a beat is requested', () => {
+    for (let len = 5; len <= 24; len++) {
+      const split = splitActPhases(0, len - 1, 15, true)
+      let cursorEnd = -1
+      for (const phase of split.phases) {
+        expect(phase.startFrame, `len=${len} ${phase.kind} starts inside act`).toBeGreaterThanOrEqual(0)
+        expect(phase.endFrame, `len=${len} ${phase.kind} spills past act end`).toBeLessThanOrEqual(len - 1)
+        if (phase.startFrame > cursorEnd + 1 && cursorEnd >= 0) {
+          expect.fail(`len=${len} gap before ${phase.kind}`)
+        }
+        cursorEnd = Math.max(cursorEnd, phase.endFrame)
+      }
+      expect(cursorEnd, `len=${len} phases must reach the act end`).toBe(len - 1)
+      const kinds = split.phases.map((p) => p.kind)
+      for (const mandatory of ['seed', 'populate', 'build', 'sustain', 'dissolve']) {
+        expect(kinds, `len=${len} missing ${mandatory}`).toContain(mandatory)
+      }
+      if (split.beat !== undefined) {
+        const nonBeat = split.phases.filter((p) => p.kind !== 'beat')
+        for (const p of nonBeat) {
+          expect(p.endFrame - p.startFrame + 1, `len=${len} ${p.kind} below floor with beat present`).toBeGreaterThanOrEqual(2)
+        }
+      } else {
+        expect(
+          len,
+          'acts too short to fit a beat plus phase floors must drop the beat'
+        ).toBeLessThanOrEqual(12 + 6)
+      }
+    }
+  })
+
+  it('12-17 frame carriers with beats keep every phase inside the act and floors respected', () => {
+    const board = makeSyntheticBoard(200)
+    for (const duration of [7, 8, 9]) {
+      const tl = compileTimeline(board, defaultConfig({ duration, knobs: { beatCount: 2 } }))
+      for (const act of tl.acts) {
+        const actLen = act.endFrame - act.startFrame + 1
+        if (actLen < 10 || actLen > 20) continue
+        for (const phase of act.phases) {
+          expect(phase.endFrame, `${duration}s: ${act.id} ${phase.kind} spills past act end`).toBeLessThanOrEqual(act.endFrame)
+          expect(phase.endFrame - phase.startFrame + 1).toBeGreaterThanOrEqual(2)
+        }
+      }
+    }
   })
 })
 

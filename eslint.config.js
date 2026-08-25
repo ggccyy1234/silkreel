@@ -1,6 +1,52 @@
 import eslint from '@eslint/js'
 import tseslint from 'typescript-eslint'
 
+const NODE_BUILTIN_RESTRICTION = {
+  patterns: [
+    {
+      group: [
+        'assert',
+        'buffer',
+        'child_process',
+        'cluster',
+        'constants',
+        'crypto',
+        'dgram',
+        'dns',
+        'domain',
+        'events',
+        'fs',
+        'http',
+        'http2',
+        'https',
+        'module',
+        'net',
+        'os',
+        'path',
+        'perf_hooks',
+        'process',
+        'punycode',
+        'querystring',
+        'readline',
+        'repl',
+        'stream',
+        'string_decoder',
+        'timers',
+        'tls',
+        'tty',
+        'url',
+        'util',
+        'v8',
+        'vm',
+        'worker_threads',
+        'zlib',
+        'node:*'
+      ],
+      message: 'node builtins are banned in browser-safe package sources'
+    }
+  ]
+}
+
 export default tseslint.config(
   { ignores: ['**/dist/**', '**/node_modules/**', '**/.vite/**', '**/coverage/**'] },
   eslint.configs.recommended,
@@ -27,6 +73,18 @@ export default tseslint.config(
     files: ['**/*.test.ts'],
     rules: {
       'no-console': 'off'
+    }
+  },
+  {
+    files: [
+      'packages/ingest/src/**/*.ts',
+      'packages/choreo/src/**/*.ts',
+      'packages/render/src/**/*.ts',
+      'packages/studio/src/**/*.{ts,tsx}'
+    ],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': ['error', NODE_BUILTIN_RESTRICTION]
     }
   },
   {

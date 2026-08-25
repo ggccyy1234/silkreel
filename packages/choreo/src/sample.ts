@@ -19,13 +19,10 @@ export function sampleElement(
     const cur = kfs[i]
     if (!cur) continue
     samples.set(cur.frame, cur.opacity)
-    if (i === kfs.length - 1) break
     const next = kfs[i + 1]
-    if (!next) continue
+    if (!next) break
     const segLen = next.frame - cur.frame
-    if (segLen <= 1) continue
-    const step = Math.max(1, Math.floor(segLen / 8))
-    for (let f = cur.frame + 1; f < next.frame; f += step) {
+    for (let f = cur.frame + 1; f < next.frame; f++) {
       const t = (f - cur.frame) / segLen
       const eased = ease(t, easing)
       const v = cur.opacity + (next.opacity - cur.opacity) * eased

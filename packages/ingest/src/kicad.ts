@@ -156,8 +156,9 @@ function extractTextLike(node: SExprNode[], file: string): KicadTextInfo {
           const hVal = Number.parseFloat(atomsAfterHead(size)[0] ?? '')
           if (Number.isFinite(hVal)) info.height = hVal
         }
-        if (firstListNamed(font, 'mirror')) info.mirrored = true
+        if (hasAtom(font, 'mirror')) info.mirrored = true
       }
+      if (!info.mirrored && hasAtom(child, 'mirror')) info.mirrored = true
     }
   }
   return info
@@ -169,6 +170,14 @@ function propertyValue(fpNode: SExprNode[], propName: string): string | undefine
     if ((atoms[0] ?? '') === propName) return atoms[1]
   }
   return undefined
+}
+
+function hasAtom(node: SExprNode[], atom: string): boolean {
+  for (const child of node) {
+    if (isAtom(child) && child === atom) return true
+    if (isList(child) && hasAtom(child, atom)) return true
+  }
+  return false
 }
 
 export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
@@ -395,7 +404,7 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     for (const p of pts) bbox.point(p)
   }
 
-  function collectFpSilkArc(fp: Footprint, fpOrigin: Vec2, _fpRotUnused: number, node: SExprNode[]): void {
+  function collectFpSilkArc(fp: Footprint, fpOrigin: Vec2, fpRot: number, node: SExprNode[]): void {
     const startNode = firstListNamed(node, 'start')
     const midNode = firstListNamed(node, 'mid')
     const endNode = firstListNamed(node, 'end')
@@ -407,33 +416,12 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
     const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'fp_arc width') : 0.12
     const approx = approximateArc(parseXY(startNode, fileName), parseXY(midNode, fileName), parseXY(endNode, fileName))
-    const shifted = approx.map((p) => ({ x: fpOrigin.x + p.x, y: fpOrigin.y + p.y }))
+    const shifted = approx.map((p) => rotatePoint({ x: fpOrigin.x + p.x, y: fpOrigin.y + p.y }, fpOrigin, fpRot))
     const arcId = `sa:${nextId(ids)}`
     ensureLayer(layerId)
     silkFor(layerId).lines.push({ id: arcId, points: shifted, width })
     fp.silkRefs.push(arcId)
     for (const p of shifted) bbox.point(p)
-  }
-
-  function collectFpCircle(fp: Footprint, node: SExprNode[]): void {
-    const centerNode = firstListNamed(node, 'center')
-    const endNode = firstListNamed(node, 'end')
-    const layerNode = firstListNamed(node, 'layer')
-    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'F.SilkS') : 'F.SilkS'
-    if (!centerNode || !endNode) return
-    const c = parseXY(centerNode, fileName)
-    const e = parseXY(endNode, fileName)
-    const radius = Math.hypot(e.x - c.x, e.y - c.y)
-    const strokeNode = firstListNamed(node, 'stroke')
-    const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
-    const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'fp_circle width') : 0.12
-    if (/\.SilkS$/.test(layerId)) {
-      ensureLayer(layerId)
-      const circleId = `sc:${nextId(ids)}`
-      silkFor(layerId).lines.push({ id: circleId, points: approximateFullCircle(c, radius), width })
-      fp.silkRefs.push(circleId)
-    }
-    bbox.radius(c, radius)
   }
 
   function collectFpText(
@@ -513,13 +501,35 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
       if (h === 'pad') collectPad(fp, fpOrigin, fpRot, child)
       else if (h === 'fp_line') collectFpSilkLine(fp, fpOrigin, fpRot, child)
       else if (h === 'fp_arc') collectFpSilkArc(fp, fpOrigin, fpRot, child)
-      else if (h === 'fp_circle') collectFpCircle(fp, child)
+      else if (h === 'fp_circle') collectFpCircle(fp, fpOrigin, fpRot, child)
       else if (h === 'fp_text') collectFpText(fp, fpOrigin, fpRot, child, 'fp_text')
       else if (h === 'property') collectFpText(fp, fpOrigin, fpRot, child, 'property')
       else if (h === 'fp_poly' || h === 'fp_rect') collectFpPolyOrRect(fp, fpOrigin, fpRot, child, h)
     }
     footprints.push(fp)
     bbox.point(fpOrigin)
+  }
+
+  function collectFpCircle(fp: Footprint, fpOrigin: Vec2, fpRot: number, node: SExprNode[]): void {
+    const centerNode = firstListNamed(node, 'center')
+    const endNode = firstListNamed(node, 'end')
+    const layerNode = firstListNamed(node, 'layer')
+    const layerId = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'F.SilkS') : 'F.SilkS'
+    if (!centerNode || !endNode) return
+    const cLocal = parseXY(centerNode, fileName)
+    const eLocal = parseXY(endNode, fileName)
+    const radius = Math.hypot(eLocal.x - cLocal.x, eLocal.y - cLocal.y)
+    const strokeNode = firstListNamed(node, 'stroke')
+    const wNode = strokeNode ? firstListNamed(strokeNode, 'width') : undefined
+    const width = wNode ? toNumber(atomsAfterHead(wNode)[0] ?? '0.12', fileName, 'fp_circle width') : 0.12
+    const center = rotatePoint({ x: fpOrigin.x + cLocal.x, y: fpOrigin.y + cLocal.y }, fpOrigin, fpRot)
+    if (/\.SilkS$/.test(layerId)) {
+      ensureLayer(layerId)
+      const circleId = `sc:${nextId(ids)}`
+      silkFor(layerId).lines.push({ id: circleId, points: approximateFullCircle(center, radius), width })
+      fp.silkRefs.push(circleId)
+    }
+    bbox.radius(center, radius)
   }
 
   function collectFpPolyOrRect(

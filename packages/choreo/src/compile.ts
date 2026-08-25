@@ -86,8 +86,21 @@ export function compileTimeline(board: BoardModel, config: FilmConfig): Timeline
 
     const units = contents.get(id) ?? []
     const actLen = endFrame - startFrame + 1
-    const carriesBeat = carriers.has(id) && actLen >= 12
+    let carriesBeat = carriers.has(id) && actLen >= 12
+    if (carriers.has(id) && !carriesBeat) {
+      warnings.push({
+        code: 'beat-dropped-short-act',
+        message: `act ${id} carries a beat but is only ${actLen} frames; a beat needs ≥12 frames so tail phases would spill into the next act — beat dropped`
+      })
+    }
     const split = splitActPhases(startFrame, endFrame, fps, carriesBeat)
+    if (carriesBeat && split.beat === undefined) {
+      carriesBeat = false
+      warnings.push({
+        code: 'beat-dropped-phase-floors',
+        message: `act ${id} cannot fit a beat without violating minimum phase floors (len ${actLen}); beat dropped`
+      })
+    }
 
     const groups = pairUnits(units, center, resolved.knobs.symmetry)
     const actRng = makeRng(resolved.seed, `act:${id}`)
