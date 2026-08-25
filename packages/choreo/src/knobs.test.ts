@@ -3,6 +3,7 @@ import { compileTimeline, sampleElement, ease } from './index.js'
 import type { FilmConfig, TimelineElement } from './index.js'
 import { boardModel } from '../test/helpers.js'
 import { makeSyntheticBoard, syntheticBoardFrom, type SyntheticElement } from '../test/synthetic.js'
+import { defaultConfig } from './grammar.test.js'
 
 function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   return {
@@ -384,6 +385,74 @@ describe('VAL-FILM-013 beat flash-reset drops to symmetric sliver', () => {
     const avgLow = low.sliver.reduce((s, e) => s + e.opacity, 0) / Math.max(1, low.sliver.length)
     const avgHigh = high.sliver.reduce((s, e) => s + e.opacity, 0) / Math.max(1, high.sliver.length)
     expect(avgHigh, 'higher beatIntensity must raise residual opacity').toBeGreaterThan(avgLow)
+  })
+})
+
+describe('VAL-FILM-019 dissolve-to-core calibration', () => {
+  function sampledDensity(tl: ReturnType<typeof compileTimeline>, frame: number): number {
+    let sum = 0
+    for (const el of tl.elements) {
+      const s = sampleElement(el, tl.renderParams.easing)
+      sum += Math.min(1, Math.max(0, s.get(frame) ?? 0))
+    }
+    return sum
+  }
+
+  it('final-act dissolve spans most of the film tail, not just its last frames', () => {
+    const board = boardModel('ecc83-pp.kicad_pcb')
+    const tl = compileTimeline(board, defaultConfig())
+    const lastAct = tl.acts[tl.acts.length - 1]
+    expect(lastAct).toBeDefined()
+    const dis = lastAct?.phases.find((p) => p.kind === 'dissolve')
+    expect(dis).toBeDefined()
+    if (!dis || !lastAct) throw new Error('no dissolve phase')
+    expect(lastAct.endFrame - dis.startFrame + 1).toBeGreaterThanOrEqual(Math.round(tl.fps * 2.5))
+  })
+
+  it('film ends sparse-but-non-empty in the ~0.6% density class', () => {
+    const board = boardModel('ecc83-pp.kicad_pcb')
+    const tl = compileTimeline(board, defaultConfig())
+    const peak = (() => {
+      let max = 0
+      for (let f = 0; f < tl.totalFrames; f++) max = Math.max(max, sampledDensity(tl, f))
+      return max
+    })()
+    const final = sampledDensity(tl, tl.totalFrames - 1)
+    expect(final).toBeGreaterThan(0.5)
+    expect(final).toBeLessThan(peak * 0.05)
+  })
+
+  it('retained core sits near the reference residual opacity', () => {
+    const board = boardModel('ecc83-pp.kicad_pcb')
+    const tl = compileTimeline(board, defaultConfig())
+    const lastFrame = tl.totalFrames - 1
+    const ops: number[] = []
+    for (const el of tl.elements) {
+      const s = sampleElement(el, tl.renderParams.easing)
+      const v = s.get(lastFrame) ?? 0
+      if (v > 0.05) ops.push(v)
+    }
+    expect(ops.length).toBeGreaterThan(0)
+    const avg = ops.reduce((s, v) => s + v, 0) / ops.length
+    expect(avg).toBeGreaterThan(0.25)
+    expect(avg).toBeLessThan(0.45)
+  })
+
+  it('unseeded runs retain different core memberships across renders', () => {
+    const board = makeSyntheticBoard(400)
+    const sets: string[][] = []
+    for (let run = 0; run < 3; run++) {
+      const tl = compileTimeline(board, defaultConfig({ seed: null }))
+      const lastFrame = tl.totalFrames - 1
+      const retained: string[] = []
+      for (const el of tl.elements) {
+        const s = sampleElement(el, tl.renderParams.easing)
+        if ((s.get(lastFrame) ?? 0) > 0.3) retained.push(el.id)
+      }
+      expect(retained.length, 'each unseeded run retains a non-empty core').toBeGreaterThanOrEqual(2)
+      sets.push([...new Set(retained)].sort())
+    }
+    expect(new Set(sets.map((s) => s.join(','))).size).toBe(3)
   })
 })
 

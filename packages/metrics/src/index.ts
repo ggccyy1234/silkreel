@@ -1,1 +1,6 @@
-export {}
+export { probeVideo, decodeGrayFrames } from './decode.js'
+export type { VideoFacts, DecodedFrame } from './decode.js'
+export { analyzeFrame } from './analyzer.js'
+export type { FrameStats, AnalyzeOptions } from './analyzer.js'
+export { runGate } from './gate.js'
+export type { GateReport, GateRuleResult, GateExpectations } from './gate.js'

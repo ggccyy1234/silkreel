@@ -93,7 +93,7 @@ export function compileTimeline(board: BoardModel, config: FilmConfig): Timeline
         message: `act ${id} carries a beat but is only ${actLen} frames; a beat needs ≥12 frames so tail phases would spill into the next act — beat dropped`
       })
     }
-    const split = splitActPhases(startFrame, endFrame, fps, carriesBeat)
+    const split = splitActPhases(startFrame, endFrame, fps, carriesBeat, isLast)
     if (carriesBeat && split.beat === undefined) {
       carriesBeat = false
       warnings.push({
@@ -104,6 +104,7 @@ export function compileTimeline(board: BoardModel, config: FilmConfig): Timeline
 
     const groups = pairUnits(units, center, resolved.knobs.symmetry)
     const actRng = makeRng(resolved.seed, `act:${id}`)
+    const coreRng = makeRng(resolved.seed, `core:${id}`)
 
     const result = scheduleAct({
       groups,
@@ -119,7 +120,8 @@ export function compileTimeline(board: BoardModel, config: FilmConfig): Timeline
       easing: resolved.knobs.easing,
       isFinalAct: isLast,
       totalFrames: duration.totalFrames,
-      carriesBeat
+      carriesBeat,
+      coreRng
     })
 
     if (carriesBeat && result.beatFrame !== undefined) {

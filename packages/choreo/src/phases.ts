@@ -1,6 +1,10 @@
 import type { BoardModel, Vec2 } from '@silk-reel/ingest'
 import { clamp01, ease } from './curves.js'
+import { makeRng, type Rng } from './rng.js'
 import type { Keyframe, PhaseSpec, PhaseKind, TimelineElement, ActId } from './types.js'
+
+export const CORE_RETAINED_FRACTION = 0.02
+export const CORE_OPACITY = 0.35
 
 export interface Member {
   id: string
@@ -394,6 +398,8 @@ export function pairPlacement(group: SymGroup): Placement[] {
 
 const MIN_PHASE_FRAMES = { seed: 2, populate: 3, build: 3, sustain: 2, dissolve: 2 } as const
 
+const DISSOLVE_TAIL_SECONDS = 2.5
+
 function sumMins(): number {
   return (
     MIN_PHASE_FRAMES.seed +
@@ -421,7 +427,8 @@ export function splitActPhases(
   start: number,
   end: number,
   fps: number,
-  withBeat: boolean
+  withBeat: boolean,
+  reserveTail = false
 ): SplitPhasesResult {
   const len = end - start + 1
   const minSum = sumMins()
@@ -431,10 +438,16 @@ export function splitActPhases(
     const beatLenOnly = Math.max(2, Math.round(0.4 * fps))
     if (len - beatLenOnly >= minSum) carryBeat = true
   }
-  return layout(start, end, fps, carryBeat)
+  return layout(start, end, fps, carryBeat, reserveTail)
 }
 
-function layout(start: number, end: number, fps: number, withBeatRequested: boolean): SplitPhasesResult {
+function layout(
+  start: number,
+  end: number,
+  fps: number,
+  withBeatRequested: boolean,
+  reserveTail: boolean
+): SplitPhasesResult {
   const len = end - start + 1
   const minSum = sumMins()
 
@@ -444,21 +457,32 @@ function layout(start: number, end: number, fps: number, withBeatRequested: bool
     if (len - beatLenOnly >= minSum) withBeatFinal = true
   }
   const beatLen = withBeatFinal ? Math.max(2, Math.round(0.4 * fps)) : 0
-  const flex = len - beatLen
 
+  const headMins = [MIN_PHASE_FRAMES.seed, MIN_PHASE_FRAMES.populate, MIN_PHASE_FRAMES.build, MIN_PHASE_FRAMES.sustain]
+  const headMinSum = headMins.reduce((a, b) => a + b, 0)
+  const canReserve =
+    reserveTail && len - beatLen - headMinSum >= MIN_PHASE_FRAMES.dissolve
+  const mins = canReserve
+    ? headMins
+    : [...headMins, MIN_PHASE_FRAMES.dissolve]
   const weights = withBeatFinal
-    ? ([0.13, 0.27, 0.24, 0.2, 0.16] as const)
-    : ([0.15, 0.34, 0.23, 0.15, 0.13] as const)
-  const mins = [
-    MIN_PHASE_FRAMES.seed,
-    MIN_PHASE_FRAMES.populate,
-    MIN_PHASE_FRAMES.build,
-    MIN_PHASE_FRAMES.sustain,
-    MIN_PHASE_FRAMES.dissolve
-  ]
+    ? canReserve
+      ? ([0.13, 0.27, 0.24, 0.2] as const)
+      : ([0.13, 0.27, 0.24, 0.2, 0.16] as const)
+    : canReserve
+      ? ([0.15, 0.34, 0.23, 0.15] as const)
+      : ([0.15, 0.34, 0.23, 0.15, 0.13] as const)
+
+  const desiredTail = canReserve
+    ? Math.max(
+        MIN_PHASE_FRAMES.dissolve,
+        Math.min(Math.round(fps * DISSOLVE_TAIL_SECONDS), len - beatLen - headMinSum)
+      )
+    : 0
+  const flex = len - beatLen - desiredTail
 
   let allocs: number[]
-  if (flex >= minSum) {
+  if (flex >= mins.reduce((a, b) => a + b, 0)) {
     allocs = weights.map((w, i) => Math.max(mins[i] as number, Math.round(flex * w)))
     let allocSum = allocs.reduce((a, b) => a + b, 0)
     if (allocSum > flex) {
@@ -474,7 +498,7 @@ function layout(start: number, end: number, fps: number, withBeatRequested: bool
     }
     guard = 0
     while (allocSum > flex && guard < 10000) {
-      const orderIdx = [1, 3, 2, 4, 0]
+      const orderIdx = canReserve ? [1, 3, 2, 0] : [1, 3, 2, 4, 0]
       for (const i of orderIdx) {
         if (allocSum <= flex) break
         const cur = allocs[i] as number
@@ -491,6 +515,9 @@ function layout(start: number, end: number, fps: number, withBeatRequested: bool
     const extra = flex - base * mins.length
     allocs = mins.map((_, i) => base + (i < extra ? 1 : 0))
   }
+  if (canReserve) {
+    allocs.push(len - beatLen - allocs.reduce((a, b) => a + b, 0))
+  }
 
   const specs: PhaseSpec[] = []
   const kinds: string[] = withBeatFinal
@@ -500,9 +527,9 @@ function layout(start: number, end: number, fps: number, withBeatRequested: bool
   let allocIdx = 0
   for (const kind of kinds) {
     if (cursor > end) break
-    const alloc = allocs[allocIdx]
-    allocIdx += kind === 'beat' ? 0 : 1
-    const size = kind === 'beat' ? beatLen : Math.max(1, alloc ?? 1)
+    const alloc = kind === 'beat' ? beatLen : allocs[allocIdx]
+    if (kind !== 'beat') allocIdx += 1
+    const size = Math.max(1, alloc ?? 1)
     const clampedSize = Math.min(size, end - cursor + 1)
     if (clampedSize <= 0) break
     specs.push({ kind: kind as PhaseKind, startFrame: cursor, endFrame: cursor + clampedSize - 1 })
@@ -546,6 +573,7 @@ export interface ScheduleInput {
   isFinalAct: boolean
   totalFrames: number
   carriesBeat: boolean
+  coreRng?: Rng | undefined
 }
 
 export interface UnitSchedule {
@@ -570,6 +598,7 @@ interface GroupPlan {
   rebuildRamp?: number
   flickerDips: Array<{ frame: number; depth: number }>
   placements: Placement[]
+  core?: boolean | undefined
 }
 
 export function scheduleAct(input: ScheduleInput): ScheduleResult {
@@ -668,9 +697,10 @@ export function scheduleAct(input: ScheduleInput): ScheduleResult {
     }
   }
 
-  const disLen = split.dissolve.endFrame - split.dissolve.startFrame + 1
-  void disLen
-  const coreSet = input.isFinalAct ? selectCore(plans, center) : new Set<GroupPlan>()
+  if (input.isFinalAct) {
+    const coreUnits = selectCore(plans, center, input.coreRng ?? makeRng(0, 'core:fallback'))
+    for (const plan of plans) plan.core = plan.group.units.some((u) => coreUnits.has(u))
+  }
 
   const allUnits = plans.flatMap((p) => p.group.units)
   const maxDist = Math.max(...allUnits.map((u) => Math.hypot(u.pos.x - center.x, u.pos.y - center.y)), 1)
@@ -680,10 +710,11 @@ export function scheduleAct(input: ScheduleInput): ScheduleResult {
 
   const schedules: UnitSchedule[] = []
   for (const plan of plans) {
+    const planIsCore = plan.core === true
     for (const [unitIdx, unit] of plan.group.units.entries()) {
       const placement = plan.placements[unitIdx] ?? { dx: 0, dy: 0 }
       const exit = unitExitTiming(
-        coreSet.has(plan),
+        planIsCore,
         unit.pos,
         split,
         input,
@@ -694,7 +725,7 @@ export function scheduleAct(input: ScheduleInput): ScheduleResult {
       schedules.push({
         unit,
         keyframes: buildUnitKeyframes(plan, placement, exit, split, input, beatFrame),
-        isCore: coreSet.has(plan),
+        isCore: planIsCore,
         placement
       })
     }
@@ -748,23 +779,59 @@ function unitExitTiming(
   }
 }
 
-function selectCore(plans: GroupPlan[], center: Vec2): Set<GroupPlan> {
-  const result = new Set<GroupPlan>()
-  const withScore = plans.map((p) => {
-    const pos = repPosSafe(p)
-    return { plan: p, pos, d: pos ? Math.hypot(pos.x - center.x, pos.y - center.y) : Infinity }
-  })
-  const sortedByCenter = [...withScore].sort((a, b) => a.d - b.d)
-  const targetCount = Math.max(1, Math.round(plans.length * 0.02))
-  for (const entry of sortedByCenter.slice(0, targetCount)) {
-    result.add(entry.plan)
+function selectCore(plans: GroupPlan[], center: Vec2, rng: Rng): Set<Unit> {
+  const core = new Set<Unit>()
+  const scored = plans.flatMap((p) =>
+    p.group.units.map((u) => ({
+      unit: u,
+      members: u.members.length,
+      d: Math.hypot(u.pos.x - center.x, u.pos.y - center.y)
+    }))
+  )
+  if (scored.length === 0) return core
+  const totalMembers = scored.reduce((s, e) => s + e.members, 0)
+  const targetMembers = Math.max(2, Math.round(totalMembers * CORE_RETAINED_FRACTION))
+  const ordered = centerWeightedOrder(scored, rng)
+  let cumulative = 0
+  let cap = Number.POSITIVE_INFINITY
+  for (const entry of ordered) {
+    if (core.size > 0 && cumulative + entry.members > cap) break
+    core.add(entry.unit)
+    cumulative += entry.members
+    if (core.size === 1) cap = Math.max(targetMembers, entry.members)
   }
-  return result
+  return core
 }
 
-function repPosSafe(p: GroupPlan): Vec2 | undefined {
-  const u = p.group.units[0]
-  return u?.pos
+interface CoreCandidate {
+  unit: Unit
+  members: number
+  d: number
+}
+
+function centerWeightedOrder(entries: CoreCandidate[], rng: Rng): CoreCandidate[] {
+  const pool = [...entries]
+  const out: CoreCandidate[] = []
+  while (pool.length > 0) {
+    let total = 0
+    const weights = new Array<number>(pool.length)
+    for (let i = 0; i < pool.length; i++) {
+      const w = Math.max((pool[i] as CoreCandidate).d, 0.001) ** 2
+      weights[i] = w
+      total += w
+    }
+    let r = rng.next() * total
+    let idx = pool.length - 1
+    for (let i = 0; i < pool.length; i++) {
+      r -= weights[i] as number
+      if (r <= 0) {
+        idx = i
+        break
+      }
+    }
+    out.push(pool.splice(idx, 1)[0] as CoreCandidate)
+  }
+  return out
 }
 
 function buildUnitKeyframes(
@@ -815,7 +882,7 @@ function buildUnitKeyframes(
 
   if (exit.isCore && input.isFinalAct) {
     put(split.dissolve.startFrame, 1, 1, 1, 1)
-    put(input.totalFrames - 1, 0.35, 1, 1, 1.3)
+    put(input.totalFrames - 1, CORE_OPACITY, 1, 1, 1.3)
   } else {
     const es = Math.max(plan.appearStart + plan.rampFrames, exit.exitStart)
     put(es, 1, 1, 1, 1)
