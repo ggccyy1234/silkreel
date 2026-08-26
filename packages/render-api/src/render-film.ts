@@ -4,6 +4,7 @@ import type { FilmInputProps } from '@silk-reel/render'
 
 export interface RenderFilmOptions {
   entryPoint?: string
+  bundleLocationOverride?: string
   inputProps: FilmInputProps
   outputLocation: string
   onProgress?: (pct: number) => void
@@ -17,7 +18,7 @@ export interface RenderFilmResult {
 export async function renderFilm(options: RenderFilmOptions): Promise<RenderFilmResult> {
   const entryPoint =
     options.entryPoint ?? new URL('../../render/src/remotion-entry.tsx', import.meta.url).pathname
-  const bundleLocation = await bundle({ entryPoint, onProgress: () => undefined })
+  const bundleLocation = options.bundleLocationOverride ?? (await bundle({ entryPoint, onProgress: () => undefined }))
   const inputProps = options.inputProps as unknown as Record<string, unknown>
   const composition = await selectComposition({
     serveUrl: bundleLocation,

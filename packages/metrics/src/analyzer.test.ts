@@ -10,7 +10,7 @@ const H = 240
 const FPS = 15
 const FRAME_COUNT = 3
 
-let workDir: string
+let workDir: string | undefined
 
 beforeAll(async () => {
   workDir = await mkdtemp(join(tmpdir(), 'metrics-gt-'))
@@ -75,9 +75,11 @@ function grayPgm(level: number): string {
 }
 
 async function renderImagesToMp4(name: string, imageFactory: () => string, isColor: boolean): Promise<string> {
-  const imagesDir = join(workDir, name)
+  const dir = workDir
+  if (dir === undefined) throw new Error('test workspace missing')
+  const imagesDir = join(dir, name)
   await mkSingleFrameFiles(imagesDir, imageFactory, isColor)
-  const mp4Path = join(workDir, `${name}.mp4`)
+  const mp4Path = join(dir, `${name}.mp4`)
   await ffmpeg([
     '-y',
     '-f', 'image2',
@@ -103,7 +105,7 @@ async function mkSingleFrameFiles(dir: string, factory: () => string, _isColor: 
 function ffmpeg(args: readonly string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile('/opt/homebrew/bin/ffmpeg', args, { timeout: 30000 }, (err, _stdout, stderr) => {
-      if (err !== null) reject(new Error(`ffmpeg failed: ${String(stderr).slice(-500)}`))
+      if (err !== null) reject(new Error(`ffmpeg failed: ${stderr.slice(-500)}`))
       else resolve()
     })
   })
@@ -149,14 +151,16 @@ describe('VAL-FILM-018 metrics analyzer against synthetic ground truth', () => {
 
     const ppmLike = toPbm(px)
     void ppmLike
-    const imagesDir = join(workDir, 'lit')
+    const dir = workDir
+    if (dir === undefined) throw new Error('test workspace missing')
+    const imagesDir = join(dir, 'lit')
     await rm(imagesDir, { recursive: true, force: true })
     const { mkdir } = await import('node:fs/promises')
     await mkdir(imagesDir, { recursive: true })
     for (let i = 0; i < FRAME_COUNT; i++) {
       await writeFile(join(imagesDir, `f${String(i).padStart(3, '0')}`), Buffer.from(toPbm(px), 'binary'))
     }
-    const mp4 = join(workDir, 'lit.mp4')
+    const mp4 = join(dir, 'lit.mp4')
     await ffmpeg([
       '-y',
       '-f', 'image2',

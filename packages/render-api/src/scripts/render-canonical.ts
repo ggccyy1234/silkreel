@@ -23,6 +23,8 @@ console.log(`compiling done: ${timeline.totalFrames} frames @ ${timeline.fps}fps
 const result = await renderFilm({
   inputProps: { timeline, board },
   outputLocation: outPath,
-  onProgress: (pct) => console.log(`render ${pct}%`)
+  onProgress: (pct) => {
+    console.log(`render ${pct}%`)
+  }
 })
 console.log('canonical render complete:', result.outputLocation)

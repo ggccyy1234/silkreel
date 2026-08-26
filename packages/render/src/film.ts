@@ -20,10 +20,6 @@ export interface ViewBox {
   offsetY: number
 }
 
-function hypot(ax: number, ay: number, bx: number, by: number): number {
-  return Math.hypot(bx - ax, by - ay)
-}
-
 function traceGeom(id: string, points: Vec2[], width: number): Geom | undefined {
   if (points.length === 0) return undefined
   const stroke = Math.max(width, 0.15)
@@ -159,7 +155,7 @@ function drillGeom(_id: string, pos: Vec2, dia: number): Geom {
   }
 }
 
-function outlinePathGeom(id: string, points: Vec2[], closed: boolean): Geom | undefined {
+function outlinePathGeom(_id: string, points: Vec2[], closed: boolean): Geom | undefined {
   if (points.length === 0) return undefined
   const path = new Path2D()
   let minX = Infinity
@@ -177,7 +173,6 @@ function outlinePathGeom(id: string, points: Vec2[], closed: boolean): Geom | un
     path.lineTo(p.x, p.y)
   }
   if (closed) path.closePath()
-  void id
   return {
     kind: 'outline',
     x0: minX,
@@ -223,6 +218,7 @@ export function buildGeometryLookup(board: BoardModel): GeometryLookup {
   }
   for (const [, silk] of Object.entries(board.silkscreen)) {
     for (const l of silk.lines) register(map, l.id, traceGeom(l.id, l.points, l.width))
+    for (const a of silk.arcs) register(map, a.id, arcGeom(a.id, a.center, a.radius, a.startAngle, a.endAngle, a.width))
     for (const tx of silk.texts) register(map, tx.id, textGeom(tx.id, tx.value, tx.pos, tx.height))
   }
   for (const o of board.outline) register(map, o.id, outlinePathGeom(o.id, o.points, o.closed))

@@ -51,7 +51,9 @@ export class RecordingCtx {
 
   reset(): void {
     this.calls.length = 0
-    for (const key of Object.keys(this.props)) delete this.props[key]
+    for (const key of Object.keys(this.props)) {
+      this.props[key] = undefined
+    }
   }
 
   install(target: Record<string, unknown>): void {
@@ -62,23 +64,20 @@ export class RecordingCtx {
       'beginPath', 'closePath', 'moveTo', 'lineTo', 'arc', 'rect'
     ]
     for (const m of methods) target[m] = this.forward(m)
-    const self = this
     const props = ['fillStyle', 'strokeStyle', 'shadowColor', 'shadowBlur', 'globalAlpha', 'lineWidth', 'lineCap', 'lineJoin', 'font', 'textAlign', 'textBaseline']
     for (const p of props) {
       Object.defineProperty(target, p, {
-        get() {
-          return self.props[p]
-        },
-        set(v: unknown) {
-          self.set(p, v)
+        get: () => this.props[p],
+        set: (v: unknown) => {
+          this.set(p, v)
         },
         configurable: true
       })
     }
     target.getImageData = (): { data: Uint8ClampedArray; width: number; height: number } => ({
-      data: new Uint8ClampedArray(self.canvas.width * self.canvas.height * 4),
-      width: self.canvas.width,
-      height: self.canvas.height
+      data: new Uint8ClampedArray(this.canvas.width * this.canvas.height * 4),
+      width: this.canvas.width,
+      height: this.canvas.height
     })
     target.putImageData = this.forward('putImageData')
   }
@@ -89,7 +88,7 @@ beforeEach(() => {
   const rec = existing ?? new RecordingCtx()
   ;(globalThis as { __recordingCtx?: RecordingCtx }).__recordingCtx = rec
   rec.reset()
-  ;(globalThis as unknown as { Path2D: typeof RecordedPath2D }).Path2D = RecordedPath2D as unknown as typeof RecordedPath2D
+  ;(globalThis as unknown as { Path2D: unknown }).Path2D = RecordedPath2D
 })
 
 export function currentRecorder(): RecordingCtx {

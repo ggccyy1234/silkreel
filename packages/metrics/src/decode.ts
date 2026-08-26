@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import { access, constants } from 'node:fs/promises'
-import type { Readable } from 'node:stream'
 
 export interface VideoFacts {
   width: number
@@ -133,11 +132,12 @@ export async function* decodeGrayFrames(
   const stdout = child.stdout
   const frameSize = spec.width * spec.height
   let frameIndex = 0
+  const failures: Error[] = []
 
   try {
-    while (true) {
+    for (;;) {
       const data = await readExact(stdout, frameSize)
-      if (!data) break
+      if (data === undefined) break
       yield { index: frameIndex, width: spec.width, height: spec.height, data }
       frameIndex += 1
     }
@@ -145,16 +145,27 @@ export async function* decodeGrayFrames(
     if (child.exitCode === null && child.signalCode === null) child.kill()
     await stderrDrained
     const code = await new Promise<number>((resolve) => {
-      if (child.exitCode !== null || child.signalCode !== null) resolve(child.exitCode ?? -1)
-      else child.on('close', (c) => resolve(c ?? -1))
+      if (child.exitCode !== null || child.signalCode !== null) {
+        resolve(child.exitCode ?? -1)
+      } else {
+        child.on('close', (c) => {
+          resolve(c ?? -1)
+        })
+      }
     })
     if (code !== 0) {
-      throw new Error(`ffmpeg exited ${code} decoding ${videoPath}: ${stderrTail.trim()}`)
+      const failure = new Error(`ffmpeg exited ${code} decoding ${videoPath}: ${stderrTail.trim()}`)
+      failures.push(failure)
     }
   }
+  const failure = failures[0]
+  if (failure !== undefined) throw failure
 }
 
-function readExact(stream: Readable, size: number): Promise<Uint8Array | undefined> {
+function readExact(
+  stream: NodeJS.ReadableStream,
+  size: number
+): Promise<Uint8Array | undefined> {
   return new Promise((resolve, reject) => {
     const parts: Buffer[] = []
     let filled = 0
@@ -175,10 +186,10 @@ function readExact(stream: Readable, size: number): Promise<Uint8Array | undefin
       }
     }
     const onReadable = (): void => {
-      while (true) {
-        const chunk = stream.read(size - filled)
+      for (;;) {
+        const chunk = stream.read(size - filled) as Buffer | null
         if (chunk === null) return
-        parts.push(chunk as Buffer)
+        parts.push(chunk)
         filled += chunk.length
         if (filled === size) {
           finish(false)
@@ -186,7 +197,9 @@ function readExact(stream: Readable, size: number): Promise<Uint8Array | undefin
         }
       }
     }
-    const onEnd = (): void => finish(true)
+    const onEnd = (): void => {
+      finish(true)
+    }
     const onError = (err: Error): void => {
       cleanup()
       reject(err)

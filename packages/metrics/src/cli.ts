@@ -4,8 +4,8 @@ import type { GateExpectations } from './gate.js'
 
 interface CliArgs {
   video: string
-  out: string | undefined
-  specPath: string | undefined
+  out?: string | undefined
+  specPath?: string | undefined
 }
 
 function parseArgs(argv: readonly string[]): CliArgs {
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   const expectations = await loadExpectations(args.specPath)
   try {
-    const report = await runGate(args.video as string, expectations)
+    const report = await runGate(args.video, expectations)
     const json = JSON.stringify(report, null, 2)
     if (args.out !== undefined) {
       await writeFile(args.out, `${json}\n`, 'utf8')

@@ -10,8 +10,8 @@ export interface FilmInputProps {
 }
 
 function readInputProps(): FilmInputProps {
-  const props = getInputProps() as Partial<FilmInputProps>
-  if (!props || typeof props !== 'object' || !props.timeline || !props.board) {
+  const props = getInputProps() as Partial<FilmInputProps> | undefined
+  if (!props?.timeline || !props.board) {
     throw new Error('remotion-entry requires inputProps { timeline, board }')
   }
   return { timeline: props.timeline, board: props.board }

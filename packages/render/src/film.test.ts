@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileTimeline, sampleElement } from '@silk-reel/choreo'
+import { compileTimeline } from '@silk-reel/choreo'
 import type { FilmConfig } from '@silk-reel/choreo'
 import { boardModel } from '../../choreo/test/helpers.js'
 import { makeSyntheticBoard } from '../../choreo/test/synthetic.js'
