@@ -13,7 +13,6 @@ const NODE_BUILTIN_RESTRICTION = {
         'crypto',
         'dgram',
         'dns',
-        'domain',
         'events',
         'fs',
         'http',
@@ -82,9 +81,20 @@ export default tseslint.config(
       'packages/render/src/**/*.ts',
       'packages/studio/src/**/*.{ts,tsx}'
     ],
-    ignores: ['**/*.test.ts'],
+    ignores: ['**/*.test.ts', 'packages/studio/src/board-server.ts', 'packages/studio/src/studio-server.ts'],
     rules: {
       'no-restricted-imports': ['error', NODE_BUILTIN_RESTRICTION]
+    }
+  },
+  {
+    files: [
+      'packages/metrics/src/cli.ts',
+      'packages/render-api/src/scripts/render-canonical.ts',
+      'packages/render-api/src/server.ts',
+      'packages/studio/src/studio-server.ts'
+    ],
+    rules: {
+      'no-console': 'off'
     }
   },
   {

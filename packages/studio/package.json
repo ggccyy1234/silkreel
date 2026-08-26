@@ -7,7 +7,23 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "build": "tsc --noEmit",
-    "dev": "vite"
+    "build": "tsc --noEmit && vite build",
+    "dev": "tsx src/studio-server.ts"
+  },
+  "dependencies": {
+    "@remotion/player": "4.0.515",
+    "@silk-reel/choreo": "0.1.0",
+    "@silk-reel/ingest": "0.1.0",
+    "@silk-reel/render": "0.1.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "4.0.515"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.0.0",
+    "tsx": "^4.20.6",
+    "vite": "^7.0.0"
   }
 }

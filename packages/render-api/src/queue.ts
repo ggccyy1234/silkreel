@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { mkdir } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import type { FilmConfig } from '@silk-reel/choreo'
 import type { GateReport } from '@silk-reel/metrics'
@@ -17,6 +18,7 @@ export interface RenderJob {
   finishedAt?: string | undefined
   error?: string | undefined
   metricsReport?: GateReport | undefined
+  metricsError?: string | undefined
   downloadPath?: string | undefined
 }
 
@@ -102,6 +104,7 @@ export class RenderQueue {
       const { inputProps } = compileFilm(board, entry.config)
       const outputLocation = path.join(exportsRoot, `${job.id}.mp4`)
       const bundleLocation = await this.ensureBundle()
+      await mkdir(exportsRoot, { recursive: true })
       await renderFilm({
         entryPoint: new URL('../../render/src/remotion-entry.tsx', import.meta.url).pathname,
         bundleLocationOverride: bundleLocation,
@@ -112,14 +115,18 @@ export class RenderQueue {
         }
       })
       job.downloadPath = outputLocation
-      job.status = 'done'
       job.progress = 100
-      job.metricsReport = await runGate(outputLocation, {
-        width: entry.config.output.width,
-        height: entry.config.output.height,
-        fps: entry.config.output.fps,
-        totalFrames: inputProps.timeline.totalFrames
-      })
+      try {
+        job.metricsReport = await runGate(outputLocation, {
+          width: entry.config.output.width,
+          height: entry.config.output.height,
+          fps: entry.config.output.fps,
+          totalFrames: inputProps.timeline.totalFrames
+        })
+      } catch (err) {
+        job.metricsError = err instanceof Error ? err.message : String(err)
+      }
+      job.status = 'done'
     } catch (err) {
       job.status = 'error'
       job.error = err instanceof Error ? err.message : String(err)

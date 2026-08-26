@@ -3,16 +3,24 @@ import type { FastifyInstance } from 'fastify'
 import { createReadStream, existsSync } from 'node:fs'
 import path from 'node:path'
 import type { FilmConfig } from '@silk-reel/choreo'
-import { DEMO_BOARDS } from './boards.js'
+import { DEMO_BOARDS, isDemoBoardId } from './boards.js'
 import { RenderQueue } from './queue.js'
 import { runGate } from './gate.js'
+
+const repoRoot = path.resolve(import.meta.dirname, '../../..')
+const allowedVideoRoots = [path.join(repoRoot, 'exports'), path.join(repoRoot, 'fixtures')]
+
+function isInsideRoot(target: string, root: string): boolean {
+  const relative = path.relative(root, target)
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+}
 
 export interface BuildAppOptions {
   queue?: RenderQueue
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
-  const app = fastify({ logger: false })
+  const app = fastify({ logger: false, bodyLimit: 64 * 1024 * 1024 })
   const queue = options.queue ?? new RenderQueue()
 
   app.get('/health', () => Promise.resolve({ ok: true as const, service: 'render-api' }))
@@ -27,21 +35,22 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.post('/render', async (request, reply) => {
     const body = (request.body ?? {}) as RenderBody
-    const hasDemo = typeof body.demoId === 'string' && body.demoId.length > 0
+    const demoId = typeof body.demoId === 'string' && body.demoId.length > 0 ? body.demoId : undefined
+    const hasDemo = demoId !== undefined
     const hasBoard = body.boardJson !== undefined && body.boardJson !== null
     if (hasDemo === hasBoard) {
       return await reply.code(400).send({
         error: 'provide exactly one of demoId or boardJson'
       })
     }
-    if (hasDemo && !DEMO_BOARDS.includes(body.demoId as never)) {
+    if (demoId !== undefined && !isDemoBoardId(demoId)) {
       return await reply.code(400).send({
-        error: `unknown demoId ${String(body.demoId)}`,
+        error: `unknown demoId ${demoId}`,
         known: DEMO_BOARDS
       })
     }
     const job = queue.submit({
-      ...(hasDemo ? { demoId: body.demoId as string } : {}),
+      ...(demoId !== undefined ? { demoId } : {}),
       ...(hasBoard ? { boardJson: body.boardJson } : {}),
       ...(body.filmConfig !== undefined ? { config: body.filmConfig } : {})
     })
@@ -76,8 +85,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (typeof body.videoPath !== 'string' || body.videoPath.length === 0) {
       return await reply.code(400).send({ error: 'videoPath required' })
     }
-    const resolved = path.resolve(body.videoPath)
-    if (!resolved.startsWith(path.resolve('exports')) && !resolved.startsWith(path.resolve('fixtures'))) {
+    const resolved = path.isAbsolute(body.videoPath) ? path.resolve(body.videoPath) : path.resolve(repoRoot, body.videoPath)
+    if (!allowedVideoRoots.some((root) => isInsideRoot(resolved, root))) {
       return await reply.code(400).send({ error: 'videoPath must live under exports/ or fixtures/' })
     }
     if (!existsSync(resolved)) {
