@@ -379,7 +379,7 @@ export function drawTimelineFrame(
   ctx: CanvasRenderingContext2D,
   input: DrawFrameInput,
   frame: number
-): void {
+): number {
   const { timeline, geometry } = input
   const width = timeline.width
   const height = timeline.height
@@ -405,6 +405,7 @@ export function drawTimelineFrame(
   const glowAmount = timeline.renderParams.glow
   const grain = timeline.renderParams.grain
 
+  let drawn = 0
   for (const el of timeline.elements) {
     const transform = sampleKeyframes(el, frame)
     if (transform === undefined || transform.opacity <= 0.002) continue
@@ -415,6 +416,7 @@ export function drawTimelineFrame(
     const flickMul = flicker > 0 ? 1 - flicker * 0.55 * noise : 1
     const alpha = Math.min(1, transform.opacity * flickMul)
     if (alpha <= 0.004) continue
+    drawn += 1
 
     const level = baseLevel * (geom.kind === 'text' ? 1.05 : 1)
     const color = tintStroke(timeline, level, 1)
@@ -431,7 +433,7 @@ export function drawTimelineFrame(
     ctx.strokeStyle = color
     ctx.fillStyle = color
     ctx.save()
-    ctx.translate(el.placement.dx + transform.dx, el.placement.dy + transform.dy)
+    ctx.translate(transform.dx, transform.dy)
     if (transform.scaleX !== 1 || transform.scaleY !== 1) {
       const cx = (geom.x0 + geom.x1) / 2
       const cy = (geom.y0 + geom.y1) / 2
@@ -449,4 +451,5 @@ export function drawTimelineFrame(
   if (grain > 0) {
     applyGrainOverlay(ctx, width, height, frame, grain)
   }
+  return drawn
 }

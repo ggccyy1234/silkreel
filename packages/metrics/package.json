@@ -11,7 +11,8 @@
     "lint": "eslint src",
     "test": "vitest run",
     "build": "tsc --noEmit",
-    "gate": "tsx src/cli.ts"
+    "gate": "tsx src/cli.ts",
+    "metrics:gate": "tsx src/cli.ts"
   },
   "dependencies": {},
   "devDependencies": {}

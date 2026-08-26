@@ -698,7 +698,12 @@ export function scheduleAct(input: ScheduleInput): ScheduleResult {
   }
 
   if (input.isFinalAct) {
-    const coreUnits = selectCore(plans, center, input.coreRng ?? makeRng(0, 'core:fallback'))
+    const finalPos = (unit: Unit, group: SymGroup): Vec2 => {
+      const idx = group.units.findIndex((u) => u.key === unit.key)
+      const t = group.targets[idx]
+      return t ?? { ...unit.pos }
+    }
+    const coreUnits = selectCore(plans, center, input.coreRng ?? makeRng(0, 'core:fallback'), finalPos)
     for (const plan of plans) plan.core = plan.group.units.some((u) => coreUnits.has(u))
   }
 
@@ -779,14 +784,22 @@ function unitExitTiming(
   }
 }
 
-function selectCore(plans: GroupPlan[], center: Vec2, rng: Rng): Set<Unit> {
+function selectCore(
+  plans: GroupPlan[],
+  center: Vec2,
+  rng: Rng,
+  finalPos: (unit: Unit, group: SymGroup) => Vec2
+): Set<Unit> {
   const core = new Set<Unit>()
   const scored = plans.flatMap((p) =>
-    p.group.units.map((u) => ({
-      unit: u,
-      members: u.members.length,
-      d: Math.hypot(u.pos.x - center.x, u.pos.y - center.y)
-    }))
+    p.group.units.map((u) => {
+      const fp = finalPos(u, p.group)
+      return {
+        unit: u,
+        members: u.members.length,
+        d: Math.hypot(fp.x - center.x, fp.y - center.y)
+      }
+    })
   )
   if (scored.length === 0) return core
   const totalMembers = scored.reduce((s, e) => s + e.members, 0)
@@ -816,7 +829,7 @@ function centerWeightedOrder(entries: CoreCandidate[], rng: Rng): CoreCandidate[
     let total = 0
     const weights = new Array<number>(pool.length)
     for (let i = 0; i < pool.length; i++) {
-      const w = Math.max((pool[i] as CoreCandidate).d, 0.001) ** 2
+      const w = 1 / Math.max((pool[i] as CoreCandidate).d, 0.001) ** 2
       weights[i] = w
       total += w
     }
@@ -879,6 +892,8 @@ function buildUnitKeyframes(
     put(dip.frame, dip.depth, 1, 1, 1)
     put(dip.frame + 1, 1, 1, 1, 1)
   }
+
+  put(split.build.endFrame, 1, 1, 1, 1)
 
   if (exit.isCore && input.isFinalAct) {
     put(split.dissolve.startFrame, 1, 1, 1, 1)

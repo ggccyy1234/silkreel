@@ -7,9 +7,10 @@ import type { GeometryLookup, Geom } from './film'
 export interface FilmProps {
   timeline: Timeline
   board: import('@silk-reel/ingest').BoardModel
+  children?: React.ReactNode
 }
 
-export const Film: React.FC<FilmProps> = ({ timeline, board }) => {
+export const FilmCanvas: React.FC<FilmProps> = ({ timeline, board, children }) => {
   const frame = useCurrentFrame()
   const { width, height } = useVideoConfig()
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
@@ -40,6 +41,10 @@ export const Film: React.FC<FilmProps> = ({ timeline, board }) => {
       width,
       height,
       style: { width, height, display: 'block' }
-    })
+    }),
+    children
   )
 }
+
+export const Film: React.FC<FilmProps> = (props) => <FilmCanvas {...props} />
+

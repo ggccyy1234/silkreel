@@ -69,7 +69,8 @@ async function measureEnvelope(videoPath: string): Promise<{ facts: Awaited<Retu
     if (cur > prev && cur >= next && cur > peakLitPct * 0.3) maximaCount += 1
   }
 
-  const symmetricFrames = stats.filter((s) => s.litPct > peakLitPct * 0.4)
+  const substantialFloor = peakLitPct * 0.25
+  const symmetricFrames = stats.filter((s) => s.litPct >= substantialFloor)
   const bestMirrorRatio = symmetricFrames.length > 0 ? Math.max(...symmetricFrames.map((s) => s.mirrorRatio)) : 0
   const balancedCandidates = symmetricFrames.filter((s) => s.mirrorRatio >= 0.95)
   const worstQuadDeviationAtHighMirror =
@@ -92,7 +93,9 @@ async function measureEnvelope(videoPath: string): Promise<{ facts: Awaited<Retu
 
 function checkSpec(facts: Awaited<ReturnType<typeof probeVideo>>, expect: GateExpectations): GateRuleResult {
   const expectedDuration = expect.totalFrames / expect.fps
-  const durationOk = Math.abs(facts.durationSeconds - expectedDuration) <= 0.5 / expect.fps
+  const frameCountOk = facts.frameCount === undefined || facts.frameCount === expect.totalFrames
+  const durationTolerance = Math.max(1 / expect.fps, 0.05)
+  const durationOk = frameCountOk && Math.abs(facts.durationSeconds - expectedDuration) <= durationTolerance
   const fpsOk = Math.abs(facts.fps - expect.fps) < 0.01
   const specOk =
     facts.width === expect.width &&
@@ -106,6 +109,7 @@ function checkSpec(facts: Awaited<ReturnType<typeof probeVideo>>, expect: GateEx
     parts.push(`resolution ${facts.width}x${facts.height} != ${expect.width}x${expect.height}`)
   }
   if (!fpsOk) parts.push(`fps ${facts.fps} != ${expect.fps}`)
+  if (!frameCountOk) parts.push(`frameCount ${String(facts.frameCount)} != ${expect.totalFrames}`)
   if (!durationOk) parts.push(`duration ${facts.durationSeconds.toFixed(3)}s != ${expectedDuration.toFixed(3)}s`)
   if (facts.codec !== 'h264') parts.push(`codec ${String(facts.codec)} != h264`)
   if (facts.pixFmt !== 'yuv420p') parts.push(`pix_fmt ${String(facts.pixFmt)} != yuv420p`)

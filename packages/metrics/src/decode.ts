@@ -122,8 +122,12 @@ export async function* decodeGrayFrames(
     stream.on('data', (chunk: string) => {
       stderrTail = `${stderrTail}${chunk}`.slice(-4000)
     })
-    stream.on('end', () => resolve())
-    stream.on('error', () => resolve())
+    stream.on('end', () => {
+      resolve()
+    })
+    stream.on('error', () => {
+      resolve()
+    })
   })
 
   const stdout = child.stdout

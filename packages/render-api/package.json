@@ -8,11 +8,15 @@
     "lint": "eslint src",
     "test": "vitest run",
     "build": "tsc --noEmit",
-    "dev": "tsx watch src/server.ts"
+    "dev": "tsx watch src/server.ts",
+    "render:canonical": "tsx src/scripts/render-canonical.ts"
   },
   "dependencies": {
+    "@remotion/bundler": "4.0.515",
+    "@remotion/renderer": "4.0.515",
     "@silk-reel/choreo": "0.1.0",
     "@silk-reel/ingest": "0.1.0",
+    "@silk-reel/metrics": "0.1.0",
     "@silk-reel/render": "0.1.0",
     "fastify": "^5.2.1"
   }
