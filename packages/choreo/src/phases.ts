@@ -593,12 +593,10 @@ interface GroupPlan {
   appearStart: number
   rampFrames: number
   isSliver: boolean
-  isCore: boolean
   rebuildStart?: number
   rebuildRamp?: number
   flickerDips: Array<{ frame: number; depth: number }>
   placements: Placement[]
-  core?: boolean | undefined
 }
 
 export function scheduleAct(input: ScheduleInput): ScheduleResult {
@@ -608,7 +606,6 @@ export function scheduleAct(input: ScheduleInput): ScheduleResult {
     appearStart: split.populate.startFrame,
     rampFrames: 2,
     isSliver: false,
-    isCore: false,
     flickerDips: [],
     placements: pairPlacement(group)
   }))
@@ -697,14 +694,16 @@ export function scheduleAct(input: ScheduleInput): ScheduleResult {
     }
   }
 
+  const coreUnits = new Set<Unit>()
   if (input.isFinalAct) {
     const finalPos = (unit: Unit, group: SymGroup): Vec2 => {
       const idx = group.units.findIndex((u) => u.key === unit.key)
       const t = group.targets[idx]
       return t ?? { ...unit.pos }
     }
-    const coreUnits = selectCore(plans, center, input.coreRng ?? makeRng(0, 'core:fallback'), finalPos)
-    for (const plan of plans) plan.core = plan.group.units.some((u) => coreUnits.has(u))
+    for (const unit of selectCore(plans, center, input.coreRng ?? makeRng(0, 'core:fallback'), finalPos)) {
+      coreUnits.add(unit)
+    }
   }
 
   const allUnits = plans.flatMap((p) => p.group.units)
@@ -715,11 +714,11 @@ export function scheduleAct(input: ScheduleInput): ScheduleResult {
 
   const schedules: UnitSchedule[] = []
   for (const plan of plans) {
-    const planIsCore = plan.core === true
     for (const [unitIdx, unit] of plan.group.units.entries()) {
       const placement = plan.placements[unitIdx] ?? { dx: 0, dy: 0 }
+      const unitIsCore = coreUnits.has(unit)
       const exit = unitExitTiming(
-        planIsCore,
+        unitIsCore,
         unit.pos,
         split,
         input,
@@ -730,7 +729,7 @@ export function scheduleAct(input: ScheduleInput): ScheduleResult {
       schedules.push({
         unit,
         keyframes: buildUnitKeyframes(plan, placement, exit, split, input, beatFrame),
-        isCore: planIsCore,
+        isCore: unitIsCore,
         placement
       })
     }
@@ -806,12 +805,11 @@ function selectCore(
   const targetMembers = Math.max(2, Math.round(totalMembers * CORE_RETAINED_FRACTION))
   const ordered = centerWeightedOrder(scored, rng)
   let cumulative = 0
-  let cap = Number.POSITIVE_INFINITY
   for (const entry of ordered) {
-    if (core.size > 0 && cumulative + entry.members > cap) break
+    if (core.size > 0 && cumulative + entry.members > targetMembers) break
     core.add(entry.unit)
     cumulative += entry.members
-    if (core.size === 1) cap = Math.max(targetMembers, entry.members)
+    if (core.size === 1 && entry.members > targetMembers) break
   }
   return core
 }
@@ -825,11 +823,13 @@ interface CoreCandidate {
 function centerWeightedOrder(entries: CoreCandidate[], rng: Rng): CoreCandidate[] {
   const pool = [...entries]
   const out: CoreCandidate[] = []
+  const maxDistance = Math.max(...pool.map((entry) => entry.d), 1)
   while (pool.length > 0) {
     let total = 0
     const weights = new Array<number>(pool.length)
     for (let i = 0; i < pool.length; i++) {
-      const w = 1 / Math.max((pool[i] as CoreCandidate).d, 0.001) ** 2
+      const d = (pool[i] as CoreCandidate).d
+      const w = 1 / (1 + (d / maxDistance) ** 2)
       weights[i] = w
       total += w
     }

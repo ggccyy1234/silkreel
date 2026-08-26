@@ -1,4 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { runGate } from './gate.js'
 import type { GateExpectations } from './gate.js'
 
@@ -50,8 +52,9 @@ async function loadExpectations(specPath: string | undefined): Promise<GateExpec
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   const expectations = await loadExpectations(args.specPath)
+  const videoPath = resolveVideoPath(args.video)
   try {
-    const report = await runGate(args.video, expectations)
+    const report = await runGate(videoPath, expectations)
     const json = JSON.stringify(report, null, 2)
     if (args.out !== undefined) {
       await writeFile(args.out, `${json}\n`, 'utf8')
@@ -63,6 +66,12 @@ async function main(): Promise<void> {
     console.error(JSON.stringify({ passed: false, error: message }, null, 2))
     process.exit(1)
   }
+}
+
+function resolveVideoPath(video: string): string {
+  if (path.isAbsolute(video) || existsSync(video)) return video
+  const repoRelative = path.resolve(import.meta.dirname, '../../..', video)
+  return existsSync(repoRelative) ? repoRelative : video
 }
 
 void main()
