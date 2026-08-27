@@ -1,6 +1,11 @@
 import { bundle } from '@remotion/bundler'
 import { renderMedia, selectComposition } from '@remotion/renderer'
 import type { FilmInputProps } from '@silk-reel/render'
+import { execFile } from 'node:child_process'
+import { rename, rm } from 'node:fs/promises'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
 
 export interface RenderFilmOptions {
   entryPoint?: string
@@ -32,12 +37,42 @@ export async function renderFilm(options: RenderFilmOptions): Promise<RenderFilm
     codec: 'h264',
     outputLocation: options.outputLocation,
     imageFormat: 'png',
+    concurrency: 1,
     ffmpegOverride: ({ args }) => [...args, '-pix_fmt', 'yuv420p'],
-    chromiumOptions: { gl: 'angle' },
+    chromiumOptions: { gl: 'swiftshader' },
     onProgress: ({ progress }) => {
       const pct = Math.round(progress * 100)
       if (pct % 20 === 0) options.onProgress?.(pct)
     }
   })
+  await normalizeMp4(options.outputLocation)
   return { bundleLocation, outputLocation: options.outputLocation }
+}
+
+async function normalizeMp4(outputLocation: string): Promise<void> {
+  const normalized = `${outputLocation}.normalized.mp4`
+  try {
+    await execFileAsync('ffmpeg', [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-i',
+      outputLocation,
+      '-map',
+      '0',
+      '-c',
+      'copy',
+      '-map_metadata',
+      '-1',
+      '-fflags',
+      '+bitexact',
+      '-movflags',
+      '+faststart',
+      normalized
+    ])
+    await rename(normalized, outputLocation)
+  } finally {
+    await rm(normalized, { force: true })
+  }
 }
