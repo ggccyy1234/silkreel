@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from '@silk-reel/choreo'
-import type { FilmConfig } from '@silk-reel/choreo'
+import type { CastUnit, FilmConfig, Timeline } from '@silk-reel/choreo'
 import { boardModel } from '../../choreo/test/helpers.js'
 import { makeSyntheticBoard } from '../../choreo/test/synthetic.js'
+import type { Geom, GeometryLookup } from './film.js'
 import { buildGeometryLookup, computeViewBox, drawTimelineFrame } from './film.js'
 import { asCtx, currentRecorder } from './test-recorder.js'
 
@@ -73,6 +74,79 @@ function summarize(recorder: ReturnType<typeof currentRecorder>): StrokeSummary 
   return summary
 }
 
+interface StrokeRecord {
+  alpha: number
+  gray: number
+  lineWidth: number
+}
+
+function strokeRecords(recorder: ReturnType<typeof currentRecorder>): StrokeRecord[] {
+  const records: StrokeRecord[] = []
+  let alpha = 1
+  let gray = Number.NaN
+  let lineWidth = Number.NaN
+  for (const call of recorder.calls) {
+    if (call.method === 'set:globalAlpha') {
+      alpha = call.args[0] as number
+      continue
+    }
+    if (call.method === 'set:lineWidth') {
+      lineWidth = call.args[0] as number
+      continue
+    }
+    if (call.method === 'set:strokeStyle') {
+      const value = call.args[0] as string
+      const match = /rgba\((\d+),/.exec(value)
+      gray = match ? Number(match[1]) : Number.NaN
+      continue
+    }
+    if (call.method === 'stroke') records.push({ alpha, gray, lineWidth })
+  }
+  return records
+}
+
+function roleTimeline(base: Timeline): { timeline: Timeline; geometry: GeometryLookup } {
+  const roleEntries: Array<{ id: string; role: CastUnit['role'] }> = [
+    { id: 'hero', role: 'hero-body' },
+    { id: 'detail', role: 'detail' },
+    { id: 'anchor', role: 'anchor-pad' },
+    { id: 'text', role: 'text-accent' },
+    { id: 'trace', role: 'trace-accent' }
+  ]
+  const cast: CastUnit[] = roleEntries.map(({ id, role }) => ({
+    id,
+    role,
+    memberRefs: [id],
+    bounds: { min: { x: 0, y: 0 }, max: { x: 1, y: 1 } },
+    sourceAct: 'outline'
+  }))
+  const geometryById = new Map<string, Geom>(roleEntries.map(({ id }) => [id, {
+    kind: 'trace',
+    x0: 0,
+    y0: 0,
+    x1: 1,
+    y1: 1,
+    draw(ctx, strokeScale = 1) {
+      ctx.lineWidth = strokeScale
+      ctx.stroke()
+    }
+  }]))
+  const tracks = cast.map((unit) => ({
+    castId: unit.id,
+    copies: { mode: 'none' as const, transforms: [{ x: 1 as const, y: 1 as const }] },
+    keyframes: [{ frame: 0, x: 0.5, y: 0.5, scale: 1, rotation: 0, opacity: 1, glow: 1 }]
+  }))
+  return {
+    timeline: {
+      ...base,
+      totalFrames: 1,
+      cast,
+      shots: [{ id: 'horizontal-study', startFrame: 0, endFrame: 0, tracks }]
+    },
+    geometry: { get: (id: string) => geometryById.get(id) }
+  }
+}
+
 describe('render geometry lookup', () => {
   it('resolves every directed cast member on ecc83 to drawable geometry', () => {
     const board = boardModel('ecc83-pp.kicad_pcb')
@@ -98,6 +172,22 @@ describe('render geometry lookup', () => {
     const rightmost = view.offsetX + view.scale * Math.max(...geoms.map((g) => g.x1))
     expect(leftmost).toBeGreaterThanOrEqual(0)
     expect(rightmost).toBeLessThanOrEqual(tl.width)
+  })
+
+  it('uses the directed frame instead of shrinking the cast to a thumbnail', () => {
+    const geom: Geom = {
+      kind: 'outline',
+      x0: 0,
+      y0: 0,
+      x1: 100,
+      y1: 100,
+      draw() {}
+    }
+    const view = computeViewBox([geom], 1000, 1000)
+    const projectedWidth = (geom.x1 - geom.x0) * view.scale
+    const projectedHeight = (geom.y1 - geom.y0) * view.scale
+    expect(projectedWidth / 1000).toBeGreaterThan(0.85)
+    expect(projectedHeight / 1000).toBeGreaterThan(0.85)
   })
 })
 
@@ -336,5 +426,41 @@ describe('render placement and interpolation contract', () => {
     expect(topmost).toBeGreaterThanOrEqual(-0.001)
     expect(bottom).toBeLessThanOrEqual(tl.height + 0.001)
     expect(view.scale).toBeGreaterThan(0)
+  })
+
+  it('differentiates directed cast roles with stroke and intensity hierarchy', () => {
+    const base: Timeline = {
+      fps: 15,
+      totalFrames: 1,
+      durationSeconds: 1 / 15,
+      width: 1080,
+      height: 1350,
+      output: { width: 1080, height: 1350, fps: 15 },
+      palette: {
+        name: 'mono',
+        stroke: { r: null, g: null, b: null },
+        glowHue: { r: null, g: null, b: null }
+      },
+      cast: [],
+      shots: [],
+      directedBeats: [],
+      renderParams: { glow: 1, flicker: 0, grain: 0, exposure: 1, easing: 'linear', symmetry: 'none' },
+      warnings: [],
+      seedUsed: 42
+    }
+    const { timeline, geometry } = roleTimeline(base)
+    const rec = currentRecorder()
+    drawTimelineFrame(asCtx(rec), { timeline, geometry, view: { scale: 1, offsetX: 0, offsetY: 0 } }, 0)
+    const records = strokeRecords(rec)
+    expect(records).toHaveLength(5)
+    expect(records.every((record) => Number.isFinite(record.lineWidth) && Number.isFinite(record.gray))).toBe(true)
+    const [hero, detail, anchor, text, trace] = records
+    expect(hero?.lineWidth).toBeGreaterThan(detail?.lineWidth ?? 0)
+    expect(detail?.lineWidth).toBeGreaterThan(text?.lineWidth ?? 0)
+    expect(text?.lineWidth).toBeGreaterThan(trace?.lineWidth ?? 0)
+    expect(hero?.gray).toBeGreaterThan(detail?.gray ?? 0)
+    expect(anchor?.gray).toBeGreaterThan(text?.gray ?? 0)
+    expect(text?.gray).toBeGreaterThan(trace?.gray ?? 0)
+    expect(hero?.alpha).toBeGreaterThan(trace?.alpha ?? 0)
   })
 })

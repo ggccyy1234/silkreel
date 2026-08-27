@@ -37,7 +37,9 @@ describe('directed symmetry topology', () => {
     expect(topologyFor('mirror-x').some((topology) => topology.mode === 'mirror-x' && topology.transforms.length === 2)).toBe(true)
     expect(topologyFor('mirror-y').some((topology) => topology.mode === 'mirror-y' && topology.transforms.length === 2)).toBe(true)
     expect(topologyFor('rotational180').some((topology) => topology.mode === 'rotational180' && topology.transforms.length === 2)).toBe(true)
-    expect(topologyFor('quad').some((topology) => topology.mode === 'quad' && topology.transforms.length === 4)).toBe(true)
+    expect(topologyFor('quad').some((topology) => topology.mode === 'mirror-x' && topology.transforms.length === 2)).toBe(true)
+    const quadTimeline = compileTimeline(board, defaultConfig({ knobs: { symmetry: 'quad' } }))
+    expect(shotOf(quadTimeline, 'radial-gate').tracks.some((track) => track.copies.mode === 'quad' && track.copies.transforms.length === 4)).toBe(true)
   })
 })
 

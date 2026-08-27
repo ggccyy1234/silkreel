@@ -56,6 +56,10 @@ const SHOT_IDS: readonly ShotId[] = [
 ]
 
 const REFERENCE_BOUNDARIES = [0, 5, 35, 55, 70, 105, 120, 155, 166, 167] as const
+const MAX_ASSEMBLY_UNITS = 24
+const MAX_HERO_UNITS = 3
+const MAX_ASSEMBLY_MEMBERS = 160
+const PREFERRED_ANCHOR_REFS = ['P1', 'P2', 'P3', 'P4'] as const
 
 const COPY_TRANSFORMS: Record<CopyTopology['mode'], CopyTransform[]> = {
   none: [{ x: 1, y: 1 }],
@@ -69,52 +73,74 @@ const STAGE_CENTER = { x: 0.5, y: 0.5 }
 
 const TOWER_HALF_SLOTS: readonly Vec2[] = [
   point(0.35, 0.27),
-  point(0.43, 0.27),
-  point(0.39, 0.38),
+  point(0.44, 0.27),
+  point(0.39, 0.34),
+  point(0.46, 0.39),
+  point(0.35, 0.45),
   point(0.44, 0.50),
-  point(0.39, 0.62),
-  point(0.43, 0.73),
-  point(0.35, 0.73)
+  point(0.35, 0.55),
+  point(0.46, 0.61),
+  point(0.39, 0.66),
+  point(0.44, 0.73)
 ]
 
 const TOWER_FULL_SLOTS: readonly Vec2[] = [
   point(0.35, 0.27),
   point(0.65, 0.27),
-  point(0.43, 0.27),
-  point(0.57, 0.27),
-  point(0.61, 0.38),
-  point(0.39, 0.38),
+  point(0.44, 0.27),
+  point(0.56, 0.27),
+  point(0.39, 0.34),
+  point(0.61, 0.34),
+  point(0.46, 0.39),
+  point(0.54, 0.39),
+  point(0.35, 0.45),
+  point(0.65, 0.45),
   point(0.44, 0.50),
   point(0.56, 0.50),
-  point(0.39, 0.62),
-  point(0.61, 0.62),
-  point(0.35, 0.73),
-  point(0.65, 0.73)
+  point(0.35, 0.55),
+  point(0.65, 0.55),
+  point(0.46, 0.61),
+  point(0.54, 0.61),
+  point(0.39, 0.66),
+  point(0.61, 0.66),
+  point(0.44, 0.73),
+  point(0.56, 0.73)
 ]
 
 const SHOT_SLOTS: Partial<Record<ShotId, readonly Vec2[]>> = {
   'vertical-seed': [
-    point(0.37, 0.33),
-    point(0.58, 0.39),
-    point(0.40, 0.45),
-    point(0.60, 0.49),
-    point(0.42, 0.54),
-    point(0.58, 0.59),
-    point(0.44, 0.64),
-    point(0.63, 0.69)
+    point(0.39, 0.29),
+    point(0.57, 0.34),
+    point(0.43, 0.39),
+    point(0.61, 0.44),
+    point(0.40, 0.49),
+    point(0.58, 0.53),
+    point(0.42, 0.58),
+    point(0.62, 0.63),
+    point(0.39, 0.68),
+    point(0.56, 0.73),
+    point(0.45, 0.77),
+    point(0.60, 0.80)
   ],
   'cross-collapse': [
-    point(0.35, 0.47),
-    point(0.45, 0.53),
+    point(0.30, 0.49),
+    point(0.39, 0.45),
+    point(0.47, 0.53),
     point(0.55, 0.47),
-    point(0.65, 0.53)
+    point(0.63, 0.55),
+    point(0.70, 0.51),
+    point(0.50, 0.36),
+    point(0.50, 0.64)
   ],
   'radial-gate': [
-    point(0.36, 0.42),
-    point(0.46, 0.47),
-    point(0.54, 0.47),
-    point(0.46, 0.53),
-    point(0.54, 0.53)
+    point(0.34, 0.35),
+    point(0.66, 0.35),
+    point(0.38, 0.47),
+    point(0.62, 0.47),
+    point(0.38, 0.53),
+    point(0.62, 0.53),
+    point(0.34, 0.65),
+    point(0.66, 0.65)
   ],
   'bilateral-tower': [
     point(0.36, 0.27),
@@ -129,11 +155,14 @@ const SHOT_SLOTS: Partial<Record<ShotId, readonly Vec2[]>> = {
     point(0.43, 0.73)
   ],
   'corner-bridge': [
-    point(0.40, 0.26),
-    point(0.46, 0.48),
-    point(0.54, 0.52),
-    point(0.48, 0.56),
-    point(0.52, 0.44)
+    point(0.31, 0.30),
+    point(0.69, 0.30),
+    point(0.31, 0.70),
+    point(0.69, 0.70),
+    point(0.40, 0.47),
+    point(0.60, 0.53),
+    point(0.47, 0.50),
+    point(0.53, 0.50)
   ],
   'horizontal-study': [
     point(0.34, 0.36),
@@ -298,12 +327,19 @@ function candidateScore(candidate: Omit<FootprintCastCandidate, 'score'>, rank: 
   return namedHero + (componentPrefix ? 1.8 : 0) + (connector ? -1.4 : 0) + usefulPads + moderateSize + compactness + complexity - rank * 0.08 + tie * 0.02
 }
 
-function footprintCandidates(board: BoardModel, items: Map<string, InventoryItem>, actOrder: ActId[], seed: number | null): FootprintCastCandidate[] {
+function footprintCandidates(
+  board: BoardModel,
+  items: Map<string, InventoryItem>,
+  actOrder: ActId[],
+  seed: number | null,
+  reservedFootprints: ReadonlySet<string>
+): FootprintCastCandidate[] {
   const rank = new Map(actOrder.map((id, index) => [id, index]))
   const candidates: FootprintCastCandidate[] = []
   for (const fp of board.footprints) {
+    if (reservedFootprints.has(fp.ref)) continue
     const rawRefs = [...new Set([...fp.padRefs, ...fp.silkRefs])]
-    if (rawRefs.length > 48) continue
+    if (rawRefs.length > MAX_ASSEMBLY_MEMBERS) continue
     const refs = rawRefs
     const members = refs.map((ref) => items.get(ref)).filter((item): item is InventoryItem => item !== undefined)
     if (members.length === 0) continue
@@ -378,6 +414,38 @@ function selectHeroes(pool: FootprintCastCandidate[], limit: number): FootprintC
   return selected
 }
 
+function anchorRank(footprintRef: string | undefined): number {
+  const index = PREFERRED_ANCHOR_REFS.indexOf(footprintRef as typeof PREFERRED_ANCHOR_REFS[number])
+  return index >= 0 ? index : PREFERRED_ANCHOR_REFS.length
+}
+
+function selectAnchorPads(items: Map<string, InventoryItem>): InventoryItem[] {
+  const pads = [...items.values()]
+    .filter((item) => item.kind === 'pad' && item.value === 'rect')
+    .sort((a, b) => anchorRank(a.footprintRef) - anchorRank(b.footprintRef) ||
+      (a.footprintRef ?? '').localeCompare(b.footprintRef ?? '') ||
+      a.id.localeCompare(b.id))
+  const selected: InventoryItem[] = []
+  const selectedIds = new Set<string>()
+  const selectedFootprints = new Set<string>()
+  for (const pad of pads) {
+    if (selected.length >= 4) break
+    if (pad.footprintRef !== undefined && selectedFootprints.has(pad.footprintRef)) continue
+    selected.push(pad)
+    selectedIds.add(pad.id)
+    if (pad.footprintRef !== undefined) selectedFootprints.add(pad.footprintRef)
+  }
+  if (selected.length < 4) {
+    for (const pad of pads) {
+      if (selected.length >= 4) break
+      if (selectedIds.has(pad.id)) continue
+      selected.push(pad)
+      selectedIds.add(pad.id)
+    }
+  }
+  return selected
+}
+
 function componentPrefix(ref: string): boolean {
   return /^(R|C|D|Q|L|T|X)/.test(ref)
 }
@@ -431,22 +499,18 @@ function tracePathGroups(items: Map<string, InventoryItem>, seed: number | null)
 
 function buildCast(board: BoardModel, actOrder: ActId[], seed: number | null): CastBuildResult {
   const items = inventory(board)
-  const candidates = footprintCandidates(board, items, actOrder, seed)
+  const anchorPads = selectAnchorPads(items)
+  const reservedFootprints = new Set(anchorPads.flatMap((pad) => pad.footprintRef === undefined ? [] : [pad.footprintRef]))
+  const candidates = footprintCandidates(board, items, actOrder, seed, reservedFootprints)
   const heroCandidates = candidates.filter((candidate) => {
     const size = dimensions(candidate.bounds)
-    return candidate.padCount >= 2 && candidate.padCount <= 24 && candidate.silkCount >= 5 && size.diagonal >= 8 && size.diagonal <= 27 && size.area <= 280 && !isCircularAssembly(candidate)
+    return candidate.padCount >= 2 && candidate.padCount <= 24 && size.diagonal >= 4 && size.diagonal <= 34 && size.area <= 540 && !isCircularAssembly(candidate)
   })
-  const variedHeroes = heroCandidates.filter((candidate) => !connectorCandidate(candidate))
-  const heroPoolBase = variedHeroes.length >= 1 && heroCandidates.length >= 2
-    ? [...variedHeroes.slice(0, 5), ...heroCandidates.filter((candidate) => connectorCandidate(candidate)).slice(0, 5)]
-    : heroCandidates
-  const heroPool = heroPoolBase.length > 0
-    ? [...heroPoolBase].sort((a, b) => heroVisualScore(b) - heroVisualScore(a) || a.ref.localeCompare(b.ref))
-    : candidates.filter((candidate) => /^(U|IC)/.test(candidate.ref) || /ECC|NE|OP|AMP|SOIC|QFN|DIP|IC/.test(candidate.value.toUpperCase()))
-  const heroLimit = heroPool.length >= 4 ? 2 : 1
+  const heroPool = [...heroCandidates].sort((a, b) => heroVisualScore(b) - heroVisualScore(a) || a.ref.localeCompare(b.ref))
+  const heroLimit = Math.min(MAX_HERO_UNITS, Math.max(1, Math.ceil(heroPool.length / 4)))
   const heroes = selectHeroes(heroPool, heroLimit)
   const heroRefs = new Set(heroes.map((candidate) => candidate.ref))
-  const detailCandidates = candidates.filter((candidate) => !heroRefs.has(candidate.ref)).slice(0, 10)
+  const detailCandidates = candidates.filter((candidate) => !heroRefs.has(candidate.ref) && !isCircularAssembly(candidate)).slice(0, Math.max(0, MAX_ASSEMBLY_UNITS - heroes.length))
   const cast: CastUnit[] = []
   for (const candidate of heroes) {
     const unit = castUnit(`hero:${candidate.ref}`, 'hero-body', candidate.members, candidate.sourceAct)
@@ -457,15 +521,6 @@ function buildCast(board: BoardModel, actOrder: ActId[], seed: number | null): C
     if (unit) cast.push(unit)
   }
 
-  const rectangularPads = [...items.values()]
-    .filter((item) => item.kind === 'pad' && item.value === 'rect')
-    .sort((a, b) => {
-      const aKey = a.footprintRef ?? ''
-      const bKey = b.footprintRef ?? ''
-      return aKey.localeCompare(bKey) || a.id.localeCompare(b.id)
-    })
-  const preferredPads = rectangularPads.filter((item) => /^(P1|P2|P3|P4)$/.test(item.footprintRef ?? ''))
-  const anchorPads = [...preferredPads, ...rectangularPads.filter((item) => !preferredPads.includes(item))].slice(0, 4)
   for (const pad of anchorPads) {
     const sourceAct = actForFootprint(board, pad.layer, pad)
     const unit = castUnit(`anchor:${pad.id}`, 'anchor-pad', [pad], sourceAct)
@@ -474,7 +529,7 @@ function buildCast(board: BoardModel, actOrder: ActId[], seed: number | null): C
 
   const castFootprints = new Set([...heroes, ...detailCandidates].map((candidate) => candidate.ref))
   const texts = [...items.values()]
-    .filter((item) => item.kind === 'text' && item.value !== undefined && item.value.length > 0 && item.value.length <= 10)
+    .filter((item) => item.kind === 'text' && item.value !== undefined && item.value.length > 0 && item.value.length <= 10 && !cast.some((unit) => unit.memberRefs.includes(item.id)))
     .sort((a, b) => {
       const aAttached = castFootprints.has(a.footprintRef ?? '') ? 1 : 0
       const bAttached = castFootprints.has(b.footprintRef ?? '') ? 1 : 0
@@ -537,7 +592,10 @@ function targetFor(
     ? symmetry === 'quad' || symmetry === 'mirror-x' ? TOWER_HALF_SLOTS : TOWER_FULL_SLOTS
     : SHOT_SLOTS[shot]
   if (!slots || slots.length === 0) return STAGE_CENTER
-  const direct = slots[index]
+  const slotIndex = count <= slots.length
+    ? Math.round((index / Math.max(1, count - 1)) * (slots.length - 1))
+    : index % slots.length
+  const direct = slots[slotIndex]
   if (direct) return direct
   const normalized = count <= 1 ? 0.5 : index / Math.max(1, count - 1)
   const first = slots[0] as Vec2
@@ -603,8 +661,8 @@ function castForShot(cast: CastUnit[], shot: ShotId, rhythmDensity: number, seed
       return [...heroes, ...towerDetails].slice(0, Math.max(6, Math.min(componentUnits.length, 6 + Math.round(rhythmDensity * 2))))
     case 'corner-bridge':
       return heroes.length > 0
-        ? [heroes[0] as CastUnit, ...traces.slice(0, 2), ...anchors.slice(0, 2)]
-        : [...traces.slice(0, 2), ...anchors.slice(0, 2)]
+        ? [heroes[0] as CastUnit, ...traces.slice(0, 3), ...anchors]
+        : [...traces.slice(0, 3), ...anchors]
     case 'horizontal-study':
       return [...horizontalDetails.slice(0, 5), ...anchors, ...heroes, ...horizontalDetails.slice(5), ...texts.slice(0, 4), ...traces.slice(0, 2)].slice(0, 20)
     case 'pad-coda':
@@ -655,7 +713,7 @@ function topologyFor(
   if (shot === 'radial-gate' || shot === 'corner-bridge') return index === 0 ? topology(mode) : topology('none')
   if (shot === 'bilateral-tower') {
     if (unit.role === 'hero-body' || unit.role === 'detail') {
-      if (mode === 'quad') return topology('quad')
+      if (mode === 'quad') return topology('mirror-x')
       if (mode === 'mirror-x') return topology('mirror-x')
       return topology(mode)
     }
@@ -721,7 +779,12 @@ function keyframesFor(
       ? { x: clampStage(target.x + direction * 0.03), y: clampStage(target.y - 0.02) }
       : shot.id === 'horizontal-study'
         ? { x: clampStage(target.x + direction * 0.015), y: clampStage(target.y) }
-        : { x: clampStage(target.x + direction * drift), y: clampStage(target.y - drift) }
+        : shot.id === 'bilateral-tower'
+          ? {
+              x: clampStage(target.x + direction * drift),
+              y: clampStage(target.y + (target.y < STAGE_CENTER.y ? -drift : drift))
+            }
+          : { x: clampStage(target.x + direction * drift), y: clampStage(target.y - drift) }
   const horizontalEndContraction = target.y < STAGE_CENTER.y ? 0.33 : 0.29
   const horizontalGatherContraction = target.y < STAGE_CENTER.y ? 0.28 : 0.03
   const outgoing = shot.id === 'horizontal-study'
@@ -852,7 +915,9 @@ export function compileDirectedShots(cast: CastUnit[], totalFrames: number, conf
 
 function semanticCastAssertions(cast: CastUnit[], board?: BoardModel): void {
   const ids = new Set<string>()
+  const memberOwners = new Map<string, string>()
   const footprintByRef = new Map((board?.footprints ?? []).map((footprint) => [footprint.ref, footprint]))
+  const geometryIds = board === undefined ? undefined : new Set(inventory(board).keys())
   const traceIds = new Set<string>()
   for (const copper of Object.values(board?.copper ?? {})) {
     for (const trace of copper.traces) traceIds.add(trace.id)
@@ -866,6 +931,12 @@ function semanticCastAssertions(cast: CastUnit[], board?: BoardModel): void {
       throw new Error(`cast unit ${unit.id} has non-finite bounds`)
     }
     if (new Set(unit.memberRefs).size !== unit.memberRefs.length) throw new Error(`cast unit ${unit.id} repeats a geometry member`)
+    for (const memberRef of unit.memberRefs) {
+      if (geometryIds !== undefined && !geometryIds.has(memberRef)) throw new Error(`cast unit ${unit.id} references missing geometry ${memberRef}`)
+      const previousOwner = memberOwners.get(memberRef)
+      if (previousOwner !== undefined) throw new Error(`geometry ${memberRef} is claimed by both ${previousOwner} and ${unit.id}`)
+      memberOwners.set(memberRef, unit.id)
+    }
     if (unit.role === 'hero-body' && unit.memberRefs.some((memberRef) => traceIds.has(memberRef))) {
       throw new Error(`hero cast unit ${unit.id} contains a standalone trace`)
     }

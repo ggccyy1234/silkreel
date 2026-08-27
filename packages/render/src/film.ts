@@ -1,6 +1,6 @@
 import type { BoardModel, Vec2 } from '@silk-reel/ingest'
 import { sampleDirectedKeyframes } from '@silk-reel/choreo/sample-directed'
-import type { CastUnit, FilmShot, Timeline, UnitTrack } from '@silk-reel/choreo'
+import type { CastRole, CastUnit, FilmShot, Timeline, UnitTrack } from '@silk-reel/choreo'
 
 export interface Geom {
   kind: 'trace' | 'pad' | 'via' | 'zone' | 'text' | 'drill' | 'outline'
@@ -9,7 +9,7 @@ export interface Geom {
   y0: number
   x1: number
   y1: number
-  draw(ctx: CanvasRenderingContext2D): void
+  draw(ctx: CanvasRenderingContext2D, strokeScale?: number): void
 }
 
 export interface GeometryLookup {
@@ -46,8 +46,8 @@ function traceGeom(_id: string, points: Vec2[], width: number): Geom | undefined
     y0: minY,
     x1: maxX,
     y1: maxY,
-    draw(ctx) {
-      ctx.lineWidth = stroke
+    draw(ctx, strokeScale = 1) {
+      ctx.lineWidth = stroke * strokeScale
       ctx.stroke(path)
     }
   }
@@ -88,12 +88,12 @@ function padGeom(_id: string, pos: Vec2, size: Vec2, shape: string, rotation: nu
     y0: pos.y - hh,
     x1: pos.x + hw,
     y1: pos.y + hh,
-    draw(ctx) {
+    draw(ctx, strokeScale = 1) {
       ctx.save()
       ctx.translate(pos.x, pos.y)
       ctx.rotate((rotation * Math.PI) / 180)
       if (shape === 'oval' && Math.abs(hw - hh) >= 0.05) ctx.scale(hw / r, hh / r)
-      ctx.lineWidth = 0.36
+      ctx.lineWidth = 0.36 * strokeScale
       ctx.stroke(path)
       if (shape === 'rect') {
         const mark = Math.max(Math.min(hw, hh) * 0.18, 0.08)
@@ -114,8 +114,8 @@ function viaGeom(_id: string, pos: Vec2, dia: number): Geom {
     y0: pos.y - r,
     x1: pos.x + r,
     y1: pos.y + r,
-    draw(ctx) {
-      ctx.lineWidth = 0.22
+    draw(ctx, strokeScale = 1) {
+      ctx.lineWidth = 0.22 * strokeScale
       ctx.stroke(path)
     }
   }
@@ -145,9 +145,9 @@ function zoneGeom(_id: string, outline: Vec2[]): Geom | undefined {
     y0: minY,
     x1: maxX,
     y1: maxY,
-    draw(ctx) {
+    draw(ctx, strokeScale = 1) {
       ctx.globalAlpha *= 0.1
-      ctx.lineWidth = 0.1
+      ctx.lineWidth = 0.1 * strokeScale
       ctx.stroke(path)
       ctx.globalAlpha /= 0.1
     }
@@ -187,8 +187,8 @@ function drillGeom(_id: string, pos: Vec2, dia: number): Geom {
     y0: pos.y - r,
     x1: pos.x + r,
     y1: pos.y + r,
-    draw(ctx) {
-      ctx.lineWidth = 0.16
+    draw(ctx, strokeScale = 1) {
+      ctx.lineWidth = 0.16 * strokeScale
       ctx.stroke(path)
     }
   }
@@ -218,9 +218,9 @@ function outlinePathGeom(_id: string, points: Vec2[], closed: boolean): Geom | u
     y0: minY,
     x1: maxX,
     y1: maxY,
-    draw(ctx) {
+    draw(ctx, strokeScale = 1) {
       ctx.globalAlpha *= 0.28
-      ctx.lineWidth = 0.1
+      ctx.lineWidth = 0.1 * strokeScale
       ctx.stroke(path)
       ctx.globalAlpha /= 0.28
     }
@@ -236,8 +236,8 @@ function arcGeom(_id: string, center: Vec2, radius: number, startAngle: number, 
     y0: center.y - radius - width,
     x1: center.x + radius + width,
     y1: center.y + radius + width,
-    draw(ctx) {
-      ctx.lineWidth = Math.max(width, 0.22)
+    draw(ctx, strokeScale = 1) {
+      ctx.lineWidth = Math.max(width, 0.22) * strokeScale
       ctx.stroke(path)
     }
   }
@@ -285,7 +285,7 @@ export function computeViewBox(geoms: Geom[], width: number, height: number): Vi
   const padMm = 2
   const spanX = maxX - minX + padMm * 2
   const spanY = maxY - minY + padMm * 2
-  const scale = Math.min(width / spanX, height / spanY) * 0.42
+  const scale = Math.min(width / spanX, height / spanY)
   const offsetX = (width - spanX * scale) / 2 - (minX - padMm) * scale
   const offsetY = (height - spanY * scale) / 2 - (minY - padMm) * scale
   return { scale, offsetX, offsetY }
@@ -389,6 +389,21 @@ function roleAlpha(kind: Geom['kind']): number {
   }
 }
 
+interface RoleTreatment {
+  intensity: number
+  opacity: number
+  strokeScale: number
+  glow: number
+}
+
+const ROLE_TREATMENT: Record<CastRole, RoleTreatment> = {
+  'hero-body': { intensity: 0.92, opacity: 1, strokeScale: 1.28, glow: 1 },
+  detail: { intensity: 0.78, opacity: 0.88, strokeScale: 1, glow: 0.7 },
+  'anchor-pad': { intensity: 0.86, opacity: 0.94, strokeScale: 1.1, glow: 0.8 },
+  'text-accent': { intensity: 0.68, opacity: 0.72, strokeScale: 0.82, glow: 0.2 },
+  'trace-accent': { intensity: 0.56, opacity: 0.58, strokeScale: 0.72, glow: 0.35 }
+}
+
 function castBounds(cast: CastUnit[], geometry: GeometryLookup): Geom[] {
   const geoms: Geom[] = []
   for (const unit of cast) {
@@ -451,6 +466,7 @@ export function drawTimelineFrame(
     if (!unit) continue
     const transform = sampleDirectedKeyframes(track, frame, timeline.renderParams.easing)
     if (!transform || transform.opacity <= 0.002) continue
+    const treatment = ROLE_TREATMENT[unit.role]
     const unitCenter = {
       x: (unit.bounds.min.x + unit.bounds.max.x) / 2,
       y: (unit.bounds.min.y + unit.bounds.max.y) / 2
@@ -465,16 +481,18 @@ export function drawTimelineFrame(
       ctx.setTransform(sx, 0, 0, sy, targetX - sx * unitCenter.x, targetY - sy * unitCenter.y)
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
-      ctx.globalAlpha = Math.min(1, transform.opacity * jitter)
-      if (glowAmount > 0 && transform.glow > 0.05) {
-        ctx.shadowColor = glowStrokeColor(timeline, 0.82)
-        ctx.shadowBlur = 7 * glowAmount * Math.max(0.4, transform.glow)
+      ctx.globalAlpha = Math.min(1, transform.opacity * jitter * treatment.opacity)
+      const glowStrength = transform.glow * treatment.glow
+      if (glowAmount > 0 && glowStrength > 0.05) {
+        ctx.shadowColor = glowStrokeColor(timeline, 0.82 * treatment.glow)
+        ctx.shadowBlur = 7 * glowAmount * glowStrength
       } else {
         ctx.shadowBlur = 0
         ctx.shadowColor = 'transparent'
       }
-      ctx.strokeStyle = tintStroke(timeline, baseLevel, 1)
-      ctx.fillStyle = tintStroke(timeline, baseLevel, 1)
+      const ink = tintStroke(timeline, baseLevel * treatment.intensity, 1)
+      ctx.strokeStyle = ink
+      ctx.fillStyle = ink
       ctx.translate(unitCenter.x, unitCenter.y)
       ctx.rotate((transform.rotation * Math.PI) / 180)
       ctx.translate(-unitCenter.x, -unitCenter.y)
@@ -482,8 +500,8 @@ export function drawTimelineFrame(
         const geom = geometry.get(ref)
         if (!geom) continue
         ctx.save()
-        ctx.globalAlpha = Math.min(1, transform.opacity * jitter * roleAlpha(geom.kind))
-        geom.draw(ctx)
+        ctx.globalAlpha = Math.min(1, transform.opacity * jitter * treatment.opacity * roleAlpha(geom.kind))
+        geom.draw(ctx, treatment.strokeScale)
         ctx.restore()
         drawn += 1
       }

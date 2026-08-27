@@ -63,6 +63,43 @@ describe('semantic film director', () => {
     expect(timeline.cast.filter((unit) => unit.role === 'trace-accent')).toHaveLength(5)
   })
 
+  it('uses footprint identity without promoting oversized circular assemblies', () => {
+    const timeline = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), config())
+
+    expect(timeline.cast.some((unit) => unit.id.endsWith(':U1'))).toBe(false)
+    expect(timeline.cast.some((unit) => unit.role === 'hero-body')).toBe(true)
+  })
+
+  it('keeps cast geometry disjoint while reserving the four coda pads', () => {
+    const timeline = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), config())
+    const owners = new Map<string, string>()
+
+    for (const unit of timeline.cast) {
+      for (const memberRef of unit.memberRefs) {
+        expect(owners.has(memberRef), `${memberRef} is claimed by more than one cast unit`).toBe(false)
+        owners.set(memberRef, unit.id)
+      }
+    }
+
+    expect(new Set(timeline.cast.filter((unit) => unit.role === 'hero-body' || unit.role === 'detail').map((unit) => unit.id))).toEqual(new Set([
+      'hero:R2',
+      'hero:R4',
+      'detail:C2',
+      'detail:R1',
+      'detail:R3'
+    ]))
+    expect(timeline.shots.find((shot) => shot.id === 'pad-coda')?.tracks).toHaveLength(4)
+  })
+
+  it('covers more complete assemblies on a large board within the cast budget', () => {
+    const timeline = compileTimeline(boardModel('video.kicad_pcb'), config())
+    const assemblies = timeline.cast.filter((unit) => unit.role === 'hero-body' || unit.role === 'detail')
+
+    expect(assemblies.length).toBeGreaterThanOrEqual(20)
+    expect(assemblies.length).toBeLessThanOrEqual(24)
+    expect(new Set(assemblies.flatMap((unit) => unit.memberRefs)).size).toBe(assemblies.reduce((count, unit) => count + unit.memberRefs.length, 0))
+  })
+
   it('keeps every directed track tied to a cast unit and role window', () => {
     const timeline = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), config())
     const castById = new Map(timeline.cast.map((unit) => [unit.id, unit]))
@@ -75,6 +112,18 @@ describe('semantic film director', () => {
         if (unit?.role === 'anchor-pad') expect(['corner-bridge', 'horizontal-study', 'pad-coda']).toContain(shot.id)
       }
     }
+  })
+
+  it('uses a bilateral tower and a four-corner bridge for the canonical ensemble', () => {
+    const timeline = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), config())
+    const castById = new Map(timeline.cast.map((unit) => [unit.id, unit]))
+    const tower = timeline.shots.find((shot) => shot.id === 'bilateral-tower')
+    const bridge = timeline.shots.find((shot) => shot.id === 'corner-bridge')
+
+    expect(tower?.tracks.some((track) => track.copies.mode === 'mirror-x')).toBe(true)
+    const towerTargets = tower?.tracks.map((track) => `${track.keyframes[1]?.x}:${track.keyframes[1]?.y}`) ?? []
+    expect(new Set(towerTargets).size).toBe(towerTargets.length)
+    expect(bridge?.tracks.filter((track) => castById.get(track.castId)?.role === 'anchor-pad')).toHaveLength(4)
   })
 
   it('is deterministic for a seed and stays sparse for boards without assemblies', () => {
