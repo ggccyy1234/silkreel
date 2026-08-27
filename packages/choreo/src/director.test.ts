@@ -134,6 +134,16 @@ describe('semantic film director', () => {
     expect(bridge?.tracks.filter((track) => castById.get(track.castId)?.role === 'anchor-pad')).toHaveLength(4)
   })
 
+  it('builds radial and bridge shots progressively instead of snapping them on', () => {
+    const timeline = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), config())
+    const radial = timeline.shots.find((shot) => shot.id === 'radial-gate')
+    const bridge = timeline.shots.find((shot) => shot.id === 'corner-bridge')
+
+    expect(radial?.tracks.every((track) => track.keyframes.length === 4 && track.keyframes[1]?.opacity === 0.2 && track.keyframes[2]?.opacity === 0.62)).toBe(true)
+    expect(bridge?.tracks.every((track) => track.keyframes.length === 4 && track.keyframes[0]?.opacity === 0 && track.keyframes[1]?.opacity === 0.04)).toBe(true)
+    expect(new Set(bridge?.tracks.map((track) => track.keyframes[0]?.frame)).size).toBeGreaterThan(1)
+  })
+
   it('builds dense shots through staggered dim entrances', () => {
     const timeline = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), config())
 

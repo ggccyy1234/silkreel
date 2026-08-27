@@ -816,7 +816,9 @@ function keyframesFor(
       ? Math.max(8, Math.round(8 + config.knobs.rhythmDensity * 5))
       : shot.id === 'horizontal-study'
         ? Math.max(7, Math.round(7 + config.knobs.rhythmDensity * 4))
-        : 0
+        : shot.id === 'corner-bridge'
+          ? 3
+          : 0
   const staggerProgress = shot.id === 'bilateral-tower' || shot.id === 'horizontal-study'
     ? Math.min(index, Math.max(0, total - 1 - index)) / Math.max(1, Math.floor(total / 2))
     : index / Math.max(1, total)
@@ -897,10 +899,23 @@ function keyframesFor(
     ]
   }
   if (shot.id === 'radial-gate') {
+    const firstReveal = Math.min(shot.endFrame, shot.startFrame + Math.max(2, Math.round(length * 0.33)))
+    const secondReveal = Math.min(shot.endFrame, shot.startFrame + Math.max(4, Math.round(length * 0.7)))
     return [
       visible(shot.startFrame, target.x, target.y, scale * 0.38, 0, 0),
-      visible(Math.min(shot.endFrame, shot.startFrame + 2), target.x, target.y, scale, 1, 1),
+      visible(firstReveal, target.x, target.y, scale * 0.68, 0.2, 0.15),
+      visible(secondReveal, target.x, target.y, scale * 0.9, 0.62, 0.55),
       visible(shot.endFrame, target.x, target.y, scale, 1, 1)
+    ]
+  }
+  if (shot.id === 'corner-bridge') {
+    const quietEnd = Math.min(shot.endFrame, start + 4 + exitOffset)
+    const peak = Math.min(shot.endFrame - 1, start + 8 + exitOffset)
+    return [
+      visible(start, incoming.x, incoming.y, entryScale, 0, 0),
+      visible(quietEnd, target.x, target.y, scale * 0.86, 0.04, 0.08),
+      visible(Math.max(quietEnd, peak), target.x, target.y, scale, 1, 1),
+      visible(shot.endFrame, outgoing.x, outgoing.y, endScale, 0.22, 0.3)
     ]
   }
   if (shot.id === 'vertical-seed' || shot.id === 'bilateral-tower') {
@@ -910,7 +925,7 @@ function keyframesFor(
       visible(shot.endFrame, target.x, target.y, scale, 1, 1)
     ]
   }
-  if (shot.id === 'cross-collapse' || shot.id === 'corner-bridge' || shot.id === 'horizontal-study') {
+  if (shot.id === 'cross-collapse' || shot.id === 'horizontal-study') {
     if (shot.id === 'horizontal-study') {
       const gatherFrame = Math.max(holdEnd, shot.endFrame - 4)
       const gather = visible(
