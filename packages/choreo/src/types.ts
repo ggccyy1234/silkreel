@@ -1,4 +1,4 @@
-import type { BoardModel } from '@silk-reel/ingest'
+import type { BBox, BoardModel } from '@silk-reel/ingest'
 
 export type ActId =
   | 'outline'
@@ -13,6 +13,60 @@ export type DissolveStyle = 'center-out' | 'fade' | 'wipe' | 'scatter'
 export type EasingName = 'expo-out' | 'back-out' | 'linear' | 'sine'
 
 export type PaletteName = 'mono' | 'phosphor' | 'amber' | 'copper'
+
+export type ShotId =
+  | 'black-breath'
+  | 'vertical-seed'
+  | 'cross-collapse'
+  | 'radial-gate'
+  | 'bilateral-tower'
+  | 'corner-bridge'
+  | 'horizontal-study'
+  | 'pad-coda'
+  | 'black-cut'
+
+export type CastRole = 'hero-body' | 'detail' | 'anchor-pad' | 'text-accent' | 'trace-accent'
+
+export interface CastUnit {
+  id: string
+  role: CastRole
+  memberRefs: string[]
+  bounds: BBox
+  sourceAct: ActId
+}
+
+export interface CopyTransform {
+  x: -1 | 1
+  y: -1 | 1
+}
+
+export interface CopyTopology {
+  mode: Exclude<SymmetryMode, 'auto'>
+  transforms: CopyTransform[]
+}
+
+export interface DirectedKeyframe {
+  frame: number
+  x: number
+  y: number
+  scale: number
+  rotation: number
+  opacity: number
+  glow: number
+}
+
+export interface UnitTrack {
+  castId: string
+  copies: CopyTopology
+  keyframes: DirectedKeyframe[]
+}
+
+export interface FilmShot {
+  id: ShotId
+  startFrame: number
+  endFrame: number
+  tracks: UnitTrack[]
+}
 
 export interface Knobs {
   symmetry?: SymmetryMode
@@ -37,43 +91,6 @@ export interface FilmConfig {
   output: { width: number; height: number; fps: number }
 }
 
-export type PhaseKind = 'seed' | 'populate' | 'beat' | 'build' | 'sustain' | 'dissolve'
-
-export interface PhaseSpec {
-  kind: PhaseKind
-  startFrame: number
-  endFrame: number
-}
-
-export interface Act {
-  id: ActId
-  unit: string
-  layerId: string
-  startFrame: number
-  endFrame: number
-  phases: PhaseSpec[]
-}
-
-export interface Keyframe {
-  frame: number
-  opacity: number
-  scaleX: number
-  scaleY: number
-  glow: number
-  dx?: number
-  dy?: number
-}
-
-export interface TimelineElement {
-  id: string
-  kind: string
-  layer: string
-  geomRef: string
-  actId: string
-  keyframes: Keyframe[]
-  placement: { dx: number; dy: number }
-}
-
 export interface Rgb {
   r: number | null
   g: number | null
@@ -92,6 +109,7 @@ export interface RenderParams {
   grain: number
   exposure: number
   easing: EasingName
+  symmetry: Exclude<SymmetryMode, 'auto'>
 }
 
 export interface TimelineWarning {
@@ -105,13 +123,14 @@ export interface Timeline {
   durationSeconds: number
   width: number
   height: number
+  output: { width: number; height: number; fps: number }
   palette: PaletteDef
-  acts: Act[]
-  elements: TimelineElement[]
-  beats: Array<{ frame: number; intensity: number }>
+  cast: CastUnit[]
+  shots: FilmShot[]
+  directedBeats: Array<{ frame: number; intensity: number }>
   renderParams: RenderParams
   warnings: TimelineWarning[]
-  seedUsed: number | null
+  seedUsed: number
 }
 
 export type CompileTimeline = (board: BoardModel, config: FilmConfig) => Timeline

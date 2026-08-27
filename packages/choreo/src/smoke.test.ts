@@ -3,7 +3,7 @@ import { compileTimeline } from './index.js'
 import { boardModel } from '../test/helpers.js'
 
 describe('choreo package smoke', () => {
-  it('compiles a real board to a timeline with acts and elements', () => {
+  it('compiles a real board to a directed timeline', () => {
     const tl = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), {
       actOrder: [],
       knobs: {},
@@ -11,7 +11,8 @@ describe('choreo package smoke', () => {
       duration: 'auto',
       output: { width: 1080, height: 1350, fps: 15 }
     })
-    expect(tl.acts.length).toBeGreaterThan(0)
-    expect(tl.elements.length).toBeGreaterThan(0)
+    expect(tl.cast.length).toBeGreaterThan(0)
+    expect(tl.shots.length).toBe(9)
+    expect(tl.shots.some((shot) => shot.tracks.length > 0)).toBe(true)
   })
 })

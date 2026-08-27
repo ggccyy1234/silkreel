@@ -17,7 +17,7 @@ export function mulberry32(seedValue: number): () => number {
 }
 
 export function makeRng(seed: number | null, streamId: string): Rng {
-  const baseSeed = seed === null ? deriveOrganicSeed() : seed
+  const baseSeed = seed === null ? organicSeed() : seed
   const streamSeed = mixSeed(baseSeed, hashString(streamId))
   const draw = mulberry32(streamSeed)
   return {
@@ -57,7 +57,7 @@ function mixSeed(a: number, b: number): number {
   return (x ^ (x >>> 16)) >>> 0
 }
 
-function deriveOrganicSeed(): number {
+export function organicSeed(): number {
   const timePart = Date.now() % 2147483647
   const perfPart = Math.floor(performance.now() * 1000) % 1048576
   return mixSeed(timePart, perfPart * 2654435761)

@@ -1,5 +1,4 @@
-export * from './types.js'
+export type * from './types.js'
 export * from './errors.js'
 export { compileTimeline } from './compile.js'
-export { sampleElement } from './sample.js'
-export { ease } from './curves.js'
+export { defaultActOrder } from './config.js'

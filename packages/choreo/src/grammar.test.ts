@@ -1,321 +1,174 @@
 import { describe, expect, it } from 'vitest'
-import type { Timeline } from './index.js'
-import { compileTimeline } from './index.js'
-import { splitActPhases } from './phases.js'
+import { compileTimeline, defaultActOrder } from './index.js'
+import type { FilmConfig, ShotId, Timeline } from './index.js'
 import { boardModel } from '../test/helpers.js'
 import { makeSyntheticBoard } from '../test/synthetic.js'
+
+const SHOT_IDS: readonly ShotId[] = [
+  'black-breath',
+  'vertical-seed',
+  'cross-collapse',
+  'radial-gate',
+  'bilateral-tower',
+  'corner-bridge',
+  'horizontal-study',
+  'pad-coda',
+  'black-cut'
+]
 
 const ecc83 = () => boardModel('ecc83-pp.kicad_pcb')
 const stickhub = () => boardModel('StickHub.kicad_pcb')
 
-const PHASE_ORDER = ['seed', 'populate', 'beat', 'build', 'sustain', 'dissolve'] as const
+function assertDirectedTimeline(timeline: Timeline): void {
+  expect(timeline.fps).toBeGreaterThan(0)
+  expect(timeline.totalFrames).toBe(Math.round(timeline.durationSeconds * timeline.fps))
+  expect(timeline.output).toEqual({ width: timeline.width, height: timeline.height, fps: timeline.fps })
+  expect(timeline.shots.map((shot) => shot.id)).toEqual(SHOT_IDS)
+  expect(timeline.shots[0]?.startFrame).toBe(0)
+  expect(timeline.shots.at(-1)?.endFrame).toBe(timeline.totalFrames - 1)
 
-function expectedOrder(phases: { kind: string }[]): void {
-  const ranks = phases.map((p) => {
-    const rank = PHASE_ORDER.indexOf(p.kind as (typeof PHASE_ORDER)[number])
-    expect(rank, `unknown phase kind ${p.kind}`).toBeGreaterThanOrEqual(0)
-    return rank
-  })
-  for (let i = 1; i < ranks.length; i++) {
-    expect(ranks[i] as number, `phase ${phases[i]?.kind} out of order after ${phases[i - 1]?.kind}`).toBeGreaterThan(
-      ranks[i - 1] as number
-    )
+  const castIds = new Set(timeline.cast.map((unit) => unit.id))
+  expect(castIds.size).toBe(timeline.cast.length)
+  for (const unit of timeline.cast) {
+    expect(unit.memberRefs.length).toBeGreaterThan(0)
+    expect(Object.values(unit.bounds.min).every(Number.isFinite)).toBe(true)
+    expect(Object.values(unit.bounds.max).every(Number.isFinite)).toBe(true)
   }
+
+  let previousEnd = -1
+  for (const shot of timeline.shots) {
+    expect(shot.startFrame).toBe(previousEnd + 1)
+    expect(shot.endFrame).toBeGreaterThanOrEqual(shot.startFrame)
+    expect(shot.endFrame).toBeLessThan(timeline.totalFrames)
+    previousEnd = shot.endFrame
+    const trackIds = new Set<string>()
+    for (const track of shot.tracks) {
+      expect(castIds.has(track.castId)).toBe(true)
+      expect(trackIds.has(track.castId)).toBe(false)
+      trackIds.add(track.castId)
+      expect(track.copies.transforms.length).toBeGreaterThan(0)
+      expect(track.keyframes.length).toBeGreaterThanOrEqual(2)
+      let previousFrame = shot.startFrame - 1
+      for (const keyframe of track.keyframes) {
+        expect(keyframe.frame).toBeGreaterThanOrEqual(shot.startFrame)
+        expect(keyframe.frame).toBeLessThanOrEqual(shot.endFrame)
+        expect(keyframe.frame).toBeGreaterThanOrEqual(previousFrame)
+        expect([keyframe.x, keyframe.y, keyframe.scale, keyframe.rotation, keyframe.opacity, keyframe.glow].every(Number.isFinite)).toBe(true)
+        previousFrame = keyframe.frame
+      }
+    }
+  }
+  expect(previousEnd).toBe(timeline.totalFrames - 1)
+  expect(timeline.directedBeats.every((beat) => beat.frame >= 0 && beat.frame < timeline.totalFrames)).toBe(true)
+  expect(Object.prototype.hasOwnProperty.call(timeline, 'acts')).toBe(false)
+  expect(Object.prototype.hasOwnProperty.call(timeline, 'elements')).toBe(false)
+  expect(Object.prototype.hasOwnProperty.call(timeline, 'beats')).toBe(false)
 }
 
-function assertTimelineStructure(tl: Timeline): void {
-  expect(tl.fps).toBeGreaterThan(0)
-  expect(tl.totalFrames).toBe(Math.round((tl.durationSeconds * tl.fps)))
-  expect(tl.width).toBe(1080)
-  expect(tl.height).toBe(1350)
-  expect(tl.acts.length).toBeGreaterThanOrEqual(2)
-  expect(tl.acts[0]?.startFrame).toBe(0)
-  const last = tl.acts[tl.acts.length - 1]
-  expect(last?.endFrame).toBe(tl.totalFrames - 1)
-  for (let i = 0; i < tl.acts.length; i++) {
-    const act = tl.acts[i]
-    if (act === undefined) throw new Error(`act ${i} missing`)
-    expect(act.endFrame, `act ${act.id} end before start`).toBeGreaterThanOrEqual(act.startFrame)
-    if (i > 0) {
-      const prev = tl.acts[i - 1]
-      expect(prev).toBeDefined()
-      expect(act.startFrame, `act ${act.id} overlaps previous act`).toBeGreaterThan(prev?.endFrame ?? -2)
-      expect(act.startFrame, `act ${act.id} leaves a gap after previous act`).toBeLessThanOrEqual((prev?.endFrame ?? -2) + 1)
-    }
-    expect(act.phases.length).toBeGreaterThanOrEqual(5)
-    const kinds = act.phases.map((p) => p.kind)
-    expect(kinds.filter((k) => k === 'seed').length, `act ${act.id} needs exactly one seed`).toBe(1)
-    expect(kinds.filter((k) => k === 'populate').length).toBe(1)
-    expect(kinds.filter((k) => k === 'build').length).toBe(1)
-    expect(kinds.filter((k) => k === 'sustain').length).toBe(1)
-    expect(kinds.filter((k) => k === 'dissolve').length).toBe(1)
-    expect(kinds.filter((k) => k === 'beat').length).toBeLessThanOrEqual(1)
-    expectedOrder(act.phases)
-    let cursor = act.startFrame
-    for (const phase of act.phases) {
-      expect(phase.startFrame).toBe(cursor)
-      expect(phase.endFrame).toBeGreaterThanOrEqual(phase.startFrame)
-      cursor = phase.endFrame + 1
-    }
-    expect(cursor - 1, `act ${act.id} phases must tile the act exactly`).toBeGreaterThanOrEqual(act.endFrame - 1)
-    expect(cursor, `act ${act.id} phases overshoot the act`).toBeLessThanOrEqual(act.endFrame + 2)
-  }
-  for (const beat of tl.beats) {
-    expect(beat.frame).toBeGreaterThanOrEqual(0)
-    expect(beat.frame).toBeLessThan(tl.totalFrames)
-  }
-}
-
-describe('VAL-FILM-001 grammar phase structure', () => {
-  it('every act follows seed→populate→[beat]→build→sustain→dissolve and acts tile [0,totalFrames)', () => {
-    const tl = compileTimeline(ecc83(), defaultConfig())
-    assertTimelineStructure(tl)
-    console.log(
-      tl.acts
-        .map((a) => `${a.id} [${a.startFrame}-${a.endFrame}] ${a.phases.map((p) => p.kind).join('>')}`)
-        .join('\n')
-    )
+describe('directed timeline grammar', () => {
+  it('compiles the canonical reference grammar at 167 frames', () => {
+    const timeline = compileTimeline(ecc83(), defaultConfig({ duration: 167 / 15 }))
+    assertDirectedTimeline(timeline)
+    expect(timeline.shots.map((shot) => [shot.id, shot.startFrame, shot.endFrame])).toEqual([
+      ['black-breath', 0, 4],
+      ['vertical-seed', 5, 34],
+      ['cross-collapse', 35, 54],
+      ['radial-gate', 55, 69],
+      ['bilateral-tower', 70, 104],
+      ['corner-bridge', 105, 119],
+      ['horizontal-study', 120, 154],
+      ['pad-coda', 155, 165],
+      ['black-cut', 166, 166]
+    ])
+    expect(timeline.shots[0]?.tracks).toEqual([])
+    expect(timeline.shots.at(-1)?.tracks).toEqual([])
+    expect(timeline.shots.find((shot) => shot.id === 'pad-coda')?.tracks).toHaveLength(4)
   })
 
-  it('structure holds across every symmetry mode and dissolve style', () => {
+  it('holds across symmetry modes and dissolve styles', () => {
     for (const symmetry of ['auto', 'mirror-x', 'mirror-y', 'quad', 'rotational180', 'none'] as const) {
-      const tl = compileTimeline(stickhub(), defaultConfig({ knobs: { symmetry } }))
-      assertTimelineStructure(tl)
+      assertDirectedTimeline(compileTimeline(stickhub(), defaultConfig({ knobs: { symmetry } })))
     }
     for (const dissolveStyle of ['center-out', 'fade', 'wipe', 'scatter'] as const) {
-      const tl = compileTimeline(stickhub(), defaultConfig({ knobs: { dissolveStyle } }))
-      assertTimelineStructure(tl)
+      assertDirectedTimeline(compileTimeline(stickhub(), defaultConfig({ knobs: { dissolveStyle } })))
     }
   })
 })
 
-describe('VAL-FILM-002 actOrder permutation', () => {
-  it('silk-first reorder moves silk acts ahead of copper acts with identical act sets', () => {
-    const base = defaultConfig({ seed: 42 })
-    const a = compileTimeline(stickhub(), base)
-    const silkFirst: Array<typeof a.acts[number]['id']> = [
-      ...a.acts.filter((x) => x.unit.startsWith('silk')).map((x) => x.id),
-      ...a.acts.filter((x) => !x.unit.startsWith('silk')).map((x) => x.id)
-    ]
-    const b = compileTimeline(stickhub(), defaultConfig({ seed: 42, actOrder: silkFirst }))
-    const aIds = a.acts.map((x) => x.id).sort()
-    const bIds = b.acts.map((x) => x.id).sort()
-    expect(bIds).toEqual(aIds)
-    expect(b.acts.map((x) => x.id)).toEqual(silkFirst)
-    const lastSilkStartB = Math.max(...b.acts.filter((x) => x.unit.startsWith('silk')).map((x) => x.startFrame))
-    const firstCopperStartB = Math.min(...b.acts.filter((x) => x.unit.startsWith('copper')).map((x) => x.startFrame))
-    expect(lastSilkStartB).toBeLessThan(firstCopperStartB)
-    const firstSilkStartA = Math.min(...a.acts.filter((x) => x.unit.startsWith('silk')).map((x) => x.startFrame))
-    const lastCopperStartA = Math.max(...a.acts.filter((x) => x.unit.startsWith('copper')).map((x) => x.startFrame))
-    expect(firstSilkStartA).toBeGreaterThan(lastCopperStartA)
-    assertTimelineStructure(b)
-  })
-})
+describe('directed cast boundary', () => {
+  it('keeps assembly membership atomic while allowing a sparse cast', () => {
+    const board = ecc83()
+    const timeline = compileTimeline(board, defaultConfig())
+    const castById = new Map(timeline.cast.map((unit) => [unit.id, unit]))
+    const sourceIds = new Set<string>()
+    for (const copper of Object.values(board.copper)) {
+      for (const trace of copper.traces) sourceIds.add(trace.id)
+      for (const pad of copper.pads) sourceIds.add(pad.id)
+      for (const via of copper.vias) sourceIds.add(via.id)
+      for (const zone of copper.zones) sourceIds.add(zone.id)
+    }
+    for (const silk of Object.values(board.silkscreen)) {
+      for (const line of silk.lines) sourceIds.add(line.id)
+      for (const arc of silk.arcs) sourceIds.add(arc.id)
+      for (const text of silk.texts) sourceIds.add(text.id)
+    }
+    for (const outline of board.outline) sourceIds.add(outline.id)
+    for (const drill of board.drill) sourceIds.add(drill.id)
 
-describe('VAL-FILM-003 exact element coverage', () => {
-  function sourceElementIds(model: ReturnType<typeof boardModel>): string[] {
-    const ids = new Set<string>()
-    for (const o of model.outline) ids.add(o.id)
-    for (const d of model.drill) ids.add(d.id)
-    for (const c of Object.values(model.copper)) {
-      for (const t of c.traces) ids.add(t.id)
-      for (const p of c.pads) ids.add(p.id)
-      for (const v of c.vias) ids.add(v.id)
-      for (const z of c.zones) ids.add(z.id)
+    for (const unit of timeline.cast) {
+      expect(unit.memberRefs.every((ref) => sourceIds.has(ref))).toBe(true)
+      if (unit.role !== 'hero-body' && unit.role !== 'detail') continue
+      const ref = unit.id.slice(unit.id.indexOf(':') + 1)
+      const footprint = board.footprints.find((candidate) => candidate.ref === ref)
+      expect(footprint).toBeDefined()
+      expect(new Set(unit.memberRefs)).toEqual(new Set([...(footprint?.padRefs ?? []), ...(footprint?.silkRefs ?? [])]))
     }
-    for (const s of Object.values(model.silkscreen)) {
-      for (const l of s.lines) ids.add(l.id)
-      for (const tx of s.texts) ids.add(tx.id)
-    }
-    return [...ids]
-  }
-
-  it('timeline elements are a bijection with distinct source elements', () => {
-    const model = stickhub()
-    const tl = compileTimeline(model, defaultConfig())
-    const timelineIds = new Set(tl.elements.map((e) => e.id))
-    expect(timelineIds.size).toBe(tl.elements.length)
-    const sourceIds = new Set(sourceElementIds(model))
-    const missing = [...sourceIds].filter((id) => !timelineIds.has(id))
-    const extra = [...timelineIds].filter((id) => !sourceIds.has(id))
-    expect(missing, 'source elements missing from timeline').toEqual([])
-    expect(extra, 'timeline elements without source').toEqual([])
-    for (const act of tl.acts) {
-      const covered = tl.elements.filter((e) => e.actId === act.id)
-      expect(covered.length, `act ${act.id} covers nothing`).toBeGreaterThan(0)
-      expect(tl.acts.some((a) => a.id === act.id)).toBe(true)
-    }
-    for (const e of tl.elements) {
-      expect(tl.acts.some((a) => a.id === e.actId), `element ${e.id} references unknown act ${e.actId}`).toBe(true)
+    for (const shot of timeline.shots) {
+      for (const track of shot.tracks) expect(castById.has(track.castId)).toBe(true)
     }
   })
 })
 
-describe('VAL-FILM-004 footprint atomicity', () => {
-  it('all members of a footprint share identical appearance/disappearance frames', () => {
-    const model = ecc83()
-    const tl = compileTimeline(model, defaultConfig())
-    const byId = new Map(tl.elements.map((e) => [e.id, e]))
-    function firstVisible(elId: string): number | undefined {
-      const el = byId.get(elId)
-      if (!el) return undefined
-      for (const k of el.keyframes) if (k.opacity > 0) return k.frame
-      return undefined
-    }
-    function lastVisible(elId: string): number | undefined {
-      const el = byId.get(elId)
-      if (!el) return undefined
-      for (let i = el.keyframes.length - 1; i >= 0; i--) {
-        const k = el.keyframes[i]
-        if (k && k.opacity > 0) return k.frame
-      }
-      return undefined
-    }
-    let checkedGroups = 0
-    for (const fp of model.footprints) {
-      const memberIds = [...fp.padRefs, ...fp.silkRefs].filter((id) => byId.has(id))
-      expect(memberIds.length, `footprint ${fp.ref} refs unresolvable elements`).toBe(fp.padRefs.length + fp.silkRefs.length)
-      if (memberIds.length < 2) continue
-      const appears = memberIds.map(firstVisible)
-      expect(appears.some((f) => f === undefined), `footprint ${fp.ref} has a never-visible member`).toBe(false)
-      expect(new Set(appears).size, `footprint ${fp.ref} members appear at different frames`).toBe(1)
-      const disappears = memberIds.map(lastVisible)
-      expect(disappears.some((f) => f === undefined), `footprint ${fp.ref} has a member that never exits`).toBe(false)
-      expect(new Set(disappears).size, `footprint ${fp.ref} members exit at different frames`).toBe(1)
-      checkedGroups++
-    }
-    expect(checkedGroups).toBeGreaterThan(5)
-  })
-})
-
-describe('VAL-FILM-005 duration policy', () => {
-  it('synthetic boards land in their behavioral bands', () => {
+describe('directed duration and ordering', () => {
+  it('preserves duration policy without act output', () => {
     const small = compileTimeline(makeSyntheticBoard(30), defaultConfig())
     expect(small.durationSeconds).toBeGreaterThanOrEqual(7)
     expect(small.durationSeconds).toBeLessThanOrEqual(9)
+
     const mid = compileTimeline(makeSyntheticBoard(300), defaultConfig())
     expect(mid.durationSeconds).toBeGreaterThanOrEqual(10)
     expect(mid.durationSeconds).toBeLessThanOrEqual(12)
-  })
 
-  it('video board auto-duration respects the 20s cap and floor holds at 6s', () => {
-    const video = compileTimeline(boardModel('video.kicad_pcb'), defaultConfig({ duration: 'auto' }))
+    const video = compileTimeline(boardModel('video.kicad_pcb'), defaultConfig())
     expect(video.durationSeconds).toBeLessThanOrEqual(20)
-    const tiny = makeSyntheticBoard(4)
-    const floor = compileTimeline(tiny, defaultConfig())
-    expect(floor.durationSeconds).toBeGreaterThanOrEqual(6)
+    expect(compileTimeline(makeSyntheticBoard(4), defaultConfig()).durationSeconds).toBeGreaterThanOrEqual(6)
+    const explicit = compileTimeline(makeSyntheticBoard(30), defaultConfig({ duration: 14 }))
+    expect(Math.abs(explicit.durationSeconds - 14)).toBeLessThanOrEqual(0.5 / explicit.fps + 1e-9)
   })
 
-  it('totalFrames equals round(duration × fps) on every compilation', () => {
-    for (const count of [30, 300]) {
-      const tl = compileTimeline(makeSyntheticBoard(count), defaultConfig())
-      expect(tl.totalFrames).toBe(Math.round(tl.durationSeconds * tl.fps))
-    }
+  it('warns about unknown actOrder entries while retaining FilmConfig ordering input', () => {
+    const board = stickhub()
+    const known = defaultActOrder(board)
+    const timeline = compileTimeline(board, defaultConfig({ actOrder: [...known, 'silk:missing'] }))
+    expect(timeline.warnings.some((warning) => warning.code === 'act-order-ignored')).toBe(true)
+    expect(timeline.cast.every((unit) => known.includes(unit.sourceAct))).toBe(true)
+    assertDirectedTimeline(timeline)
   })
 
-  it('numeric duration override wins exactly over policy', () => {
-    const tl = compileTimeline(makeSyntheticBoard(30), defaultConfig({ duration: 14 }))
-    expect(Math.abs(tl.durationSeconds - 14)).toBeLessThanOrEqual(0.5 / tl.fps + 1e-9)
-    expect(tl.totalFrames).toBe(Math.round(14 * tl.fps))
-  })
-})
-
-describe('beat carrier phase-allocation overrun', () => {
-  it('short carrier acts never let tail phases spill into the next act', () => {
-    const tl = compileTimeline(makeSyntheticBoard(300), defaultConfig({ knobs: { beatCount: 3 } }))
-    for (let i = 0; i < tl.acts.length; i++) {
-      const act = tl.acts[i]
-      if (!act) continue
-      for (const phase of act.phases) {
-        expect(phase.endFrame, `${act.id} phase ${phase.kind} ends past its act`).toBeLessThanOrEqual(act.endFrame)
-        expect(phase.startFrame, `${act.id} phase ${phase.kind} starts before its act`).toBeGreaterThanOrEqual(act.startFrame)
-      }
-      const next = tl.acts[i + 1]
-      if (next) {
-        expect(act.endFrame, `${act.id} must not overlap ${next.id}`).toBeLessThan(next.startFrame)
-      }
-      const beatPhases = act.phases.filter((p) => p.kind === 'beat')
-      for (const bp of beatPhases) {
-        expect(bp.endFrame - bp.startFrame + 1, 'beat phase keeps its ~0.4s length').toBe(Math.round(0.4 * tl.fps) || 6)
-      }
-    }
-    for (const act of tl.acts) {
-      if (!act.phases.some((p) => p.kind === 'beat')) continue
-      const nonBeat = act.phases.filter((p) => p.kind !== 'beat')
-      for (const p of nonBeat) {
-        expect(
-          p.endFrame - p.startFrame + 1,
-          `${act.id} ${p.kind} keeps its minimum floor`
-        ).toBeGreaterThanOrEqual(2)
-      }
-    }
-  })
-
-  it('a forced short act carrying a beat drops the beat with a documented warning', () => {
-    const board = makeSyntheticBoard(120)
-    const tl = compileTimeline(board, defaultConfig({
-      knobs: { beatCount: 5 },
-      duration: 6
-    }))
-    for (const act of tl.acts) {
-      for (const phase of act.phases) {
-        expect(phase.endFrame).toBeLessThanOrEqual(act.endFrame)
-      }
-    }
-    if (tl.beats.length < 3) {
-      const flagged = tl.warnings.find((w) => w.code === 'beat-dropped-short-act' || w.code === 'beat-dropped-phase-floors')
-      expect(flagged, `dropped beats (${3 - tl.beats.length} of 3) must be documented in warnings`).toBeDefined()
-    }
-  })
-
-  it('splitActPhases never allocates past the act end when a beat is requested', () => {
-    for (let len = 5; len <= 24; len++) {
-      const split = splitActPhases(0, len - 1, 15, true)
-      let cursorEnd = -1
-      for (const phase of split.phases) {
-        expect(phase.startFrame, `len=${len} ${phase.kind} starts inside act`).toBeGreaterThanOrEqual(0)
-        expect(phase.endFrame, `len=${len} ${phase.kind} spills past act end`).toBeLessThanOrEqual(len - 1)
-        if (phase.startFrame > cursorEnd + 1 && cursorEnd >= 0) {
-          expect.fail(`len=${len} gap before ${phase.kind}`)
-        }
-        cursorEnd = Math.max(cursorEnd, phase.endFrame)
-      }
-      expect(cursorEnd, `len=${len} phases must reach the act end`).toBe(len - 1)
-      const kinds = split.phases.map((p) => p.kind)
-      for (const mandatory of ['seed', 'populate', 'build', 'sustain', 'dissolve']) {
-        expect(kinds, `len=${len} missing ${mandatory}`).toContain(mandatory)
-      }
-      if (split.beat !== undefined) {
-        const nonBeat = split.phases.filter((p) => p.kind !== 'beat')
-        for (const p of nonBeat) {
-          expect(p.endFrame - p.startFrame + 1, `len=${len} ${p.kind} below floor with beat present`).toBeGreaterThanOrEqual(2)
-        }
-      } else {
-        expect(
-          len,
-          'acts too short to fit a beat plus phase floors must drop the beat'
-        ).toBeLessThanOrEqual(12 + 6)
-      }
-    }
-  })
-
-  it('12-17 frame carriers with beats keep every phase inside the act and floors respected', () => {
-    const board = makeSyntheticBoard(200)
-    for (const duration of [7, 8, 9]) {
-      const tl = compileTimeline(board, defaultConfig({ duration, knobs: { beatCount: 2 } }))
-      for (const act of tl.acts) {
-        const actLen = act.endFrame - act.startFrame + 1
-        if (actLen < 10 || actLen > 20) continue
-        for (const phase of act.phases) {
-          expect(phase.endFrame, `${duration}s: ${act.id} ${phase.kind} spills past act end`).toBeLessThanOrEqual(act.endFrame)
-          expect(phase.endFrame - phase.startFrame + 1).toBeGreaterThanOrEqual(2)
-        }
-      }
+  it('places directed beats inside the shot grammar', () => {
+    const timeline = compileTimeline(ecc83(), defaultConfig({ knobs: { beatCount: 3 } }))
+    expect(timeline.directedBeats.map((beat) => beat.frame)).toEqual([
+      timeline.shots.find((shot) => shot.id === 'radial-gate')?.startFrame,
+      timeline.shots.find((shot) => shot.id === 'bilateral-tower')?.startFrame,
+      timeline.shots.find((shot) => shot.id === 'horizontal-study')?.startFrame
+    ])
+    for (const beat of timeline.directedBeats) {
+      expect(timeline.shots.some((shot) => beat.frame >= shot.startFrame && beat.frame <= shot.endFrame)).toBe(true)
     }
   })
 })
 
-export function defaultConfig(overrides: Partial<Parameters<typeof compileTimeline>[1]> = {}): Parameters<typeof compileTimeline>[1] {
+export function defaultConfig(overrides: Partial<FilmConfig> = {}): FilmConfig {
   return {
     actOrder: [],
     knobs: {},

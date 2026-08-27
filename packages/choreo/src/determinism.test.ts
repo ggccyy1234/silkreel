@@ -41,41 +41,25 @@ describe('VAL-FILM-012 seeded determinism', () => {
     for (let i = 0; i < 3; i++) {
       const tl = compileTimeline(makeSyntheticBoard(200), cfg({ seed: null }))
       digests.add(sha256Of(tl))
-      expect(tl.acts.length).toBeGreaterThanOrEqual(2)
-      expect(tl.elements.length).toBeGreaterThan(0)
-      for (const act of tl.acts) {
-        const kinds = act.phases.map((p) => p.kind)
-        expect(kinds).toContain('seed')
-        expect(kinds).toContain('dissolve')
-      }
+      expect(tl.cast.length).toBeGreaterThan(0)
+      expect(tl.shots.length).toBe(9)
+      expect(tl.shots[0]?.startFrame).toBe(0)
+      expect(tl.shots.at(-1)?.endFrame).toBe(tl.totalFrames - 1)
     }
     expect(digests.size).toBe(3)
   })
 })
 
 describe('VAL-FILM-022 degenerate-but-legal configs', () => {
-  it('beatCount=5 stays structurally valid with documented clamping', () => {
+  it('beatCount=5 stays within the directed beat budget', () => {
     const tl = compileTimeline(makeSyntheticBoard(60), cfg({ knobs: { beatCount: 5 } }))
-    expect(tl.acts.length).toBeGreaterThan(0)
-    for (const act of tl.acts) {
-      const beats = act.phases.filter((p) => p.kind === 'beat').length
-      expect(beats).toBeLessThanOrEqual(1)
-      expect(act.endFrame).toBeGreaterThanOrEqual(act.startFrame)
-    }
-    expect(tl.beats.length, 'beats clamped to available carrying acts').toBeLessThan(6)
-    console.log(`clamp evidence: requested beatCount=5, compiled beats=${tl.beats.length} (one per short-listed carrier)`)
+    expect(tl.directedBeats.length).toBeLessThanOrEqual(3)
+    expect(tl.directedBeats.every((beat) => beat.frame >= 0 && beat.frame < tl.totalFrames)).toBe(true)
   })
 
-  it('exposure=3.0 stays structurally valid with documented clamping', () => {
+  it('exposure=3.0 stays within the directed render contract', () => {
     const tl = compileTimeline(makeSyntheticBoard(60), cfg({ knobs: { exposure: 3.0 } }))
-    expect(tl.acts.length).toBeGreaterThan(0)
-    for (const act of tl.acts) {
-      const beats = act.phases.filter((p) => p.kind === 'beat').length
-      expect(beats).toBeLessThanOrEqual(1)
-      expect(act.endFrame).toBeGreaterThanOrEqual(act.startFrame)
-    }
     expect(tl.renderParams.exposure).toBeCloseTo(2, 5)
-    console.log(`clamp evidence: exposure=3.0 clamped to ${tl.renderParams.exposure}`)
     expect(tl.warnings.some((w) => w.code === 'knob-clamped' && w.message.includes('exposure'))).toBe(true)
   })
 
@@ -96,20 +80,16 @@ describe('VAL-FILM-022 degenerate-but-legal configs', () => {
     expect(['clamped', 'rejected']).toContain(outcome)
   })
 
-  it("symmetry='none' + center-out dissolve compiles valid structure", () => {
+  it("symmetry='none' + center-out dissolve compiles valid directed tracks", () => {
     const tl = compileTimeline(
       makeSyntheticBoard(80),
       cfg({ knobs: { symmetry: 'none', dissolveStyle: 'center-out' } })
     )
-    expect(tl.acts.length).toBeGreaterThanOrEqual(2)
-    for (const act of tl.acts) {
-      const kinds = act.phases.map((p) => p.kind)
-      expect(kinds.indexOf('seed')).toBeGreaterThanOrEqual(0)
-      expect(kinds[kinds.length - 1]).toBe('dissolve')
-    }
+    expect(tl.shots.length).toBe(9)
+    expect(tl.shots.flatMap((shot) => shot.tracks).every((track) => track.copies.mode === 'none')).toBe(true)
   })
 
-  it('out-of-domain configs are contained: clamped-with-warning or typed rejection', () => {
+  it('out-of-domain configs are contained by typed rejection or warnings', () => {
     expect(() =>
       compileTimeline(makeSyntheticBoard(30), cfg({ duration: -4 }))
     ).toThrow(/duration/i)
@@ -123,7 +103,7 @@ describe('VAL-FILM-022 degenerate-but-legal configs', () => {
     const clamped = compileTimeline(makeSyntheticBoard(30), cfg({ knobs: { rhythmDensity: 7 } }))
     const note = clamped.warnings.find((w) => w.code === 'knob-clamped' && w.message.includes('rhythmDensity'))
     expect(note, 'clamped rhythmDensity must be documented in warnings').toBeDefined()
-    expect(clamped.acts.length).toBeGreaterThan(0)
+    expect(clamped.shots.length).toBe(9)
   })
 
   it('actOrder referencing unknown acts is rejected typed or ignored safely', () => {
@@ -135,8 +115,9 @@ describe('VAL-FILM-022 degenerate-but-legal configs', () => {
       expect(err instanceof Error ? err.message : '').toMatch(/act|order|Nope/i)
     }
     if (!threw) {
-      const tl = compileTimeline(makeSyntheticBoard(40), cfg({ actOrder: ['copper:F.Cu'] }))
-      expect(tl.acts.length).toBeGreaterThanOrEqual(2)
+      const tl = compileTimeline(makeSyntheticBoard(40), cfg({ actOrder: ['copper:F.Cu', 'silk:Nope.SilkS'] }))
+      expect(tl.shots.length).toBe(9)
+      expect(tl.warnings.some((warning) => warning.code === 'act-order-ignored')).toBe(true)
     }
   })
 })
