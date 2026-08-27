@@ -127,7 +127,7 @@ export const StudioApp: React.FC = () => {
     try {
       const jobId = await submitExport({
         boardJson: summary.board,
-        filmConfig: { actOrder, knobs, seed, duration, output: { width: 1080, height: 1350, fps: 15 } }
+        filmConfig: config
       }, controller.signal)
       if (exportControllerRef.current !== controller) return
       currentJob = { jobId, status: 'pending', progress: 0, gatePassed: null, gateDetail: null, error: null }
@@ -154,7 +154,7 @@ export const StudioApp: React.FC = () => {
         exportInFlightRef.current = false
       }
     }
-  }, [summary, actOrder, knobs, seed, duration])
+  }, [summary, config])
 
   if (screen === 'landing' || !summary) {
     return (
@@ -214,56 +214,82 @@ const Landing: React.FC<{
   return (
     <main className="landing">
       <header className="landing-header">
-        <h1 className="wordmark">silk reel</h1>
-        <span className="tagline">pcb boards, cut to film</span>
+        <div>
+          <span className="landing-kicker">procedural pcb film studio</span>
+          <h1 className="wordmark">silk reel</h1>
+        </div>
+        <p className="tagline">Board geometry becomes a directed film. The source stays yours.</p>
+        <div className="lab-status" aria-label="studio format">
+          <span>1080 × 1350</span>
+          <span>15 fps</span>
+          <span>h.264</span>
+        </div>
       </header>
-      <section
-        className={`drop-zone${dragOver ? ' drag-over' : ''}`}
-        onDragOver={(e) => {
-          e.preventDefault()
-          setDragOver(true)
-        }}
-        onDragLeave={() => {
-          setDragOver(false)
-        }}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragOver(false)
-          const file = e.dataTransfer.files[0]
-          if (file) void onFile(file)
-        }}
-      >
-        <p className="drop-hint">drop a .kicad_pcb or .kicad_mod, or</p>
-        <button onClick={() => {
-          fileInput.current?.click()
-        }}>choose file</button>
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".kicad_pcb,.kicad_mod,.gtl,.gbl,.gml,.gko,.gts,.gbs,.gto,.gbo,.gtp,.gbp,.drl,.drd,.xln,.cmp,.sol,.gpi"
-          hidden
-          onChange={(e) => {
-            const file = e.target.files?.[0]
+      <div className="intake-grid">
+        <section
+          className={`drop-zone${dragOver ? ' drag-over' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragOver(true)
+          }}
+          onDragLeave={() => {
+            setDragOver(false)
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragOver(false)
+            const file = e.dataTransfer.files[0]
             if (file) void onFile(file)
           }}
-        />
-      </section>
+        >
+          <span className="intake-number">01 / source</span>
+          <div className="intake-copy">
+            <strong>Load a board</strong>
+            <p>Drop a .kicad_pcb or .kicad_mod</p>
+          </div>
+          <button className="intake-button" onClick={() => {
+            fileInput.current?.click()
+          }}>choose file</button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".kicad_pcb,.kicad_mod,.gtl,.gbl,.gml,.gko,.gts,.gbs,.gto,.gbo,.gtp,.gbp,.drl,.drd,.xln,.cmp,.sol,.gpi"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void onFile(file)
+            }}
+          />
+        </section>
+        <aside className="format-note" aria-label="supported workflow">
+          <span>ingest</span><strong>KiCad PCB</strong>
+          <span>direction</span><strong>9 shots</strong>
+          <span>output</span><strong>MP4 + gate</strong>
+          <p>Gerber sets join the pipeline in m4.</p>
+        </aside>
+      </div>
       {error !== null && (
         <div className="error-strip" role="alert">
           <span>{error}</span>
           <button className="ghost" onClick={onDismissError} aria-label="dismiss error">dismiss</button>
         </div>
       )}
+      <div className="demo-heading">
+        <span>02 / bench stock</span>
+        <span>start from a known board</span>
+      </div>
       <section className="demo-grid" aria-label="demo boards">
-        {DEMO_BOARDS.map((demo) => (
+        {DEMO_BOARDS.map((demo, index) => (
           <button
             key={demo.id}
-            className="demo-card"
+            className={`demo-card demo-card-${index + 1}`}
             onClick={() => {
               void onDemo(demo.id, demo.label)
             }}
             disabled={loadingDemo !== null}
           >
+            <span className="demo-index">{String(index + 1).padStart(2, '0')}</span>
+            <span className="demo-plot" aria-hidden="true"><i /><i /><i /><i /></span>
             <span className="demo-label">{demo.label}</span>
             <span className="demo-detail">{loadingDemo === demo.id ? 'loading…' : demo.detail}</span>
             <span className="demo-cta">open →</span>
@@ -300,7 +326,7 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
         <button className="ghost" onClick={props.onHome}>← boards</button>
         <h1 className="board-name">{summary.fileName}</h1>
         <span className="board-meta">{summary.layerCount} source layers · {summary.elementCount.toLocaleString()} primitives</span>
-        <ExportControl state={props.exportState} onExport={props.onExport} />
+        <ExportControl state={props.exportState} onExport={props.onExport} disabled={props.compileStale || film === null} />
       </header>
       <div className="workspace-body">
         <section className="player-pane" aria-label="preview">
@@ -350,6 +376,21 @@ const BoardLedger: React.FC<{ summary: BoardSummary; castCount: number }> = ({ s
 
 const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel; stale: boolean }> = ({ timeline, board, stale }) => {
   const playerRef = React.useRef<PlayerRef>(null)
+  const [currentFrame, setCurrentFrame] = React.useState(0)
+
+  React.useEffect(() => {
+    const player = playerRef.current
+    if (player === null) return
+
+    const updateFrame = (event: { detail: { frame: number } }): void => {
+      setCurrentFrame(event.detail.frame)
+    }
+
+    player.addEventListener('frameupdate', updateFrame)
+    return () => {
+      player.removeEventListener('frameupdate', updateFrame)
+    }
+  }, [timeline])
 
   return (
     <div className="player-wrap">
@@ -367,12 +408,12 @@ const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel; stale: boole
         loop
         acknowledgeRemotionLicense
       />
-      <ActRibbon timeline={timeline} playerRef={playerRef} />
+      <ActRibbon timeline={timeline} playerRef={playerRef} currentFrame={currentFrame} />
     </div>
   )
 }
 
-const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<PlayerRef | null> }> = ({ timeline, playerRef }) => {
+const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<PlayerRef | null>; currentFrame: number }> = ({ timeline, playerRef, currentFrame }) => {
   const total = timeline.totalFrames
   const beats = timeline.directedBeats
   const shotLabels: Record<string, string> = {
@@ -386,12 +427,28 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
     'pad-coda': 'coda',
     'black-cut': 'cut'
   }
+  const seekFromPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const progress = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
+    playerRef.current?.seekTo(Math.min(total - 1, Math.floor(progress * total)))
+  }
   return (
-    <div className="act-ribbon" role="group" aria-label="shot map; click a shot to jump to it">
+    <div
+      className="act-ribbon"
+      role="group"
+      aria-label="shot map; click or drag across the map to seek"
+      onPointerDown={(event) => {
+        event.currentTarget.setPointerCapture(event.pointerId)
+        seekFromPointer(event)
+      }}
+      onPointerMove={(event) => {
+        if (event.buttons === 1) seekFromPointer(event)
+      }}
+    >
       {timeline.shots.map((shot, i) => (
         <button
           key={shot.id}
-          className={`act-block shot-${shot.id}`}
+          className={`act-block shot-${shot.id}${currentFrame >= shot.startFrame && currentFrame <= shot.endFrame ? ' act-block-active' : ''}`}
           style={{
             width: `${((shot.endFrame - shot.startFrame + 1) / total) * 100}%`,
             background: i % 2 === 0 ? '#2e2e2e' : '#383838',
@@ -403,6 +460,7 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
           onClick={() => {
             playerRef.current?.seekTo(shot.startFrame)
           }}
+          aria-current={currentFrame >= shot.startFrame && currentFrame <= shot.endFrame ? 'true' : undefined}
           title={`${shot.id}: frames ${shot.startFrame}–${shot.endFrame}`}
         >
           {beats
@@ -418,6 +476,7 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
           <span className="act-label">{shotLabels[shot.id] ?? shot.id}</span>
         </button>
       ))}
+      <span className="shot-playhead" aria-hidden="true" style={{ left: `${((currentFrame + 0.5) / total) * 100}%` }} />
     </div>
   )
 }
@@ -650,11 +709,11 @@ const KnobPanel: React.FC<{
   )
 }
 
-const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promise<void> }> = ({ state, onExport }) => {
+const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promise<void>; disabled: boolean }> = ({ state, onExport, disabled }) => {
   return (
     <div className="export-control">
       {state === null && (
-        <button className="primary" onClick={() => {
+        <button className="primary" disabled={disabled} onClick={() => {
           void onExport()
         }}>export film</button>
       )}
@@ -667,7 +726,7 @@ const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promi
       {state?.status === 'failed' && (
         <>
           <span className="export-error" role="alert">failed: {state.error}</span>
-          <button className="ghost" onClick={() => {
+          <button className="ghost" disabled={disabled} onClick={() => {
             void onExport()
           }}>again</button>
         </>
@@ -683,7 +742,7 @@ const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promi
             </span>
           )}
           <a className="button-link" href={downloadUrl(state.job.jobId)}>download</a>
-          <button className="ghost" onClick={() => {
+          <button className="ghost" disabled={disabled} onClick={() => {
             void onExport()
           }}>again</button>
         </>
