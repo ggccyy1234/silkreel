@@ -168,6 +168,7 @@ export const StudioApp: React.FC = () => {
           if (board) openBoard(board, file.name)
         }}
         loadingDemo={sources.loadingDemo}
+        parsingFile={sources.parsingFile}
         error={sources.error}
         onDismissError={sources.clearError}
       />
@@ -205,11 +206,13 @@ const Landing: React.FC<{
   onDemo: (id: string, label: string) => Promise<void>
   onFile: (file: File) => Promise<void>
   loadingDemo: string | null
+  parsingFile: boolean
   error: string | null
   onDismissError: () => void
-}> = ({ onDemo, onFile, loadingDemo, error, onDismissError }) => {
+}> = ({ onDemo, onFile, loadingDemo, parsingFile, error, onDismissError }) => {
   const [dragOver, setDragOver] = useState(false)
   const fileInput = React.useRef<HTMLInputElement>(null)
+  const busy = loadingDemo !== null || parsingFile
 
   return (
     <main className="landing">
@@ -228,6 +231,7 @@ const Landing: React.FC<{
       <div className="intake-grid">
         <section
           className={`drop-zone${dragOver ? ' drag-over' : ''}`}
+          aria-busy={parsingFile}
           onDragOver={(e) => {
             e.preventDefault()
             setDragOver(true)
@@ -238,6 +242,7 @@ const Landing: React.FC<{
           onDrop={(e) => {
             e.preventDefault()
             setDragOver(false)
+            if (busy) return
             const file = e.dataTransfer.files[0]
             if (file) void onFile(file)
           }}
@@ -247,9 +252,9 @@ const Landing: React.FC<{
             <strong>Load a board</strong>
             <p>Drop a .kicad_pcb or .kicad_mod</p>
           </div>
-          <button className="intake-button" onClick={() => {
+          <button className="intake-button" disabled={busy} onClick={() => {
             fileInput.current?.click()
-          }}>choose file</button>
+          }}>{parsingFile ? 'parsing…' : 'choose file'}</button>
           <input
             ref={fileInput}
             type="file"
@@ -258,6 +263,7 @@ const Landing: React.FC<{
             onChange={(e) => {
               const file = e.target.files?.[0]
               if (file) void onFile(file)
+              e.currentTarget.value = ''
             }}
           />
         </section>
@@ -286,7 +292,7 @@ const Landing: React.FC<{
             onClick={() => {
               void onDemo(demo.id, demo.label)
             }}
-            disabled={loadingDemo !== null}
+            disabled={busy}
           >
             <span className="demo-index">{String(index + 1).padStart(2, '0')}</span>
             <span className="demo-plot" aria-hidden="true"><i /><i /><i /><i /></span>

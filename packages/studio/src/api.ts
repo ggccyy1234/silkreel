@@ -22,6 +22,7 @@ const API = ''
 
 export function useBoardSources() {
   const [loadingDemo, setLoadingDemo] = useState<string | null>(null)
+  const [parsingFile, setParsingFile] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const clearError = useCallback(() => {
     setError(null)
@@ -43,6 +44,7 @@ export function useBoardSources() {
   }, [])
 
   const parseFile = useCallback(async (file: File): Promise<BoardModel | undefined> => {
+    setParsingFile(true)
     setError(null)
     try {
       if (/\.(kicad_pcb|kicad_mod)$/i.test(file.name)) {
@@ -65,10 +67,12 @@ export function useBoardSources() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       return undefined
+    } finally {
+      setParsingFile(false)
     }
   }, [])
 
-  return { loadingDemo, error, loadDemo, parseFile, clearError }
+  return { loadingDemo, parsingFile, error, loadDemo, parseFile, clearError }
 }
 
 export function summarize(board: BoardModel, fileName: string): BoardSummary {
