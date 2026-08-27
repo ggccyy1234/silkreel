@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { defaultActOrder } from '@silk-reel/choreo'
 import type { ActId } from '@silk-reel/choreo'
 import type { BoardModel } from '@silk-reel/ingest'
 
@@ -73,10 +74,17 @@ export function summarize(board: BoardModel, fileName: string): BoardSummary {
   for (const s of Object.values(board.silkscreen)) {
     elements += s.lines.length + s.texts.length + s.arcs.length
   }
-  const acts: ActId[] = ['outline', 'drill']
-  for (const id of copperLayers) acts.push(`copper:${id}`)
-  for (const id of silkLayers) acts.push(`silk:${id}`)
+  const acts = defaultActOrder(board)
   return { board, fileName, layerCount: copperLayers.length + silkLayers.length, elementCount: elements, acts }
+}
+
+export function presentationActOrder(acts: ActId[]): ActId[] {
+  const copper = acts.filter((id) => id.startsWith('copper:'))
+  const frontCopper = copper.filter((id) => id === 'copper:F.Cu')
+  const otherCopper = copper.filter((id) => id !== 'copper:F.Cu')
+  const silk = acts.filter((id) => id.startsWith('silk:'))
+  const structural = acts.filter((id) => id === 'drill' || id === 'outline')
+  return [...frontCopper, ...silk, ...structural, ...otherCopper]
 }
 
 export function useDebouncedCallback<A extends unknown[]>(fn: (...args: A) => void, delayMs: number): (...args: A) => void {

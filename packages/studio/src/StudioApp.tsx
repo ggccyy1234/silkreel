@@ -8,7 +8,7 @@ import type { BoardModel } from '@silk-reel/ingest'
 import './workspace.css'
 import { DEFAULT_KNOBS, PALETTE_ACCENTS, KNOB_RANGES, SYMMETRY_OPTIONS, DISSOLVE_OPTIONS, EASING_OPTIONS, PALETTE_OPTIONS, DEMO_BOARDS } from './film-config'
 import type { StudioKnobs } from './film-config'
-import { downloadUrl, pollJob, submitExport, summarize, useBoardSources, useDebouncedCallback } from './api'
+import { downloadUrl, pollJob, presentationActOrder, submitExport, summarize, useBoardSources, useDebouncedCallback } from './api'
 import type { BoardSummary, ExportJob } from './api'
 
 type Screen = 'landing' | 'workspace'
@@ -34,7 +34,7 @@ export const StudioApp: React.FC = () => {
   const openBoard = useCallback((board: BoardModel, fileName: string) => {
     const s = summarize(board, fileName)
     setSummary(s)
-    setActOrder(s.acts)
+    setActOrder(presentationActOrder(s.acts))
     setKnobs(DEFAULT_KNOBS)
     setSeed(42)
     setDuration('auto')
@@ -260,7 +260,7 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
               </ul>
             </details>
           )}
-          <ActList acts={summary.acts} order={props.actOrder} onChange={props.onActOrder} compiledIds={film?.timeline.acts.map((a) => a.id) ?? []} />
+          <ActList acts={summary.acts} order={props.actOrder} onChange={props.onActOrder} compiledIds={film?.timeline.cast.map((unit) => unit.sourceAct) ?? []} />
           <KnobPanel knobs={props.knobs} onKnobs={props.onKnobs} seed={props.seed} onSeed={props.onSeed} duration={props.duration} onDuration={props.onDuration} />
         </aside>
       </div>
@@ -293,40 +293,48 @@ const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel }> = ({ timel
 
 const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<PlayerRef | null> }> = ({ timeline, playerRef }) => {
   const total = timeline.totalFrames
-  const actColors = ['#2e2e2e', '#383838', '#2e2e2e', '#383838', '#2e2e2e', '#383838']
-  const seekToAct = (actStart: number): void => {
-    playerRef.current?.seekTo(actStart)
+  const beats = timeline.directedBeats
+  const shotLabels: Record<string, string> = {
+    'black-breath': 'breath',
+    'vertical-seed': 'seed',
+    'cross-collapse': 'cross',
+    'radial-gate': 'radial',
+    'bilateral-tower': 'tower',
+    'corner-bridge': 'bridge',
+    'horizontal-study': 'study',
+    'pad-coda': 'coda',
+    'black-cut': 'cut'
   }
   return (
-    <div className="act-ribbon" role="group" aria-label="act map; click an act to jump to it">
-      {timeline.acts.map((act, i) => (
+    <div className="act-ribbon" role="group" aria-label="shot map; click a shot to jump to it">
+      {timeline.shots.map((shot, i) => (
         <button
-          key={act.id}
-          className="act-block"
+          key={shot.id}
+          className={`act-block shot-${shot.id}`}
           style={{
-            width: `${((act.endFrame - act.startFrame + 1) / total) * 100}%`,
-            background: actColors[i % actColors.length],
+            width: `${((shot.endFrame - shot.startFrame + 1) / total) * 100}%`,
+            background: i % 2 === 0 ? '#2e2e2e' : '#383838',
             border: 'none',
             borderRadius: 0,
             padding: 0,
             cursor: 'pointer'
           }}
           onClick={() => {
-            seekToAct(act.startFrame)
+            playerRef.current?.seekTo(shot.startFrame)
           }}
-          title={`${act.id}: frames ${act.startFrame}–${act.endFrame}`}
+          title={`${shot.id}: frames ${shot.startFrame}–${shot.endFrame}`}
         >
-          {timeline.beats
-            .filter((b) => b.frame >= act.startFrame && b.frame <= act.endFrame)
+          {beats
+            .filter((b) => b.frame >= shot.startFrame && b.frame <= shot.endFrame)
             .map((b) => (
               <span
                 key={b.frame}
                 className="beat-mark"
                 aria-hidden="true"
-                style={{ left: `${((b.frame - act.startFrame) / (act.endFrame - act.startFrame + 1)) * 100}%` }}
+                style={{ left: `${((b.frame - shot.startFrame) / (shot.endFrame - shot.startFrame + 1)) * 100}%` }}
               />
             ))}
-          <span className="act-label">{act.unit || act.id}</span>
+          <span className="act-label">{shotLabels[shot.id] ?? shot.id}</span>
         </button>
       ))}
     </div>

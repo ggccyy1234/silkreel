@@ -50,9 +50,9 @@ export const DEFAULT_KNOBS: StudioKnobs = {
   seedPairs: 2,
   dissolveStyle: 'center-out',
   easing: 'expo-out',
-  glow: 0,
-  flicker: 0,
-  grain: 0,
-  exposure: 1,
+  glow: 0.08,
+  flicker: 0.05,
+  grain: 0.16,
+  exposure: 0.86,
   palette: 'mono'
 }
