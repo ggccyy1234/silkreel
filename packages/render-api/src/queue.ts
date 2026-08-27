@@ -5,55 +5,111 @@ import type { FilmConfig } from '@silk-reel/choreo'
 import type { GateReport } from '@silk-reel/metrics'
 import { renderFilm } from './render-film.js'
 import { compileFilm, loadDemoBoard, boardFromJson, defaultFilmConfig } from './boards.js'
+import type { DemoBoardId } from './boards.js'
 import { runGate } from './gate.js'
 
-export type JobStatus = 'pending' | 'rendering' | 'done' | 'error'
+const renderEntryPoint = new URL('../../render/src/remotion-entry.tsx', import.meta.url).pathname
+const exportsRoot = path.resolve(import.meta.dirname, '../../../exports')
 
-export interface RenderJob {
+export type GateAdvisory =
+  | { status: 'passed'; report: GateReport }
+  | { status: 'failed'; report: GateReport }
+  | { status: 'unavailable'; error: string }
+
+interface JobBase {
   id: string
-  status: JobStatus
   progress: number
   createdAt: string
-  startedAt?: string | undefined
-  finishedAt?: string | undefined
-  error?: string | undefined
-  metricsReport?: GateReport | undefined
-  metricsError?: string | undefined
-  downloadPath?: string | undefined
 }
 
+type PendingJob = JobBase & { status: 'pending' }
+type RenderingJob = JobBase & { status: 'rendering'; startedAt: string }
+type DoneJobBase = JobBase & {
+  status: 'done'
+  startedAt: string
+  finishedAt: string
+  downloadPath: string
+}
+type DoneJob = DoneJobBase &
+  (
+    | { gate: Extract<GateAdvisory, { status: 'passed' | 'failed' }>; metricsReport: GateReport; metricsError?: never }
+    | { gate: Extract<GateAdvisory, { status: 'unavailable' }>; metricsError: string; metricsReport?: never }
+  )
+type ErrorJob = JobBase & {
+  status: 'error'
+  startedAt: string
+  finishedAt: string
+  error: string
+}
+
+export type RenderJob = PendingJob | RenderingJob | DoneJob | ErrorJob
+export type JobStatus = RenderJob['status']
+
+type SubmissionOptions = { config?: Partial<FilmConfig> }
+
+export type RenderSubmission =
+  | (SubmissionOptions & { demoId: DemoBoardId; boardJson?: never })
+  | (SubmissionOptions & { boardJson: Record<string, unknown>; demoId?: never })
+
+export interface RenderQueuePort {
+  submit(input: RenderSubmission): RenderJob
+  get(id: string): RenderJob | undefined
+  snapshot(): Map<string, RenderJob>
+}
+
+export type BundleRenderer = (entryPoint: string) => Promise<string>
+
+export interface RenderQueueOptions {
+  renderFilm?: typeof renderFilm
+  runGate?: typeof runGate
+  bundle?: BundleRenderer
+  exportsRoot?: string
+}
+
+type QueueSource =
+  | { kind: 'demo'; demoId: DemoBoardId }
+  | { kind: 'json'; boardJson: Record<string, unknown> }
+
 interface QueueEntry {
-  job: RenderJob
-  boardJson?: unknown
-  demoId?: string | undefined
+  job: PendingJob
+  source: QueueSource
   config: FilmConfig
 }
 
-const exportsRoot = path.resolve(import.meta.dirname, '../../../exports')
-
-export class RenderQueue {
+export class RenderQueue implements RenderQueuePort {
   private readonly jobs = new Map<string, RenderJob>()
   private readonly pending: QueueEntry[] = []
+  private readonly renderFilm: typeof renderFilm
+  private readonly runGate: typeof runGate
+  private readonly bundle: BundleRenderer
+  private readonly exportsRoot: string
   private draining = false
+  private drainPromise: Promise<void> | undefined
   private bundleLocation: string | undefined
 
-  submit(input: { demoId?: string; boardJson?: unknown; config?: Partial<FilmConfig> }): RenderJob {
-    const config = mergeConfig(input.config)
-    const entry: QueueEntry = {
-      job: {
-        id: randomUUID(),
-        status: 'pending',
-        progress: 0,
-        createdAt: new Date().toISOString()
-      },
-      ...(input.boardJson !== undefined ? { boardJson: input.boardJson } : {}),
-      ...(input.demoId !== undefined ? { demoId: input.demoId } : {}),
-      config
+  constructor(options: RenderQueueOptions = {}) {
+    this.renderFilm = options.renderFilm ?? renderFilm
+    this.runGate = options.runGate ?? runGate
+    this.bundle = options.bundle ?? bundleEntryPoint
+    this.exportsRoot = options.exportsRoot ?? exportsRoot
+  }
+
+  submit(input: RenderSubmission): RenderJob {
+    const job: PendingJob = {
+      id: randomUUID(),
+      status: 'pending',
+      progress: 0,
+      createdAt: new Date().toISOString()
     }
-    this.jobs.set(entry.job.id, entry.job)
+    const entry: QueueEntry = {
+      job,
+      source: 'demoId' in input ? { kind: 'demo', demoId: input.demoId } : { kind: 'json', boardJson: input.boardJson },
+      config: mergeConfig(input.config)
+    }
+    this.jobs.set(job.id, job)
     this.pending.push(entry)
-    void this.drain()
-    return { ...entry.job }
+    this.startDrain()
+    return { ...job }
   }
 
   get(id: string): RenderJob | undefined {
@@ -69,6 +125,15 @@ export class RenderQueue {
     return new Map([...this.jobs.entries()].map(([id, job]) => [id, { ...job }]))
   }
 
+  waitForIdle(): Promise<void> {
+    return this.drainPromise ?? Promise.resolve()
+  }
+
+  private startDrain(): void {
+    if (this.draining) return
+    this.drainPromise = this.drain()
+  }
+
   private async drain(): Promise<void> {
     if (this.draining) return
     this.draining = true
@@ -80,60 +145,110 @@ export class RenderQueue {
       }
     } finally {
       this.draining = false
+      this.drainPromise = undefined
     }
   }
 
   private async ensureBundle(): Promise<string> {
-    if (!this.bundleLocation) {
-      const { bundle } = await import('@remotion/bundler')
-      this.bundleLocation = await bundle({
-        entryPoint: new URL('../../render/src/remotion-entry.tsx', import.meta.url).pathname,
-        onProgress: () => undefined
-      })
+    if (this.bundleLocation !== undefined) return this.bundleLocation
+    const bundleLocation = await this.bundle(renderEntryPoint)
+    this.bundleLocation = bundleLocation
+    return bundleLocation
+  }
+
+  private start(entry: QueueEntry): RenderingJob {
+    const job: RenderingJob = {
+      ...entry.job,
+      status: 'rendering',
+      startedAt: new Date().toISOString()
     }
-    return this.bundleLocation
+    this.jobs.set(job.id, job)
+    return job
+  }
+
+  private updateProgress(id: string, progress: number): void {
+    const job = this.jobs.get(id)
+    if (job?.status !== 'rendering') return
+    this.jobs.set(id, { ...job, progress })
+  }
+
+  private async readGateAdvisory(outputLocation: string, config: FilmConfig, totalFrames: number): Promise<GateAdvisory> {
+    try {
+      const report = await this.runGate(outputLocation, {
+        width: config.output.width,
+        height: config.output.height,
+        fps: config.output.fps,
+        totalFrames
+      })
+      return report.passed ? { status: 'passed', report } : { status: 'failed', report }
+    } catch (err) {
+      return { status: 'unavailable', error: errorMessage(err) }
+    }
   }
 
   private async run(entry: QueueEntry): Promise<void> {
-    const job = entry.job
-    job.status = 'rendering'
-    job.startedAt = new Date().toISOString()
+    const rendering = this.start(entry)
+    let progress = rendering.progress
     try {
-      const board =
-        entry.demoId !== undefined ? await loadDemoBoard(entry.demoId) : boardFromJson(entry.boardJson)
+      const board = entry.source.kind === 'demo' ? await loadDemoBoard(entry.source.demoId) : boardFromJson(entry.source.boardJson)
       const { inputProps } = compileFilm(board, entry.config)
-      const outputLocation = path.join(exportsRoot, `${job.id}.mp4`)
+      const outputLocation = path.join(this.exportsRoot, `${rendering.id}.mp4`)
       const bundleLocation = await this.ensureBundle()
-      await mkdir(exportsRoot, { recursive: true })
-      await renderFilm({
-        entryPoint: new URL('../../render/src/remotion-entry.tsx', import.meta.url).pathname,
+      await mkdir(this.exportsRoot, { recursive: true })
+      await this.renderFilm({
+        entryPoint: renderEntryPoint,
         bundleLocationOverride: bundleLocation,
         inputProps,
         outputLocation,
         onProgress: (pct) => {
-          job.progress = pct
+          progress = pct
+          this.updateProgress(rendering.id, pct)
         }
       })
-      job.downloadPath = outputLocation
-      job.progress = 100
-      try {
-        job.metricsReport = await runGate(outputLocation, {
-          width: entry.config.output.width,
-          height: entry.config.output.height,
-          fps: entry.config.output.fps,
-          totalFrames: inputProps.timeline.totalFrames
-        })
-      } catch (err) {
-        job.metricsError = err instanceof Error ? err.message : String(err)
+      const gate = await this.readGateAdvisory(outputLocation, entry.config, inputProps.timeline.totalFrames)
+      if (gate.status === 'unavailable') {
+        const done: DoneJob = {
+          ...rendering,
+          status: 'done',
+          progress: 100,
+          finishedAt: new Date().toISOString(),
+          downloadPath: outputLocation,
+          gate,
+          metricsError: gate.error
+        }
+        this.jobs.set(done.id, done)
+      } else {
+        const done: DoneJob = {
+          ...rendering,
+          status: 'done',
+          progress: 100,
+          finishedAt: new Date().toISOString(),
+          downloadPath: outputLocation,
+          gate,
+          metricsReport: gate.report
+        }
+        this.jobs.set(done.id, done)
       }
-      job.status = 'done'
     } catch (err) {
-      job.status = 'error'
-      job.error = err instanceof Error ? err.message : String(err)
-    } finally {
-      job.finishedAt = new Date().toISOString()
+      const failed: ErrorJob = {
+        ...rendering,
+        status: 'error',
+        progress,
+        finishedAt: new Date().toISOString(),
+        error: errorMessage(err)
+      }
+      this.jobs.set(failed.id, failed)
     }
   }
+}
+
+async function bundleEntryPoint(entryPoint: string): Promise<string> {
+  const { bundle } = await import('@remotion/bundler')
+  return bundle({ entryPoint, onProgress: () => undefined })
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 function mergeConfig(partial: Partial<FilmConfig> | undefined): FilmConfig {

@@ -29,11 +29,20 @@ export async function loadDemoBoard(demoId: string): Promise<BoardModel> {
   return board
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 export function boardFromJson(boardJson: unknown): BoardModel {
-  if (!boardJson || typeof boardJson !== 'object') {
+  if (!isRecord(boardJson)) {
     throw new Error('boardJson must be a BoardModel object')
   }
-  return boardJson as BoardModel
+  const arrayFields = ['outline', 'layers', 'footprints', 'drill', 'nets', 'warnings']
+  const objectFields = ['source', 'bbox', 'copper', 'silkscreen', 'stats']
+  if (!arrayFields.every((field) => Array.isArray(boardJson[field])) || !objectFields.every((field) => isRecord(boardJson[field]))) {
+    throw new Error('boardJson must be a BoardModel object')
+  }
+  return boardJson as unknown as BoardModel
 }
 
 export function compileFilm(board: BoardModel, config: FilmConfig): { timeline: Timeline; inputProps: FilmInputProps } {

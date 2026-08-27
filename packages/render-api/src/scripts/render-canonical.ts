@@ -11,10 +11,10 @@ const outPath = path.join(repoRoot, 'fixtures', 'canonical.mp4')
 const boardPath = path.join(repoRoot, 'fixtures', 'boards', 'ecc83-pp.kicad_pcb')
 const board = parseKicadPcb(await readFile(boardPath, 'utf8'), 'ecc83-pp.kicad_pcb')
 const config: FilmConfig = {
-  actOrder: [],
-  knobs: {},
+  actOrder: ['copper:F.Cu', 'drill', 'outline', 'copper:B.Cu'],
+  knobs: { symmetry: 'quad', palette: 'mono', grain: 0.18, exposure: 0.86, flicker: 0.05 },
   seed: 42,
-  duration: 'auto',
+  duration: 167 / 15,
   output: { width: 1080, height: 1350, fps: 15 }
 }
 const timeline = compileTimeline(board, config)

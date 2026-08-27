@@ -3,8 +3,9 @@ import type { FastifyInstance } from 'fastify'
 import { createReadStream, existsSync } from 'node:fs'
 import path from 'node:path'
 import type { FilmConfig } from '@silk-reel/choreo'
-import { DEMO_BOARDS, isDemoBoardId } from './boards.js'
+import { DEMO_BOARDS, isDemoBoardId, boardFromJson } from './boards.js'
 import { RenderQueue } from './queue.js'
+import type { RenderQueuePort, RenderSubmission } from './queue.js'
 import { runGate } from './gate.js'
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..')
@@ -16,44 +17,26 @@ function isInsideRoot(target: string, root: string): boolean {
 }
 
 export interface BuildAppOptions {
-  queue?: RenderQueue
+  queue?: RenderQueuePort
+  runGate?: typeof runGate
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = fastify({ logger: false, bodyLimit: 64 * 1024 * 1024 })
-  const queue = options.queue ?? new RenderQueue()
+  const gateRunner = options.runGate ?? runGate
+  const queue = options.queue ?? new RenderQueue({ runGate: gateRunner })
 
   app.get('/health', () => Promise.resolve({ ok: true as const, service: 'render-api' }))
 
   app.get('/demos', () => Promise.resolve({ demos: DEMO_BOARDS }))
 
-  interface RenderBody {
-    demoId?: string
-    boardJson?: unknown
-    filmConfig?: Partial<FilmConfig>
-  }
-
   app.post('/render', async (request, reply) => {
-    const body = (request.body ?? {}) as RenderBody
-    const demoId = typeof body.demoId === 'string' && body.demoId.length > 0 ? body.demoId : undefined
-    const hasDemo = demoId !== undefined
-    const hasBoard = body.boardJson !== undefined && body.boardJson !== null
-    if (hasDemo === hasBoard) {
-      return await reply.code(400).send({
-        error: 'provide exactly one of demoId or boardJson'
-      })
+    const parsed = parseRenderRequest(request.body)
+    if (!parsed.ok) {
+      if ('known' in parsed) return await reply.code(400).send({ error: parsed.error, known: parsed.known })
+      return await reply.code(400).send({ error: parsed.error })
     }
-    if (demoId !== undefined && !isDemoBoardId(demoId)) {
-      return await reply.code(400).send({
-        error: `unknown demoId ${demoId}`,
-        known: DEMO_BOARDS
-      })
-    }
-    const job = queue.submit({
-      ...(demoId !== undefined ? { demoId } : {}),
-      ...(hasBoard ? { boardJson: body.boardJson } : {}),
-      ...(body.filmConfig !== undefined ? { config: body.filmConfig } : {})
-    })
+    const job = queue.submit(parsed.input)
     return await reply.code(202).send({ jobId: job.id, status: job.status })
   })
 
@@ -71,13 +54,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (job.status !== 'done') {
       return await reply.code(409).send({ error: `job ${id} is ${job.status}, not done` })
     }
-    const file = job.downloadPath
-    if (!file || !existsSync(file)) {
+    if (!existsSync(job.downloadPath)) {
       return await reply.code(410).send({ error: 'render artifact missing' })
     }
     reply.header('content-type', 'video/mp4')
     reply.header('content-disposition', `attachment; filename="silk-reel-${id}.mp4"`)
-    return await reply.send(createReadStream(file))
+    return await reply.send(createReadStream(job.downloadPath))
   })
 
   app.post('/gate', async (request, reply) => {
@@ -92,11 +74,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (!existsSync(resolved)) {
       return await reply.code(404).send({ error: `no file at ${body.videoPath}` })
     }
-    const report = await runGate(resolved, {
+    const report = await gateRunner(resolved, {
       width: 1080,
       height: 1350,
       fps: 15,
-      totalFrames: 191
+      totalFrames: 167
     })
     return await reply.send(report)
   })
@@ -107,6 +89,74 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   })
 
   return app
+}
+
+type RenderRequestResult =
+  | { ok: true; input: RenderSubmission }
+  | { ok: false; error: string }
+  | { ok: false; error: string; known: typeof DEMO_BOARDS }
+
+type FilmConfigResult =
+  | { ok: true; config: Partial<FilmConfig> | undefined }
+  | { ok: false; error: string }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseFilmConfig(value: unknown): FilmConfigResult {
+  if (value === undefined) return { ok: true, config: undefined }
+  if (!isRecord(value)) return { ok: false, error: 'filmConfig must be an object' }
+  if ('actOrder' in value && (!Array.isArray(value.actOrder) || !value.actOrder.every((item) => typeof item === 'string'))) {
+    return { ok: false, error: 'filmConfig.actOrder must be an array of strings' }
+  }
+  if ('knobs' in value && !isRecord(value.knobs)) {
+    return { ok: false, error: 'filmConfig.knobs must be an object' }
+  }
+  if ('output' in value && !isRecord(value.output)) {
+    return { ok: false, error: 'filmConfig.output must be an object' }
+  }
+  if ('seed' in value && value.seed !== null && typeof value.seed !== 'number') {
+    return { ok: false, error: 'filmConfig.seed must be a number or null' }
+  }
+  if ('duration' in value && value.duration !== 'auto' && typeof value.duration !== 'number') {
+    return { ok: false, error: "filmConfig.duration must be 'auto' or a number" }
+  }
+  const output = value.output
+  if (isRecord(output)) {
+    if ('width' in output && typeof output.width !== 'number') return { ok: false, error: 'filmConfig.output.width must be a number' }
+    if ('height' in output && typeof output.height !== 'number') return { ok: false, error: 'filmConfig.output.height must be a number' }
+    if ('fps' in output && typeof output.fps !== 'number') return { ok: false, error: 'filmConfig.output.fps must be a number' }
+  }
+  return { ok: true, config: value }
+}
+
+function parseRenderRequest(body: unknown): RenderRequestResult {
+  if (!isRecord(body)) return { ok: false, error: 'request body must be an object' }
+  const hasDemo = Object.hasOwn(body, 'demoId')
+  const hasBoard = Object.hasOwn(body, 'boardJson')
+  if (hasDemo === hasBoard) return { ok: false, error: 'provide exactly one of demoId or boardJson' }
+
+  const parsedConfig = parseFilmConfig(body.filmConfig)
+  if (!parsedConfig.ok) return parsedConfig
+  const config = parsedConfig.config
+
+  if (hasDemo) {
+    const demoId = body.demoId
+    if (typeof demoId !== 'string' || demoId.length === 0) {
+      return { ok: false, error: 'demoId must be a non-empty string' }
+    }
+    if (!isDemoBoardId(demoId)) return { ok: false, error: `unknown demoId ${demoId}`, known: DEMO_BOARDS }
+    return { ok: true, input: { demoId, ...(config !== undefined ? { config } : {}) } }
+  }
+
+  if (!isRecord(body.boardJson)) return { ok: false, error: 'boardJson must be an object' }
+  try {
+    boardFromJson(body.boardJson)
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'invalid boardJson' }
+  }
+  return { ok: true, input: { boardJson: body.boardJson, ...(config !== undefined ? { config } : {}) } }
 }
 
 const isMain = process.argv[1] !== undefined && import.meta.url.endsWith(path.basename(process.argv[1]))
