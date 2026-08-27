@@ -11,7 +11,7 @@
     "test": "vitest run",
     "lint": "eslint packages",
     "render:canonical": "npm run render:canonical --workspace=@silk-reel/render-api",
-    "metrics:gate": "tsx packages/metrics/src/cli.ts",
+    "metrics:gate": "tsx packages/metrics/src/cli.ts fixtures/canonical.mp4",
     "visual:compare": "node scripts/compare-reference.mjs"
   },
   "dependencies": {
