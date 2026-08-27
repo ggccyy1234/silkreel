@@ -432,11 +432,19 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
     const progress = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
     playerRef.current?.seekTo(Math.min(total - 1, Math.floor(progress * total)))
   }
+  const activeShot = timeline.shots.find((shot) => currentFrame >= shot.startFrame && currentFrame <= shot.endFrame)
+  const activeLabel = activeShot ? shotLabels[activeShot.id] ?? activeShot.id : 'film'
   return (
     <div
       className="act-ribbon"
-      role="group"
-      aria-label="shot map; click or drag across the map to seek"
+      role="slider"
+      tabIndex={0}
+      aria-label="film frame"
+      aria-valuemin={0}
+      aria-valuemax={total - 1}
+      aria-valuenow={currentFrame}
+      aria-valuetext={`${activeLabel}, frame ${currentFrame + 1} of ${total}`}
+      aria-orientation="horizontal"
       onPointerDown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId)
         seekFromPointer(event)
@@ -444,9 +452,28 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
       onPointerMove={(event) => {
         if (event.buttons === 1) seekFromPointer(event)
       }}
+      onKeyDown={(event) => {
+        const steps: Partial<Record<React.KeyboardEvent['key'], number>> = {
+          ArrowLeft: -1,
+          ArrowDown: -1,
+          ArrowRight: 1,
+          ArrowUp: 1,
+          PageDown: -timeline.fps,
+          PageUp: timeline.fps
+        }
+        if (event.key === 'Home' || event.key === 'End') {
+          event.preventDefault()
+          playerRef.current?.seekTo(event.key === 'Home' ? 0 : total - 1)
+          return
+        }
+        const step = steps[event.key]
+        if (step === undefined) return
+        event.preventDefault()
+        playerRef.current?.seekTo(Math.max(0, Math.min(total - 1, currentFrame + step)))
+      }}
     >
       {timeline.shots.map((shot, i) => (
-        <button
+        <span
           key={shot.id}
           className={`act-block shot-${shot.id}${currentFrame >= shot.startFrame && currentFrame <= shot.endFrame ? ' act-block-active' : ''}`}
           style={{
@@ -455,12 +482,8 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
             border: 'none',
             borderRadius: 0,
             padding: 0,
-            cursor: 'pointer'
+            cursor: 'ew-resize'
           }}
-          onClick={() => {
-            playerRef.current?.seekTo(shot.startFrame)
-          }}
-          aria-current={currentFrame >= shot.startFrame && currentFrame <= shot.endFrame ? 'true' : undefined}
           title={`${shot.id}: frames ${shot.startFrame}–${shot.endFrame}`}
         >
           {beats
@@ -474,7 +497,7 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
               />
             ))}
           <span className="act-label">{shotLabels[shot.id] ?? shot.id}</span>
-        </button>
+        </span>
       ))}
       <span className="shot-playhead" aria-hidden="true" style={{ left: `${((currentFrame + 0.5) / total) * 100}%` }} />
     </div>

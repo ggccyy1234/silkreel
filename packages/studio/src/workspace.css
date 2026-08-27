@@ -428,6 +428,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -437,12 +438,16 @@
   justify-content: center;
   padding: 24px;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
   background:
     radial-gradient(ellipse at 50% 40%, #101010 0%, var(--ground) 70%);
 }
 
 .player-wrap {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -455,6 +460,7 @@
   overflow: hidden;
   border: 1px solid var(--line);
   position: relative;
+  touch-action: none;
 }
 
 .act-block {
