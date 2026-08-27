@@ -51,7 +51,7 @@ export function useBoardSources() {
         }
         return (await res.json()) as BoardModel
       }
-      if (/\.(gtl|gbl|gml|gko|drl|drd|cmp|sol|gpi)$/i.test(file.name)) {
+      if (/\.(gtl|gbl|gml|gko|gts|gbs|gto|gbo|gtp|gbp|drl|drd|xln|cmp|sol|gpi)$/i.test(file.name)) {
         throw new Error('gerber sets land in m4; drop a .kicad_pcb for now')
       }
       throw new Error('unsupported file; drop a .kicad_pcb')
@@ -85,6 +85,15 @@ export function presentationActOrder(acts: ActId[]): ActId[] {
   const silk = acts.filter((id) => id.startsWith('silk:'))
   const structural = acts.filter((id) => id === 'drill' || id === 'outline')
   return [...frontCopper, ...silk, ...structural, ...otherCopper]
+}
+
+export function moveAct(order: ActId[], from: number, to: number): ActId[] {
+  if (from < 0 || from >= order.length || to < 0 || to >= order.length || from === to) return order
+  const next = [...order]
+  const [act] = next.splice(from, 1)
+  if (act === undefined) return order
+  next.splice(to, 0, act)
+  return next
 }
 
 export function useDebouncedCallback<A extends unknown[]>(fn: (...args: A) => void, delayMs: number): (...args: A) => void {
@@ -144,11 +153,12 @@ export function toExportJob(jobId: string, response: RenderJobResponse): ExportJ
   }
 }
 
-export async function submitExport(payload: Record<string, unknown>): Promise<string> {
+export async function submitExport(payload: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
   const res = await fetch(`${API}/api/export`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    ...(signal === undefined ? {} : { signal })
   })
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null
@@ -158,15 +168,51 @@ export async function submitExport(payload: Record<string, unknown>): Promise<st
   return body.jobId
 }
 
-export async function pollJob(jobId: string): Promise<ExportJob> {
-  for (;;) {
-    await new Promise((resolve) => setTimeout(resolve, 1200))
-    const res = await fetch(`${API}/api/job/${jobId}`)
+export interface PollJobOptions {
+  signal?: AbortSignal
+  intervalMs?: number
+  maxAttempts?: number
+  onUpdate?: (job: ExportJob) => void
+}
+
+const DEFAULT_POLL_INTERVAL_MS = 1200
+const DEFAULT_MAX_POLL_ATTEMPTS = 100
+
+function createAbortError(): Error {
+  const error = new Error('operation aborted')
+  error.name = 'AbortError'
+  return error
+}
+
+function waitForPoll(intervalMs: number, signal: AbortSignal | undefined): Promise<void> {
+  if (signal?.aborted) return Promise.reject(createAbortError())
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, intervalMs)
+    const onAbort = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      reject(createAbortError())
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+export async function pollJob(jobId: string, options: PollJobOptions = {}): Promise<ExportJob> {
+  const intervalMs = options.intervalMs ?? DEFAULT_POLL_INTERVAL_MS
+  const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await waitForPoll(intervalMs, options.signal)
+    const res = await fetch(`${API}/api/job/${jobId}`, options.signal === undefined ? {} : { signal: options.signal })
     if (!res.ok) throw new Error(`job poll failed (${res.status})`)
     const response = (await res.json()) as RenderJobResponse
     const job = toExportJob(jobId, response)
+    options.onUpdate?.(job)
     if (job.status === 'done' || job.status === 'error') return job
   }
+  throw new Error('job polling timed out')
 }
 
 export function downloadUrl(jobId: string): string {

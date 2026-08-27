@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { boardModel } from '../../choreo/test/helpers.js'
-import { summarize, toExportJob } from './api.js'
+import { moveAct, pollJob, summarize, toExportJob } from './api.js'
 
 describe('studio board summary', () => {
   it('reports board layers and render acts', () => {
@@ -32,5 +32,59 @@ describe('studio export response mapping', () => {
       gatePassed: false,
       gateDetail: 'symmetry-phase: best mirror ratio 0.2'
     })
+  })
+})
+
+describe('studio act priority movement', () => {
+  it('moves an act to a new priority without mutating the current order', () => {
+    const order = ['outline', 'drill', 'copper:F.Cu'] as const
+
+    expect(moveAct([...order], 2, 0)).toEqual(['copper:F.Cu', 'outline', 'drill'])
+    expect(order).toEqual(['outline', 'drill', 'copper:F.Cu'])
+  })
+})
+
+describe('studio job polling', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('stops after the configured number of attempts', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ status: 'pending', progress: 0 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })))
+    vi.stubGlobal('fetch', fetchMock)
+    const polling = pollJob('job-1', { intervalMs: 10, maxAttempts: 2 })
+    const assertion = expect(polling).rejects.toThrow('job polling timed out')
+
+    await vi.advanceTimersByTimeAsync(30)
+
+    await assertion
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects with an abort error while waiting for the next attempt', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ status: 'rendering', progress: 10 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const polling = pollJob('job-1', { intervalMs: 1000, maxAttempts: 2, signal: controller.signal })
+    const assertion = expect(polling).rejects.toMatchObject({ name: 'AbortError' })
+
+    await vi.advanceTimersByTimeAsync(1000)
+    controller.abort()
+
+    await assertion
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

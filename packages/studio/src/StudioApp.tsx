@@ -8,7 +8,7 @@ import type { BoardModel } from '@silk-reel/ingest'
 import './workspace.css'
 import { DEFAULT_KNOBS, PALETTE_ACCENTS, KNOB_RANGES, SYMMETRY_OPTIONS, DISSOLVE_OPTIONS, EASING_OPTIONS, PALETTE_OPTIONS, DEMO_BOARDS } from './film-config'
 import type { StudioKnobs } from './film-config'
-import { downloadUrl, pollJob, presentationActOrder, submitExport, summarize, useBoardSources, useDebouncedCallback } from './api'
+import { downloadUrl, moveAct, pollJob, presentationActOrder, submitExport, summarize, useBoardSources, useDebouncedCallback } from './api'
 import type { BoardSummary, ExportJob } from './api'
 
 type Screen = 'landing' | 'workspace'
@@ -16,6 +16,22 @@ type Screen = 'landing' | 'workspace'
 interface CompiledFilm {
   timeline: Timeline
   warnings: string[]
+}
+
+type ExportState =
+  | { status: 'submitting' }
+  | { status: 'rendering'; job: ExportJob }
+  | { status: 'completed'; job: ExportJob }
+  | { status: 'failed'; job: ExportJob | null; error: string }
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+function stateForExportJob(job: ExportJob): ExportState {
+  if (job.status === 'done') return { status: 'completed', job }
+  if (job.status === 'error') return { status: 'failed', job, error: job.error ?? 'render failed' }
+  return { status: 'rendering', job }
 }
 
 export const StudioApp: React.FC = () => {
@@ -27,11 +43,24 @@ export const StudioApp: React.FC = () => {
   const [duration, setDuration] = useState<'auto' | number>('auto')
   const [film, setFilm] = useState<CompiledFilm | null>(null)
   const [compileError, setCompileError] = useState<string | null>(null)
-  const [exportJob, setExportJob] = useState<ExportJob | null>(null)
-  const [exportError, setExportError] = useState<string | null>(null)
+  const [compileStale, setCompileStale] = useState(false)
+  const [exportState, setExportState] = useState<ExportState | null>(null)
+  const exportControllerRef = React.useRef<AbortController | null>(null)
+  const exportInFlightRef = React.useRef(false)
   const sources = useBoardSources()
 
+  const cancelExport = useCallback(() => {
+    exportControllerRef.current?.abort()
+    exportControllerRef.current = null
+    exportInFlightRef.current = false
+  }, [])
+
+  React.useEffect(() => () => {
+    cancelExport()
+  }, [cancelExport])
+
   const openBoard = useCallback((board: BoardModel, fileName: string) => {
+    cancelExport()
     const s = summarize(board, fileName)
     setSummary(s)
     setActOrder(presentationActOrder(s.acts))
@@ -39,10 +68,11 @@ export const StudioApp: React.FC = () => {
     setSeed(42)
     setDuration('auto')
     setFilm(null)
-    setExportJob(null)
-    setExportError(null)
+    setCompileError(null)
+    setCompileStale(true)
+    setExportState(null)
     setScreen('workspace')
-  }, [])
+  }, [cancelExport])
 
   const config: FilmConfig = useMemo(
     () => ({
@@ -63,17 +93,23 @@ export const StudioApp: React.FC = () => {
         timeline,
         warnings: timeline.warnings.map((w) => w.message)
       })
+      if (seed === null) setSeed(timeline.seedUsed)
       setCompileError(null)
+      setCompileStale(false)
     } catch (err) {
       setFilm(null)
       setCompileError(err instanceof Error ? err.message : String(err))
+      setCompileStale(false)
     }
   }, [summary, config])
 
   const debouncedRecompile = useDebouncedCallback(recompile, 250)
 
   React.useEffect(() => {
-    if (screen === 'workspace') debouncedRecompile()
+    if (screen !== 'workspace') return
+    setCompileStale(true)
+    setCompileError(null)
+    debouncedRecompile()
   }, [screen, config, debouncedRecompile])
 
   const palette = PALETTE_ACCENTS[knobs.palette ?? 'mono']
@@ -82,18 +118,41 @@ export const StudioApp: React.FC = () => {
   }, [palette.ink])
 
   const startExport = useCallback(async () => {
-    if (!summary) return
-    setExportError(null)
+    if (!summary || exportInFlightRef.current) return
+    const controller = new AbortController()
+    exportControllerRef.current = controller
+    exportInFlightRef.current = true
+    setExportState({ status: 'submitting' })
+    let currentJob: ExportJob | null = null
     try {
       const jobId = await submitExport({
         boardJson: summary.board,
         filmConfig: { actOrder, knobs, seed, duration, output: { width: 1080, height: 1350, fps: 15 } }
+      }, controller.signal)
+      if (exportControllerRef.current !== controller) return
+      currentJob = { jobId, status: 'pending', progress: 0, gatePassed: null, gateDetail: null, error: null }
+      setExportState({ status: 'rendering', job: currentJob })
+      const job = await pollJob(jobId, {
+        signal: controller.signal,
+        onUpdate: (nextJob) => {
+          if (exportControllerRef.current !== controller) return
+          currentJob = nextJob
+          setExportState(stateForExportJob(nextJob))
+        }
       })
-      setExportJob({ jobId, status: 'pending', progress: 0, gatePassed: null, gateDetail: null, error: null })
-      const job = await pollJob(jobId)
-      setExportJob(job)
+      if (exportControllerRef.current === controller) setExportState(stateForExportJob(job))
     } catch (err) {
-      setExportError(err instanceof Error ? err.message : String(err))
+      if (isAbortError(err) || exportControllerRef.current !== controller) return
+      setExportState({
+        status: 'failed',
+        job: currentJob,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    } finally {
+      if (exportControllerRef.current === controller) {
+        exportControllerRef.current = null
+        exportInFlightRef.current = false
+      }
     }
   }, [summary, actOrder, knobs, seed, duration])
 
@@ -120,6 +179,7 @@ export const StudioApp: React.FC = () => {
       summary={summary}
       film={film}
       compileError={compileError}
+      compileStale={compileStale}
       actOrder={actOrder}
       onActOrder={setActOrder}
       knobs={knobs}
@@ -131,10 +191,11 @@ export const StudioApp: React.FC = () => {
       duration={duration}
       onDuration={setDuration}
       onHome={() => {
+        cancelExport()
+        setExportState(null)
         setScreen('landing')
       }}
-      exportJob={exportJob}
-      exportError={exportError}
+      exportState={exportState}
       onExport={startExport}
     />
   )
@@ -153,7 +214,7 @@ const Landing: React.FC<{
   return (
     <main className="landing">
       <header className="landing-header">
-        <span className="wordmark">silk reel</span>
+        <h1 className="wordmark">silk reel</h1>
         <span className="tagline">pcb boards, cut to film</span>
       </header>
       <section
@@ -172,14 +233,14 @@ const Landing: React.FC<{
           if (file) void onFile(file)
         }}
       >
-        <p className="drop-hint">drop a .kicad_pcb, or</p>
+        <p className="drop-hint">drop a .kicad_pcb or .kicad_mod, or</p>
         <button onClick={() => {
           fileInput.current?.click()
         }}>choose file</button>
         <input
           ref={fileInput}
           type="file"
-          accept=".kicad_pcb,.kicad_mod,.gtl,.gbl,.gml,.gko,.drl,.drd"
+          accept=".kicad_pcb,.kicad_mod"
           hidden
           onChange={(e) => {
             const file = e.target.files?.[0]
@@ -217,6 +278,7 @@ interface WorkspaceProps {
   summary: BoardSummary
   film: CompiledFilm | null
   compileError: string | null
+  compileStale: boolean
   actOrder: ActId[]
   onActOrder: (order: ActId[]) => void
   knobs: StudioKnobs
@@ -226,29 +288,28 @@ interface WorkspaceProps {
   duration: 'auto' | number
   onDuration: (duration: 'auto' | number) => void
   onHome: () => void
-  exportJob: ExportJob | null
-  exportError: string | null
+  exportState: ExportState | null
   onExport: () => Promise<void>
 }
 
 const Workspace: React.FC<WorkspaceProps> = (props) => {
   const { summary, film, compileError } = props
   return (
-    <div className="workspace">
+    <main className="workspace">
       <header className="topbar">
         <button className="ghost" onClick={props.onHome}>← boards</button>
-        <span className="board-name">{summary.fileName}</span>
+        <h1 className="board-name">{summary.fileName}</h1>
         <span className="board-meta">{summary.layerCount} layers · {summary.elementCount.toLocaleString()} elements</span>
-        <ExportControl job={props.exportJob} error={props.exportError} onExport={props.onExport} />
+        <ExportControl state={props.exportState} onExport={props.onExport} />
       </header>
       <div className="workspace-body">
         <section className="player-pane" aria-label="preview">
           {compileError !== null ? (
             <div className="pane-error" role="alert">{compileError}</div>
           ) : film === null ? (
-            <div className="pane-loading">compiling…</div>
+            <div className="pane-loading" role="status">compiling…</div>
           ) : (
-            <PlayerPane timeline={film.timeline} board={summary.board} />
+            <PlayerPane timeline={film.timeline} board={summary.board} stale={props.compileStale} />
           )}
         </section>
         <aside className="controls-pane">
@@ -264,15 +325,16 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
           <KnobPanel knobs={props.knobs} onKnobs={props.onKnobs} seed={props.seed} onSeed={props.onSeed} duration={props.duration} onDuration={props.onDuration} />
         </aside>
       </div>
-    </div>
+    </main>
   )
 }
 
-const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel }> = ({ timeline, board }) => {
+const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel; stale: boolean }> = ({ timeline, board, stale }) => {
   const playerRef = React.useRef<PlayerRef>(null)
 
   return (
     <div className="player-wrap">
+      {stale && <div className="pane-stale" role="status">preview updating…</div>}
       <Player
         ref={playerRef}
         component={Film}
@@ -344,16 +406,12 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
 const ActList: React.FC<{ acts: ActId[]; order: ActId[]; onChange: (order: ActId[]) => void; compiledIds: string[] }> = ({ acts, order, onChange, compiledIds }) => {
   const dragIndex = React.useRef<number | null>(null)
   const move = (from: number, to: number): void => {
-    const next = [...order]
-    const [item] = next.splice(from, 1)
-    if (item === undefined) return
-    next.splice(to, 0, item)
-    onChange(next)
+    onChange(moveAct(order, from, to))
   }
   return (
     <section className="panel">
       <h2>acts</h2>
-      <ol className="act-list" aria-label="act order, drag to reorder">
+      <ol className="act-list" aria-label="act order; use move controls or drag to reorder">
         {order.map((act, i) => {
           const compiled = compiledIds.includes(act)
           return (
@@ -374,6 +432,32 @@ const ActList: React.FC<{ acts: ActId[]; order: ActId[]; onChange: (order: ActId
               <span className="act-grip" aria-hidden="true">⠿</span>
               <span className="act-name">{act}</span>
               {!compiled && <span className="act-flag" title="no elements land in this act">empty</span>}
+              <span className="act-actions">
+                <button
+                  type="button"
+                  className="act-move"
+                  aria-label={`move ${act} up`}
+                  title={`move ${act} up`}
+                  disabled={i === 0}
+                  onClick={() => {
+                    move(i, i - 1)
+                  }}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="act-move"
+                  aria-label={`move ${act} down`}
+                  title={`move ${act} down`}
+                  disabled={i === order.length - 1}
+                  onClick={() => {
+                    move(i, i + 1)
+                  }}
+                >
+                  ↓
+                </button>
+              </span>
             </li>
           )
         })}
@@ -547,27 +631,39 @@ const KnobPanel: React.FC<{
   )
 }
 
-const ExportControl: React.FC<{ job: ExportJob | null; error: string | null; onExport: () => Promise<void> }> = ({ job, error, onExport }) => {
+const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promise<void> }> = ({ state, onExport }) => {
   return (
     <div className="export-control">
-      {error !== null && <span className="export-error" role="alert">{error}</span>}
-      {job === null && (
+      {state === null && (
         <button className="primary" onClick={() => {
           void onExport()
         }}>export film</button>
       )}
-      {job !== null && job.status !== 'done' && job.status !== 'error' && (
-        <span className="export-status" role="status">{job.status} {job.progress > 0 ? `${job.progress}%` : '…'}</span>
+      {state?.status === 'submitting' && (
+        <span className="export-status" role="status">submitting…</span>
       )}
-      {job?.status === 'error' && <span className="export-error" role="alert">{job.error ?? 'render failed'}</span>}
-      {job?.status === 'done' && (
+      {state?.status === 'rendering' && (
+        <span className="export-status" role="status">rendering {state.job.progress > 0 ? `${state.job.progress}%` : '…'}</span>
+      )}
+      {state?.status === 'failed' && (
         <>
-          {job.gatePassed !== null && (
-            <span className={`gate-chip ${job.gatePassed ? 'gate-ok' : 'gate-warn'}`} title={job.gateDetail ?? ''}>
-              gate {job.gatePassed ? 'pass' : 'advisory'}
+          <span className="export-error" role="alert">failed: {state.error}</span>
+          <button className="ghost" onClick={() => {
+            void onExport()
+          }}>again</button>
+        </>
+      )}
+      {state?.status === 'completed' && (
+        <span className="export-status" role="status">completed</span>
+      )}
+      {state?.status === 'completed' && (
+        <>
+          {state.job.gatePassed !== null && (
+            <span className={`gate-chip ${state.job.gatePassed ? 'gate-ok' : 'gate-warn'}`} title={state.job.gateDetail ?? ''}>
+              gate {state.job.gatePassed ? 'pass' : 'advisory'}
             </span>
           )}
-          <a className="button-link" href={downloadUrl(job.jobId)}>download</a>
+          <a className="button-link" href={downloadUrl(state.job.jobId)}>download</a>
           <button className="ghost" onClick={() => {
             void onExport()
           }}>again</button>
