@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseKicadPcb } from '@silk-reel/ingest'
-import { loadBoard } from '../test/helpers.js'
+import { loadBoard } from '../test/helpers'
 
 describe('choreo precondition: ingest ids are consistent and footprint refs resolve', () => {
   it('every element object carries a well-formed unique id within its class', () => {

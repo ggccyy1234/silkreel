@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { compileTimeline } from './index.js'
-import type { FilmConfig } from './index.js'
-import { boardModel } from '../test/helpers.js'
-import { makeSyntheticBoard } from '../test/synthetic.js'
+import { compileTimeline } from './index'
+import type { FilmConfig } from './index'
+import { boardModel } from '../test/helpers'
+import { makeSyntheticBoard } from '../test/synthetic'
 
 function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   return {

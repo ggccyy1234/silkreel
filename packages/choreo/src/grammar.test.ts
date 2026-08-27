@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { compileTimeline, defaultActOrder } from './index.js'
-import type { FilmConfig, ShotId, Timeline } from './index.js'
-import { boardModel } from '../test/helpers.js'
-import { makeSyntheticBoard } from '../test/synthetic.js'
+import { compileTimeline, defaultActOrder } from './index'
+import type { FilmConfig, ShotId, Timeline } from './index'
+import { boardModel } from '../test/helpers'
+import { makeSyntheticBoard } from '../test/synthetic'
 
 const SHOT_IDS: readonly ShotId[] = [
   'black-breath',

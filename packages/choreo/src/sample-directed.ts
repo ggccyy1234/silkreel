@@ -1,6 +1,6 @@
-import { ease } from './curves.js'
-import type { ResolvedConfig } from './config.js'
-import type { DirectedKeyframe, UnitTrack } from './types.js'
+import { ease } from './curves'
+import type { ResolvedConfig } from './config'
+import type { DirectedKeyframe, UnitTrack } from './types'
 
 export function sampleDirectedKeyframes(track: UnitTrack, frame: number, easingName: ResolvedConfig['knobs']['easing']): DirectedKeyframe | undefined {
   const keyframes = track.keyframes

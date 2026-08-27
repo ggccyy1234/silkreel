@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { compileTimeline } from './index.js'
-import { sampleDirectedKeyframes } from './sample-directed.js'
-import type { FilmConfig, FilmShot, UnitTrack } from './index.js'
-import { boardModel } from '../test/helpers.js'
-import { makeSyntheticBoard } from '../test/synthetic.js'
-import { defaultConfig } from './grammar.test.js'
+import { compileTimeline } from './index'
+import { sampleDirectedKeyframes } from './sample-directed'
+import type { FilmConfig, FilmShot, UnitTrack } from './index'
+import { boardModel } from '../test/helpers'
+import { makeSyntheticBoard } from '../test/synthetic'
+import { defaultConfig } from './grammar.test'
 
 const ecc83 = () => boardModel('ecc83-pp.kicad_pcb')
 

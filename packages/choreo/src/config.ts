@@ -1,6 +1,6 @@
 import type { BoardModel } from '@silk-reel/ingest'
-import { ChoreoConfigError } from './errors.js'
-import { clamp } from './curves.js'
+import { ChoreoConfigError } from './errors'
+import { clamp } from './curves'
 import type {
   ActId,
   DissolveStyle,
@@ -9,7 +9,7 @@ import type {
   Knobs,
   PaletteName,
   SymmetryMode
-} from './types.js'
+} from './types'
 
 export interface ResolvedKnobs {
   symmetry: Exclude<SymmetryMode, 'auto'>

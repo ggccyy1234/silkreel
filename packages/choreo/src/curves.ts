@@ -1,4 +1,4 @@
-import type { EasingName, PaletteDef, PaletteName, Rgb } from './types.js'
+import type { EasingName, PaletteDef, PaletteName, Rgb } from './types'
 
 export function ease(t: number, name: EasingName): number {
   const x = clamp01(t)

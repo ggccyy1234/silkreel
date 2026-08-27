@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { BoardModel, CopperLayers, SilkLayer } from '@silk-reel/ingest'
-import { compileTimeline } from './compile.js'
-import { boardModel } from '../test/helpers.js'
-import { makeSyntheticBoard } from '../test/synthetic.js'
+import { compileTimeline } from './compile'
+import { boardModel } from '../test/helpers'
+import { makeSyntheticBoard } from '../test/synthetic'
 
 function config(seed: number | null = 42) {
   return {

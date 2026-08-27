@@ -1,6 +1,6 @@
 import type { BBox, BoardModel, Vec2 } from '@silk-reel/ingest'
-import type { ResolvedConfig } from './config.js'
-import { makeRng } from './rng.js'
+import type { ResolvedConfig } from './config'
+import { makeRng } from './rng'
 import type {
   ActId,
   CastRole,
@@ -11,8 +11,8 @@ import type {
   FilmShot,
   ShotId,
   UnitTrack
-} from './types.js'
-export { sampleDirectedKeyframes } from './sample-directed.js'
+} from './types'
+export { sampleDirectedKeyframes } from './sample-directed'
 
 interface InventoryItem {
   id: string

@@ -1,9 +1,9 @@
 import type { BoardModel } from '@silk-reel/ingest'
-import { defaultActOrder, planDuration, resolveConfig, totalElementEstimate } from './config.js'
-import { resolvePalette } from './curves.js'
-import { buildSemanticCast, compileDirectedBeats, compileDirectedShots } from './director.js'
-import { organicSeed } from './rng.js'
-import type { ActId, FilmConfig, Timeline, TimelineWarning } from './types.js'
+import { defaultActOrder, planDuration, resolveConfig, totalElementEstimate } from './config'
+import { resolvePalette } from './curves'
+import { buildSemanticCast, compileDirectedBeats, compileDirectedShots } from './director'
+import { organicSeed } from './rng'
+import type { ActId, FilmConfig, Timeline, TimelineWarning } from './types'
 
 export function compileTimeline(board: BoardModel, config: FilmConfig): Timeline {
   const resolved = resolveConfig(board, config)
