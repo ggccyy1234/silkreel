@@ -94,9 +94,15 @@ describe('semantic film director', () => {
   it('covers more complete assemblies on a large board within the cast budget', () => {
     const timeline = compileTimeline(boardModel('video.kicad_pcb'), config())
     const assemblies = timeline.cast.filter((unit) => unit.role === 'hero-body' || unit.role === 'detail')
+    const tower = timeline.shots.find((shot) => shot.id === 'bilateral-tower')
 
     expect(assemblies.length).toBeGreaterThanOrEqual(20)
     expect(assemblies.length).toBeLessThanOrEqual(24)
+    expect(tower?.tracks.length).toBeGreaterThanOrEqual(12)
+    expect(tower?.tracks.length).toBeLessThanOrEqual(20)
+    const towerDetails = tower?.tracks.filter((track) => timeline.cast.find((unit) => unit.id === track.castId)?.role === 'detail') ?? []
+    expect(towerDetails.some((track) => track.copies.mode === 'none')).toBe(true)
+    expect(towerDetails.some((track) => track.copies.mode === 'mirror-x')).toBe(true)
     expect(new Set(assemblies.flatMap((unit) => unit.memberRefs)).size).toBe(assemblies.reduce((count, unit) => count + unit.memberRefs.length, 0))
   })
 
@@ -124,6 +130,18 @@ describe('semantic film director', () => {
     const towerTargets = tower?.tracks.map((track) => `${track.keyframes[1]?.x}:${track.keyframes[1]?.y}`) ?? []
     expect(new Set(towerTargets).size).toBe(towerTargets.length)
     expect(bridge?.tracks.filter((track) => castById.get(track.castId)?.role === 'anchor-pad')).toHaveLength(4)
+  })
+
+  it('builds dense shots through staggered dim entrances', () => {
+    const timeline = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), config())
+
+    for (const shotId of ['vertical-seed', 'bilateral-tower', 'horizontal-study'] as const) {
+      const shot = timeline.shots.find((candidate) => candidate.id === shotId)
+      expect(shot).toBeDefined()
+      const entranceFrames = shot?.tracks.map((track) => track.keyframes[0]?.frame) ?? []
+      expect(new Set(entranceFrames).size).toBeGreaterThan(2)
+      expect(shot?.tracks.every((track) => (track.keyframes[0]?.opacity ?? 1) <= 0.18)).toBe(true)
+    }
   })
 
   it('is deterministic for a seed and stays sparse for boards without assemblies', () => {

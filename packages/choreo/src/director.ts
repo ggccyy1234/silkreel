@@ -596,7 +596,12 @@ function targetFor(
     ? Math.round((index / Math.max(1, count - 1)) * (slots.length - 1))
     : index % slots.length
   const direct = slots[slotIndex]
-  if (direct) return direct
+  if (direct) {
+    if (shot === 'bilateral-tower' && unit?.role === 'detail' && index % 2 === 1) {
+      return point(1 - direct.x, direct.y)
+    }
+    return direct
+  }
   const normalized = count <= 1 ? 0.5 : index / Math.max(1, count - 1)
   const first = slots[0] as Vec2
   const last = slots[slots.length - 1] as Vec2
@@ -643,8 +648,8 @@ function castForShot(cast: CastUnit[], shot: ShotId, rhythmDensity: number, seed
   const componentUnits = [...heroes, ...details]
   const compactDetails = orderUnits(details.filter((unit) => !isLargeAssembly(unit)), (unit) => -orientationScore(unit, 'vertical'))
   const towerDetails = [
-    ...details.filter((unit) => isLargeAssembly(unit)).slice(0, 1),
-    ...orderUnits(details.filter((unit) => !isLargeAssembly(unit) && dimensions(unit.bounds).area > 80), (unit) => -dimensions(unit.bounds).area).slice(0, 1),
+    ...orderUnits(details.filter((unit) => isLargeAssembly(unit)), (unit) => dimensions(unit.bounds).area).slice(0, 2),
+    ...orderUnits(details.filter((unit) => !isLargeAssembly(unit) && dimensions(unit.bounds).area > 80), (unit) => -dimensions(unit.bounds).area),
     ...orderUnits(details.filter((unit) => !isLargeAssembly(unit) && dimensions(unit.bounds).area <= 80), (unit) => -orientationScore(unit, 'vertical'))
   ]
   const horizontalDetails = orderUnits(details, (unit) => -orientationScore(unit, 'horizontal'))
@@ -658,7 +663,7 @@ function castForShot(cast: CastUnit[], shot: ShotId, rhythmDensity: number, seed
         ? [...heroes, ...orderUnits(compactDetails, compactnessScore).slice(0, 3)].slice(0, 5)
         : orderUnits(componentUnits, compactnessScore).slice(0, 4)
     case 'bilateral-tower':
-      return [...heroes, ...towerDetails].slice(0, Math.max(6, Math.min(componentUnits.length, 6 + Math.round(rhythmDensity * 2))))
+      return [...heroes, ...towerDetails].slice(0, Math.max(6, Math.min(componentUnits.length, 10 + Math.round(rhythmDensity * 12))))
     case 'corner-bridge':
       return heroes.length > 0
         ? [heroes[0] as CastUnit, ...traces.slice(0, 3), ...anchors]
@@ -712,9 +717,14 @@ function topologyFor(
   if (shot === 'vertical-seed' || shot === 'cross-collapse' || shot === 'pad-coda') return topology('none')
   if (shot === 'radial-gate' || shot === 'corner-bridge') return index === 0 ? topology(mode) : topology('none')
   if (shot === 'bilateral-tower') {
-    if (unit.role === 'hero-body' || unit.role === 'detail') {
+    if (unit.role === 'hero-body') {
       if (mode === 'quad') return topology('mirror-x')
       if (mode === 'mirror-x') return topology('mirror-x')
+      return topology(mode)
+    }
+    if (unit.role === 'detail') {
+      if (index % 3 === 0) return topology('none')
+      if (mode === 'quad' || mode === 'mirror-x') return topology('mirror-x')
       return topology(mode)
     }
     return topology('none')
@@ -764,9 +774,16 @@ function keyframesFor(
   const enter = shot.id === 'bilateral-tower' ? Math.max(3, Math.min(6, Math.round(length * 0.12))) : Math.max(2, Math.min(10, Math.round(length * 0.16)))
   const exit = shot.id === 'horizontal-study' ? Math.max(6, Math.round(length * 0.23)) : Math.max(2, Math.min(6, Math.round(length * 0.14)))
   const staggerBudget = shot.id === 'vertical-seed'
-    ? Math.max(8, Math.round(9 + config.knobs.rhythmDensity * 5))
-    : 0
-  const stagger = Math.min(Math.max(0, length - enter - exit - 1), Math.round((index / Math.max(1, total)) * staggerBudget))
+    ? Math.max(16, Math.round(18 + config.knobs.rhythmDensity * 7))
+    : shot.id === 'bilateral-tower'
+      ? Math.max(8, Math.round(8 + config.knobs.rhythmDensity * 5))
+      : shot.id === 'horizontal-study'
+        ? Math.max(7, Math.round(7 + config.knobs.rhythmDensity * 4))
+        : 0
+  const staggerProgress = shot.id === 'bilateral-tower'
+    ? Math.min(index, Math.max(0, total - 1 - index)) / Math.max(1, Math.floor(total / 2))
+    : index / Math.max(1, total)
+  const stagger = Math.min(Math.max(0, length - enter - exit - 1), Math.round(staggerProgress * staggerBudget))
   const start = shot.startFrame + stagger
   const roleOffset = shot.id === 'vertical-seed' || shot.id === 'pad-coda' ? 0 : index % 3
   const enterFrame = Math.min(shot.endFrame, start + enter + roleOffset)
@@ -804,7 +821,19 @@ function keyframesFor(
     opacity,
     glow
   })
-  const entryOpacity = shot.id === 'radial-gate' ? 0 : shot.id === 'cross-collapse' ? 0.78 : shot.id === 'pad-coda' ? 0.96 : shot.id === 'corner-bridge' ? 0.96 : shot.id === 'horizontal-study' ? 0.9 : shot.id === 'bilateral-tower' ? 0.88 : 0.55
+  const entryOpacity = shot.id === 'radial-gate'
+    ? 0
+    : shot.id === 'vertical-seed'
+      ? 0.08
+      : shot.id === 'bilateral-tower'
+        ? 0.18
+        : shot.id === 'horizontal-study'
+          ? 0.12
+    : shot.id === 'cross-collapse'
+      ? 0.78
+      : shot.id === 'pad-coda' || shot.id === 'corner-bridge'
+        ? 0.96
+        : 0.55
   const entryScale = shot.id === 'radial-gate' ? scale * 0.42 : shot.id === 'bilateral-tower' ? scale * 0.78 : shot.id === 'pad-coda' ? scale * 0.86 : shot.id === 'vertical-seed' ? scale * 0.62 : scale * 0.7
   const endOpacity = shot.id === 'cross-collapse'
     ? 0.72
