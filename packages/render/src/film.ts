@@ -424,6 +424,17 @@ function directedView(timeline: Timeline, geometry: GeometryLookup): ViewBox {
   return computeCastView(timeline, geometry)
 }
 
+function beatGainAtFrame(timeline: Timeline, frame: number): number {
+  let gain = 1
+  for (const beat of timeline.directedBeats) {
+    const distance = Math.abs(frame - beat.frame)
+    if (distance > 2) continue
+    const envelope = distance === 0 ? 1 : distance === 1 ? 0.5 : 0.2
+    gain = Math.max(gain, 1 + beat.intensity * envelope * 0.18)
+  }
+  return gain
+}
+
 export function drawTimelineFrame(
   ctx: CanvasRenderingContext2D,
   input: DrawFrameInput,
@@ -455,7 +466,8 @@ export function drawTimelineFrame(
   }
 
   const exposure = timeline.renderParams.exposure
-  const baseLevel = Math.min(255, 255 * exposure)
+  const beatGain = beatGainAtFrame(timeline, frame)
+  const baseLevel = Math.min(255, 255 * exposure * beatGain)
   const flicker = timeline.renderParams.flicker
   const glowAmount = timeline.renderParams.glow
   const copiesFor = (track: UnitTrack) => track.copies.transforms.length > 0 ? track.copies.transforms : [{ x: 1 as const, y: 1 as const }]
@@ -485,7 +497,7 @@ export function drawTimelineFrame(
       const glowStrength = transform.glow * treatment.glow
       if (glowAmount > 0 && glowStrength > 0.05) {
         ctx.shadowColor = glowStrokeColor(timeline, 0.82 * treatment.glow)
-        ctx.shadowBlur = 7 * glowAmount * glowStrength
+        ctx.shadowBlur = 7 * glowAmount * glowStrength * beatGain
       } else {
         ctx.shadowBlur = 0
         ctx.shadowColor = 'transparent'

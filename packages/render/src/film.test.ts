@@ -5,7 +5,7 @@ import { boardModel } from '../../choreo/test/helpers.js'
 import { makeSyntheticBoard } from '../../choreo/test/synthetic.js'
 import type { Geom, GeometryLookup } from './film.js'
 import { buildGeometryLookup, computeViewBox, drawTimelineFrame } from './film.js'
-import { asCtx, currentRecorder } from './test-recorder.js'
+import { asCtx, currentRecorder, RecordingCtx } from './test-recorder.js'
 
 function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   return {
@@ -462,5 +462,21 @@ describe('render placement and interpolation contract', () => {
     expect(anchor?.gray).toBeGreaterThan(text?.gray ?? 0)
     expect(text?.gray).toBeGreaterThan(trace?.gray ?? 0)
     expect(hero?.alpha).toBeGreaterThan(trace?.alpha ?? 0)
+  })
+
+  it('renders directed beats as bounded exposure accents', () => {
+    const board = boardModel('ecc83-pp.kicad_pcb')
+    const timeline = compileTimeline(board, cfg({ knobs: { beatCount: 1, beatIntensity: 1, exposure: 0.7 } }))
+    const geometry = buildGeometryLookup(board)
+    const beat = timeline.directedBeats[0]
+    expect(beat).toBeDefined()
+    if (!beat) return
+
+    const atBeat = new RecordingCtx()
+    drawTimelineFrame(asCtx(atBeat), { timeline, geometry }, beat.frame + 1)
+    const withoutBeat = new RecordingCtx()
+    drawTimelineFrame(asCtx(withoutBeat), { timeline: { ...timeline, directedBeats: [] }, geometry }, beat.frame + 1)
+
+    expect(Math.max(...summarize(atBeat).grayLevels)).toBeGreaterThan(Math.max(...summarize(withoutBeat).grayLevels))
   })
 })
