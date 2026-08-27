@@ -1,8 +1,10 @@
 import type { BoardModel, Vec2 } from '@silk-reel/ingest'
-import type { Timeline, TimelineElement } from '@silk-reel/choreo'
+import { sampleDirectedKeyframes } from '@silk-reel/choreo/sample-directed'
+import type { CastUnit, FilmShot, Timeline, UnitTrack } from '@silk-reel/choreo'
 
 export interface Geom {
   kind: 'trace' | 'pad' | 'via' | 'zone' | 'text' | 'drill' | 'outline'
+  shape?: string
   x0: number
   y0: number
   x1: number
@@ -20,9 +22,9 @@ export interface ViewBox {
   offsetY: number
 }
 
-function traceGeom(id: string, points: Vec2[], width: number): Geom | undefined {
+function traceGeom(_id: string, points: Vec2[], width: number): Geom | undefined {
   if (points.length === 0) return undefined
-  const stroke = Math.max(width, 0.15)
+  const stroke = Math.max(width, 0.22)
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -51,24 +53,53 @@ function traceGeom(id: string, points: Vec2[], width: number): Geom | undefined 
   }
 }
 
-function padGeom(id: string, pos: Vec2, size: Vec2, shape: string): Geom {
+function padGeom(_id: string, pos: Vec2, size: Vec2, shape: string, rotation: number): Geom {
   const hw = Math.max(size.x, 0.3) / 2
   const hh = Math.max(size.y, 0.3) / 2
   const r = Math.min(hw, hh)
   const path = new Path2D()
-  if ((shape === 'circle' || shape === 'oval') && Math.abs(hw - hh) < 0.05) {
-    path.arc(pos.x, pos.y, r, 0, Math.PI * 2)
+  if (shape === 'circle' || shape === 'oval') {
+    path.arc(0, 0, r, 0, Math.PI * 2)
+  } else if (shape === 'roundrect') {
+    const corner = Math.min(r * 0.42, 0.8)
+    path.moveTo(-hw + corner, -hh)
+    path.lineTo(hw - corner, -hh)
+    path.quadraticCurveTo(hw, -hh, hw, -hh + corner)
+    path.lineTo(hw, hh - corner)
+    path.quadraticCurveTo(hw, hh, hw - corner, hh)
+    path.lineTo(-hw + corner, hh)
+    path.quadraticCurveTo(-hw, hh, -hw, hh - corner)
+    path.lineTo(-hw, -hh + corner)
+    path.quadraticCurveTo(-hw, -hh, -hw + corner, -hh)
+  } else if (shape === 'trapezoid') {
+    const skew = Math.min(hw * 0.26, 0.8)
+    path.moveTo(-hw + skew, -hh)
+    path.lineTo(hw - skew, -hh)
+    path.lineTo(hw + skew, hh)
+    path.lineTo(-hw - skew, hh)
+    path.closePath()
   } else {
-    path.rect(pos.x - hw, pos.y - hh, hw * 2, hh * 2)
+    path.rect(-hw, -hh, hw * 2, hh * 2)
   }
   return {
     kind: 'pad',
+    shape,
     x0: pos.x - hw,
     y0: pos.y - hh,
     x1: pos.x + hw,
     y1: pos.y + hh,
     draw(ctx) {
-      ctx.fill(path)
+      ctx.save()
+      ctx.translate(pos.x, pos.y)
+      ctx.rotate((rotation * Math.PI) / 180)
+      if (shape === 'oval' && Math.abs(hw - hh) >= 0.05) ctx.scale(hw / r, hh / r)
+      ctx.lineWidth = 0.36
+      ctx.stroke(path)
+      if (shape === 'rect') {
+        const mark = Math.max(Math.min(hw, hh) * 0.18, 0.08)
+        ctx.fillRect(-mark, -mark, mark * 2, mark * 2)
+      }
+      ctx.restore()
     }
   }
 }
@@ -84,6 +115,7 @@ function viaGeom(_id: string, pos: Vec2, dia: number): Geom {
     x1: pos.x + r,
     y1: pos.y + r,
     draw(ctx) {
+      ctx.lineWidth = 0.22
       ctx.stroke(path)
     }
   }
@@ -114,14 +146,18 @@ function zoneGeom(_id: string, outline: Vec2[]): Geom | undefined {
     x1: maxX,
     y1: maxY,
     draw(ctx) {
+      ctx.globalAlpha *= 0.1
+      ctx.lineWidth = 0.1
       ctx.stroke(path)
+      ctx.globalAlpha /= 0.1
     }
   }
 }
 
-function textGeom(id: string, value: string, pos: Vec2, height: number): Geom {
-  const halfW = Math.max(value.length * height * 0.35, height * 0.6)
-  const halfH = height * 0.75
+function textGeom(_id: string, value: string, pos: Vec2, height: number, rotation: number): Geom {
+  const inkHeight = Math.max(height * 0.9, 0.42)
+  const halfW = Math.max(value.length * inkHeight * 0.31, inkHeight * 0.6)
+  const halfH = inkHeight * 0.65
   return {
     kind: 'text',
     x0: pos.x - halfW,
@@ -130,10 +166,12 @@ function textGeom(id: string, value: string, pos: Vec2, height: number): Geom {
     y1: pos.y + halfH,
     draw(ctx) {
       ctx.save()
+      ctx.translate(pos.x, pos.y)
+      ctx.rotate((rotation * Math.PI) / 180)
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      ctx.font = `${height}px monospace`
-      ctx.fillText(value, pos.x, pos.y)
+      ctx.font = `${inkHeight}px monospace`
+      ctx.fillText(value, 0, 0)
       ctx.restore()
     }
   }
@@ -150,6 +188,7 @@ function drillGeom(_id: string, pos: Vec2, dia: number): Geom {
     x1: pos.x + r,
     y1: pos.y + r,
     draw(ctx) {
+      ctx.lineWidth = 0.16
       ctx.stroke(path)
     }
   }
@@ -180,14 +219,15 @@ function outlinePathGeom(_id: string, points: Vec2[], closed: boolean): Geom | u
     x1: maxX,
     y1: maxY,
     draw(ctx) {
-      ctx.globalAlpha *= 0.55
+      ctx.globalAlpha *= 0.28
+      ctx.lineWidth = 0.1
       ctx.stroke(path)
-      ctx.globalAlpha /= 0.55
+      ctx.globalAlpha /= 0.28
     }
   }
 }
 
-function arcGeom(id: string, center: Vec2, radius: number, startAngle: number, endAngle: number, width: number): Geom {
+function arcGeom(_id: string, center: Vec2, radius: number, startAngle: number, endAngle: number, width: number): Geom {
   const path = new Path2D()
   path.arc(center.x, center.y, radius, startAngle, endAngle)
   return {
@@ -197,7 +237,7 @@ function arcGeom(id: string, center: Vec2, radius: number, startAngle: number, e
     x1: center.x + radius + width,
     y1: center.y + radius + width,
     draw(ctx) {
-      ctx.lineWidth = Math.max(width, 0.15)
+      ctx.lineWidth = Math.max(width, 0.22)
       ctx.stroke(path)
     }
   }
@@ -209,17 +249,16 @@ function register(map: Map<string, Geom>, id: string, geom: Geom | undefined): v
 
 export function buildGeometryLookup(board: BoardModel): GeometryLookup {
   const map = new Map<string, Geom>()
-  for (const [layerId, copper] of Object.entries(board.copper)) {
+  for (const copper of Object.values(board.copper)) {
     for (const t of copper.traces) register(map, t.id, traceGeom(t.id, t.points, t.width))
-    for (const p of copper.pads) register(map, p.id, padGeom(p.id, p.pos, p.size, p.shape))
+    for (const p of copper.pads) register(map, p.id, padGeom(p.id, p.pos, p.size, p.shape, p.rot))
     for (const v of copper.vias) register(map, v.id, viaGeom(v.id, v.pos, v.dia))
     for (const z of copper.zones) register(map, z.id, zoneGeom(z.id, z.outline))
-    void layerId
   }
   for (const [, silk] of Object.entries(board.silkscreen)) {
     for (const l of silk.lines) register(map, l.id, traceGeom(l.id, l.points, l.width))
     for (const a of silk.arcs) register(map, a.id, arcGeom(a.id, a.center, a.radius, a.startAngle, a.endAngle, a.width))
-    for (const tx of silk.texts) register(map, tx.id, textGeom(tx.id, tx.value, tx.pos, tx.height))
+    for (const tx of silk.texts) register(map, tx.id, textGeom(tx.id, tx.value, tx.pos, tx.height, tx.rot))
   }
   for (const o of board.outline) register(map, o.id, outlinePathGeom(o.id, o.points, o.closed))
   for (const d of board.drill) register(map, d.id, drillGeom(d.id, d.pos, d.dia))
@@ -246,59 +285,11 @@ export function computeViewBox(geoms: Geom[], width: number, height: number): Vi
   const padMm = 2
   const spanX = maxX - minX + padMm * 2
   const spanY = maxY - minY + padMm * 2
-  const scale = Math.min(width / spanX, height / spanY)
+  const scale = Math.min(width / spanX, height / spanY) * 0.42
   const offsetX = (width - spanX * scale) / 2 - (minX - padMm) * scale
   const offsetY = (height - spanY * scale) / 2 - (minY - padMm) * scale
   return { scale, offsetX, offsetY }
 }
-
-export interface FrameTransform {
-  opacity: number
-  scaleX: number
-  scaleY: number
-  glow: number
-  dx: number
-  dy: number
-}
-
-type Kf = NonNullable<TimelineElement['keyframes'][number]>
-
-function toTransform(kf: Kf): FrameTransform {
-  return { opacity: kf.opacity, scaleX: kf.scaleX, scaleY: kf.scaleY, glow: kf.glow, dx: kf.dx ?? 0, dy: kf.dy ?? 0 }
-}
-
-function lerpTransform(a: Kf, b: Kf, t: number): FrameTransform {
-  const mix = (p: number, q: number): number => p + (q - p) * t
-  return {
-    opacity: mix(a.opacity, b.opacity),
-    scaleX: mix(a.scaleX, b.scaleX),
-    scaleY: mix(a.scaleY, b.scaleY),
-    glow: mix(a.glow, b.glow),
-    dx: mix(a.dx ?? 0, b.dx ?? 0),
-    dy: mix(a.dy ?? 0, b.dy ?? 0)
-  }
-}
-
-export function sampleKeyframes(el: TimelineElement, frame: number): FrameTransform | undefined {
-  const kfs = el.keyframes
-  if (kfs.length === 0) return undefined
-  const first = kfs[0]
-  const last = kfs[kfs.length - 1]
-  if (!first || !last) return undefined
-  if (frame <= first.frame) return toTransform(first)
-  if (frame >= last.frame) return toTransform(last)
-  for (let i = 1; i < kfs.length; i++) {
-    const prev = kfs[i - 1]
-    const cur = kfs[i]
-    if (!prev || !cur) continue
-    if (frame <= cur.frame) {
-      const t = (frame - prev.frame) / Math.max(1e-9, cur.frame - prev.frame)
-      return lerpTransform(prev, cur, t)
-    }
-  }
-  return toTransform(last)
-}
-
 function tintStroke(timeline: Timeline, level: number, alpha: number): string {
   const stroke = timeline.palette.stroke
   if (stroke.r === null || stroke.g === null || stroke.b === null) {
@@ -371,81 +362,138 @@ export interface DrawFrameInput {
   view?: ViewBox
 }
 
+function directedShotAt(timeline: Timeline, frame: number): FilmShot | undefined {
+  return timeline.shots.find((shot) => frame >= shot.startFrame && frame <= shot.endFrame)
+}
+
+function roleAlpha(kind: Geom['kind']): number {
+  switch (kind) {
+    case 'pad':
+      return 1
+    case 'text':
+      return 1
+    case 'trace':
+      return 1
+    case 'via':
+      return 0.72
+    case 'drill':
+      return 0.62
+    case 'outline':
+      return 0.22
+    case 'zone':
+      return 0.08
+    default: {
+      const never: never = kind
+      throw new Error(`unknown geometry kind ${String(never)}`)
+    }
+  }
+}
+
+function castBounds(cast: CastUnit[], geometry: GeometryLookup): Geom[] {
+  const geoms: Geom[] = []
+  for (const unit of cast) {
+    for (const ref of unit.memberRefs) {
+      const geom = geometry.get(ref)
+      if (geom) geoms.push(geom)
+    }
+  }
+  return geoms
+}
+
+export function computeCastView(timeline: Timeline, geometry: GeometryLookup): ViewBox {
+  const geoms = castBounds(timeline.cast, geometry)
+  return computeViewBox(geoms, timeline.width, timeline.height)
+}
+
+function directedView(timeline: Timeline, geometry: GeometryLookup): ViewBox {
+  return computeCastView(timeline, geometry)
+}
+
 export function drawTimelineFrame(
   ctx: CanvasRenderingContext2D,
   input: DrawFrameInput,
   frame: number
 ): number {
+  if (input.timeline.shots.length === 0) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.fillStyle = '#050505'
+    ctx.fillRect(0, 0, input.timeline.width, input.timeline.height)
+    return 0
+  }
+
   const { timeline, geometry } = input
   const width = timeline.width
   const height = timeline.height
-
-  const geoms: Geom[] = []
-  for (const el of timeline.elements) {
-    const g = geometry.get(el.geomRef)
-    if (g) geoms.push(g)
-  }
-  const view = input.view ?? computeViewBox(geoms, width, height)
+  const view = input.view ?? directedView(timeline, geometry)
+  const shot = directedShotAt(timeline, frame)
+  const castById = new Map(timeline.cast.map((unit) => [unit.id, unit]))
 
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.fillStyle = '#050505'
   ctx.fillRect(0, 0, width, height)
+  ctx.globalAlpha = 1
+  ctx.shadowBlur = 0
+  ctx.shadowColor = 'transparent'
 
-  ctx.setTransform(view.scale, 0, 0, view.scale, view.offsetX, view.offsetY)
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
+  if (!shot || shot.id === 'black-breath' || shot.id === 'black-cut') {
+    return 0
+  }
 
   const exposure = timeline.renderParams.exposure
-  const baseLevel = Math.min(190, 88 * exposure)
+  const baseLevel = Math.min(255, 255 * exposure)
   const flicker = timeline.renderParams.flicker
   const glowAmount = timeline.renderParams.glow
-  const grain = timeline.renderParams.grain
-
+  const copiesFor = (track: UnitTrack) => track.copies.transforms.length > 0 ? track.copies.transforms : [{ x: 1 as const, y: 1 as const }]
   let drawn = 0
-  for (const el of timeline.elements) {
-    const transform = sampleKeyframes(el, frame)
-    if (transform === undefined || transform.opacity <= 0.002) continue
-    const geom = geometry.get(el.geomRef)
-    if (geom === undefined) continue
 
-    const noise = pseudoNoise(frame * 7.13 + hashId(el.id))
-    const flickMul = flicker > 0 ? 1 - flicker * 0.55 * noise : 1
-    const alpha = Math.min(1, transform.opacity * flickMul)
-    if (alpha <= 0.004) continue
-    drawn += 1
-
-    const level = baseLevel * (geom.kind === 'text' ? 1.05 : 1)
-    const color = tintStroke(timeline, level, 1)
-
-    ctx.globalAlpha = alpha
-    if (glowAmount > 0 && transform.glow > 0.05) {
-      ctx.shadowColor = glowStrokeColor(timeline, 0.85)
-      ctx.shadowBlur = (14 * glowAmount * Math.max(0.4, transform.glow)) / view.scale
-    } else {
-      ctx.shadowBlur = 0
-      ctx.shadowColor = 'transparent'
+  for (const track of shot.tracks) {
+    const unit = castById.get(track.castId)
+    if (!unit) continue
+    const transform = sampleDirectedKeyframes(track, frame, timeline.renderParams.easing)
+    if (!transform || transform.opacity <= 0.002) continue
+    const unitCenter = {
+      x: (unit.bounds.min.x + unit.bounds.max.x) / 2,
+      y: (unit.bounds.min.y + unit.bounds.max.y) / 2
     }
-
-    ctx.strokeStyle = color
-    ctx.fillStyle = color
-    ctx.save()
-    ctx.translate(transform.dx, transform.dy)
-    if (transform.scaleX !== 1 || transform.scaleY !== 1) {
-      const cx = (geom.x0 + geom.x1) / 2
-      const cy = (geom.y0 + geom.y1) / 2
-      ctx.translate(cx, cy)
-      ctx.scale(transform.scaleX, transform.scaleY)
-      ctx.translate(-cx, -cy)
+    const jitter = flicker > 0 ? 1 - flicker * 0.35 * pseudoNoise(frame * 13.7 + hashId(unit.id)) : 1
+    for (const copy of copiesFor(track)) {
+      const targetX = width / 2 + (transform.x * width - width / 2) * copy.x
+      const targetY = height / 2 + (transform.y * height - height / 2) * copy.y
+      const sx = view.scale * transform.scale * copy.x
+      const sy = view.scale * transform.scale * copy.y
+      ctx.save()
+      ctx.setTransform(sx, 0, 0, sy, targetX - sx * unitCenter.x, targetY - sy * unitCenter.y)
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.globalAlpha = Math.min(1, transform.opacity * jitter)
+      if (glowAmount > 0 && transform.glow > 0.05) {
+        ctx.shadowColor = glowStrokeColor(timeline, 0.82)
+        ctx.shadowBlur = 7 * glowAmount * Math.max(0.4, transform.glow)
+      } else {
+        ctx.shadowBlur = 0
+        ctx.shadowColor = 'transparent'
+      }
+      ctx.strokeStyle = tintStroke(timeline, baseLevel, 1)
+      ctx.fillStyle = tintStroke(timeline, baseLevel, 1)
+      ctx.translate(unitCenter.x, unitCenter.y)
+      ctx.rotate((transform.rotation * Math.PI) / 180)
+      ctx.translate(-unitCenter.x, -unitCenter.y)
+      for (const ref of unit.memberRefs) {
+        const geom = geometry.get(ref)
+        if (!geom) continue
+        ctx.save()
+        ctx.globalAlpha = Math.min(1, transform.opacity * jitter * roleAlpha(geom.kind))
+        geom.draw(ctx)
+        ctx.restore()
+        drawn += 1
+      }
+      ctx.restore()
     }
-    geom.draw(ctx)
-    ctx.restore()
   }
 
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.globalAlpha = 1
   ctx.shadowBlur = 0
-  if (grain > 0) {
-    applyGrainOverlay(ctx, width, height, frame, grain)
-  }
+  if (timeline.renderParams.grain > 0) applyGrainOverlay(ctx, width, height, frame, timeline.renderParams.grain)
   return drawn
 }

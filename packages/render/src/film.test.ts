@@ -74,13 +74,15 @@ function summarize(recorder: ReturnType<typeof currentRecorder>): StrokeSummary 
 }
 
 describe('render geometry lookup', () => {
-  it('resolves every timeline element id on ecc83 to drawable geometry', () => {
+  it('resolves every directed cast member on ecc83 to drawable geometry', () => {
     const board = boardModel('ecc83-pp.kicad_pcb')
     const tl = compileTimeline(board, cfg())
     const lookup = buildGeometryLookup(board)
     const missing: string[] = []
-    for (const el of tl.elements) {
-      if (!lookup.get(el.geomRef)) missing.push(el.geomRef)
+    for (const unit of tl.cast) {
+      for (const memberRef of unit.memberRefs) {
+        if (!lookup.get(memberRef)) missing.push(memberRef)
+      }
     }
     expect(missing, `missing geometry for ${missing.slice(0, 8).join(', ')}`).toEqual([])
   })
@@ -89,7 +91,7 @@ describe('render geometry lookup', () => {
     const board = boardModel('ecc83-pp.kicad_pcb')
     const tl = compileTimeline(board, cfg())
     const lookup = buildGeometryLookup(board)
-    const geoms = tl.elements.map((el) => lookup.get(el.geomRef)).filter((g) => g !== undefined)
+    const geoms = tl.cast.flatMap((unit) => unit.memberRefs).map((memberRef) => lookup.get(memberRef)).filter((g) => g !== undefined)
     const view = computeViewBox(geoms, tl.width, tl.height)
     expect(view.scale).toBeGreaterThan(0)
     const leftmost = view.offsetX + view.scale * Math.min(...geoms.map((g) => g.x0))
@@ -105,7 +107,10 @@ describe('drawTimelineFrame aesthetic floor', () => {
     const tl = compileTimeline(board, cfg())
     const lookup = buildGeometryLookup(board)
     const rec = currentRecorder()
-    drawTimelineFrame(asCtx(rec), { timeline: tl, geometry: lookup }, 0)
+    const shot = tl.shots.find((candidate) => candidate.id === 'vertical-seed')
+    expect(shot).toBeDefined()
+    if (!shot) return
+    drawTimelineFrame(asCtx(rec), { timeline: tl, geometry: lookup }, shot.startFrame + 2)
     const firstFill = rec.calls.find((c) => c.method === 'fillRect')
     expect(firstFill).toBeDefined()
     expect(rec.props.fillStyle).toBe('#050505')
@@ -156,7 +161,10 @@ describe('drawTimelineFrame aesthetic floor', () => {
     const tl = compileTimeline(board, cfg({ knobs: { grain: 0.9 } }))
     const lookup = buildGeometryLookup(board)
     const rec = currentRecorder()
-    drawTimelineFrame(asCtx(rec), { timeline: tl, geometry: lookup }, 0)
+    const shot = tl.shots.find((candidate) => candidate.id === 'vertical-seed')
+    expect(shot).toBeDefined()
+    if (!shot) return
+    drawTimelineFrame(asCtx(rec), { timeline: tl, geometry: lookup }, shot.startFrame + 2)
     const puts = rec.calls.filter((c) => c.method === 'putImageData')
     expect(puts.length).toBe(1)
     const lastTransform = [...rec.calls].reverse().find((c) => c.method === 'setTransform')
@@ -175,14 +183,12 @@ describe('drawTimelineFrame aesthetic floor', () => {
   })
 
   it('flicker modulates per-element alpha within a sustain window', () => {
-    const board = makeSyntheticBoard(120)
+    const board = boardModel('ecc83-pp.kicad_pcb')
     const tl = compileTimeline(board, cfg({ knobs: { flicker: 0.9 } }))
     const lookup = buildGeometryLookup(board)
-    const act = tl.acts[Math.min(2, tl.acts.length - 1)]
-    expect(act).toBeDefined()
-    if (!act) return
-    const sustain = act.phases.find((p) => p.kind === 'sustain')
-    if (!sustain) return
+    const shot = tl.shots.find((candidate) => candidate.id === 'bilateral-tower')
+    expect(shot).toBeDefined()
+    if (!shot) return
 
     const alphasAt = (frame: number): number[] => {
       const rec = currentRecorder()
@@ -199,8 +205,8 @@ describe('drawTimelineFrame aesthetic floor', () => {
       return vals
     }
 
-    const a = alphasAt(sustain.startFrame + 1)
-    const b = alphasAt(sustain.startFrame + 2)
+    const a = alphasAt(Math.min(shot.endFrame - 2, shot.startFrame + 8))
+    const b = alphasAt(Math.min(shot.endFrame - 1, shot.startFrame + 9))
     expect(a.length).toBeGreaterThan(5)
     expect(a.some((v) => v < 0.999)).toBe(true)
     expect(a.join(',')).not.toBe(b.join(','))
@@ -242,8 +248,6 @@ describe('drawTimelineFrame aesthetic floor', () => {
     expect(mono.spreadsRG.every((s) => s <= 2)).toBe(true)
 
     const phosphor = levelsAndSpreads('phosphor')
-    const phR = phosphor.grays.reduce((s, v) => s + v, 0) / Math.max(1, phosphor.grays.length)
-    void phR
     expect(phosphor.spreadsRG.some((s) => s > 10)).toBe(true)
 
     const amber = levelsAndSpreads('amber')
@@ -279,53 +283,49 @@ describe('drawTimelineFrame aesthetic floor', () => {
 })
 
 describe('render placement and interpolation contract', () => {
-  it('applies placement plus interpolated dx/dy as translate offsets', () => {
+  it('applies sampled directed positions as translate offsets', () => {
     const board = boardModel('ecc83-pp.kicad_pcb')
     const tl = compileTimeline(board, cfg())
-    const copperAct = tl.acts.find((a) => a.id.startsWith('copper'))
-    expect(copperAct).toBeDefined()
-    if (!copperAct) return
-    const moved = tl.elements.filter(
-      (el) => el.actId === copperAct.id && (el.placement.dx !== 0 || el.placement.dy !== 0 || el.keyframes.some((k) => (k.dx ?? 0) !== 0 || (k.dy ?? 0) !== 0))
-    )
-    expect(moved.length).toBeGreaterThan(0)
+    const shot = tl.shots.find((candidate) => candidate.id === 'bilateral-tower')
+    expect(shot?.tracks.length).toBeGreaterThan(0)
+    if (!shot) return
 
     const lookup = buildGeometryLookup(board)
-    const buildFrame = Math.floor((copperAct.startFrame + copperAct.endFrame) / 2)
+    const buildFrame = Math.floor((shot.startFrame + shot.endFrame) / 2)
     const rec = currentRecorder()
     drawTimelineFrame(asCtx(rec), { timeline: tl, geometry: lookup }, buildFrame)
     expect(summarize(rec).translateDeltas.length).toBeGreaterThan(0)
   })
 
-  it('final frame still strokes elements (sparse core reaches pixels)', () => {
+  it('pad coda remains lit through frame 165 before the black cut', () => {
     const board = boardModel('ecc83-pp.kicad_pcb')
     const tl = compileTimeline(board, cfg())
     const lookup = buildGeometryLookup(board)
     const rec = currentRecorder()
-    drawTimelineFrame(asCtx(rec), { timeline: tl, geometry: lookup }, tl.totalFrames - 1)
+    drawTimelineFrame(asCtx(rec), { timeline: tl, geometry: lookup }, tl.totalFrames - 2)
     const summary = summarize(rec)
-    expect(summary.count).toBeGreaterThan(4)
-    expect(summary.maxAlpha).toBeLessThan(0.6)
+    expect(summary.count).toBeGreaterThanOrEqual(4)
+    expect(summary.maxAlpha).toBeGreaterThan(0.8)
+    const final = currentRecorder()
+    final.reset()
+    drawTimelineFrame(asCtx(final), { timeline: tl, geometry: lookup }, tl.totalFrames - 1)
+    expect(summarize(final).count).toBe(0)
   })
 
-  it('elements outside their keyframe window are skipped entirely', () => {
+  it('black breath skips all directed tracks', () => {
     const board = makeSyntheticBoard(80)
     const tl = compileTimeline(board, cfg())
     const lookup = buildGeometryLookup(board)
-    const earlyAct = tl.acts[0]
-    expect(earlyAct).toBeDefined()
-    if (!earlyAct) return
     const rec = currentRecorder()
     drawTimelineFrame(asCtx(rec), { timeline: tl, geometry: lookup }, 0)
-    const summary = summarize(rec)
-    expect(summary.count).toBeLessThan(tl.elements.length / 2)
+    expect(summarize(rec).count).toBe(0)
   })
 
   it('viewbox maps board bounds inside the frame with margin', () => {
     const board = boardModel('ecc83-pp.kicad_pcb')
     const tl = compileTimeline(board, cfg())
     const lookup = buildGeometryLookup(board)
-    const geoms = tl.elements.map((el) => lookup.get(el.geomRef)).filter((g) => g !== undefined)
+    const geoms = tl.cast.flatMap((unit) => unit.memberRefs).map((memberRef) => lookup.get(memberRef)).filter((g) => g !== undefined)
     const view = computeViewBox(geoms, tl.width, tl.height)
     const leftmost = view.offsetX + view.scale * Math.min(...geoms.map((g) => g.x0))
     const rightmost = view.offsetX + view.scale * Math.max(...geoms.map((g) => g.x1))

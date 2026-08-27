@@ -11,6 +11,10 @@ class RecordedPath2D {
     this.ops.push({ op: 'lineTo', args: [x, y] })
   }
 
+  quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void {
+    this.ops.push({ op: 'quadraticCurveTo', args: [cpx, cpy, x, y] })
+  }
+
   arc(x: number, y: number, r: number, start: number, end: number): void {
     this.ops.push({ op: 'arc', args: [x, y, r, start, end] })
   }
@@ -61,7 +65,7 @@ export class RecordingCtx {
       'setTransform', 'fillRect', 'clearRect', 'save', 'restore',
       'translate', 'scale', 'rotate',
       'stroke', 'fill', 'fillText', 'strokeText',
-      'beginPath', 'closePath', 'moveTo', 'lineTo', 'arc', 'rect'
+      'beginPath', 'closePath', 'moveTo', 'lineTo', 'quadraticCurveTo', 'arc', 'rect'
     ]
     for (const m of methods) target[m] = this.forward(m)
     const props = ['fillStyle', 'strokeStyle', 'shadowColor', 'shadowBlur', 'globalAlpha', 'lineWidth', 'lineCap', 'lineJoin', 'font', 'textAlign', 'textBaseline']

@@ -1,8 +1,8 @@
 import React from 'react'
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion'
 import type { Timeline } from '@silk-reel/choreo'
-import { drawTimelineFrame, buildGeometryLookup, computeViewBox } from './film'
-import type { GeometryLookup, Geom } from './film'
+import { drawTimelineFrame, buildGeometryLookup, computeCastView } from './film'
+import type { GeometryLookup } from './film'
 
 export interface FilmProps {
   timeline: Timeline
@@ -16,14 +16,7 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, board, children }) =
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
 
   const geometry = React.useMemo<GeometryLookup>(() => buildGeometryLookup(board), [board])
-  const view = React.useMemo(() => {
-    const geoms: Geom[] = []
-    for (const el of timeline.elements) {
-      const g = geometry.get(el.geomRef)
-      if (g) geoms.push(g)
-    }
-    return computeViewBox(geoms, width, height)
-  }, [geometry, timeline, width, height])
+  const view = React.useMemo(() => computeCastView(timeline, geometry), [geometry, timeline, width, height])
 
   React.useLayoutEffect(() => {
     const canvas = canvasRef.current
@@ -47,4 +40,3 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, board, children }) =
 }
 
 export const Film: React.FC<FilmProps> = (props) => <FilmCanvas {...props} />
-
