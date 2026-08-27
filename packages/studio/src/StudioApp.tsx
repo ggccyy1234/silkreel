@@ -240,7 +240,7 @@ const Landing: React.FC<{
         <input
           ref={fileInput}
           type="file"
-          accept=".kicad_pcb,.kicad_mod"
+          accept=".kicad_pcb,.kicad_mod,.gtl,.gbl,.gml,.gko,.gts,.gbs,.gto,.gbo,.gtp,.gbp,.drl,.drd,.xln,.cmp,.sol,.gpi"
           hidden
           onChange={(e) => {
             const file = e.target.files?.[0]
@@ -299,7 +299,7 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
       <header className="topbar">
         <button className="ghost" onClick={props.onHome}>← boards</button>
         <h1 className="board-name">{summary.fileName}</h1>
-        <span className="board-meta">{summary.layerCount} layers · {summary.elementCount.toLocaleString()} elements</span>
+        <span className="board-meta">{summary.layerCount} source layers · {summary.elementCount.toLocaleString()} primitives</span>
         <ExportControl state={props.exportState} onExport={props.onExport} />
       </header>
       <div className="workspace-body">
@@ -321,6 +321,7 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
               </ul>
             </details>
           )}
+          <BoardLedger summary={summary} castCount={film?.timeline.cast.length ?? 0} />
           <ActList acts={summary.acts} order={props.actOrder} onChange={props.onActOrder} compiledIds={film?.timeline.cast.map((unit) => unit.sourceAct) ?? []} />
           <KnobPanel knobs={props.knobs} onKnobs={props.onKnobs} seed={props.seed} onSeed={props.onSeed} duration={props.duration} onDuration={props.onDuration} />
         </aside>
@@ -328,6 +329,24 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
     </main>
   )
 }
+
+const BoardLedger: React.FC<{ summary: BoardSummary; castCount: number }> = ({ summary, castCount }) => (
+  <section className="panel board-ledger" aria-labelledby="board-ledger-title">
+    <div className="panel-heading">
+      <h2 id="board-ledger-title">board inventory</h2>
+      <span>{castCount} cast units</span>
+    </div>
+    <dl className="ledger-grid">
+      <div><dt>footprints</dt><dd>{summary.footprintCount}</dd></div>
+      <div><dt>pads</dt><dd>{summary.padCount}</dd></div>
+      <div><dt>traces</dt><dd>{summary.traceCount}</dd></div>
+      <div><dt>silk marks</dt><dd>{summary.silkMarkCount}</dd></div>
+      <div><dt>vias</dt><dd>{summary.viaCount}</dd></div>
+      <div><dt>drills</dt><dd>{summary.drillCount}</dd></div>
+    </dl>
+    <p className="layer-ledger" title={summary.layerNames.join(', ')}>{summary.layerNames.join(' · ')}</p>
+  </section>
+)
 
 const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel; stale: boolean }> = ({ timeline, board, stale }) => {
   const playerRef = React.useRef<PlayerRef>(null)

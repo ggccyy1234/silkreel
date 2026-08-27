@@ -7,7 +7,14 @@ export interface BoardSummary {
   board: BoardModel
   fileName: string
   layerCount: number
+  layerNames: string[]
   elementCount: number
+  footprintCount: number
+  padCount: number
+  traceCount: number
+  viaCount: number
+  silkMarkCount: number
+  drillCount: number
   acts: ActId[]
 }
 
@@ -67,15 +74,36 @@ export function useBoardSources() {
 export function summarize(board: BoardModel, fileName: string): BoardSummary {
   const copperLayers = Object.keys(board.copper)
   const silkLayers = Object.keys(board.silkscreen)
+  let padCount = 0
+  let traceCount = 0
+  let viaCount = 0
+  let silkMarkCount = 0
   let elements = board.outline.length + board.drill.length
   for (const c of Object.values(board.copper)) {
+    padCount += c.pads.length
+    traceCount += c.traces.length
+    viaCount += c.vias.length
     elements += c.traces.length + c.pads.length + c.vias.length + c.zones.length
   }
   for (const s of Object.values(board.silkscreen)) {
+    silkMarkCount += s.lines.length + s.texts.length + s.arcs.length
     elements += s.lines.length + s.texts.length + s.arcs.length
   }
   const acts = defaultActOrder(board)
-  return { board, fileName, layerCount: copperLayers.length + silkLayers.length, elementCount: elements, acts }
+  return {
+    board,
+    fileName,
+    layerCount: copperLayers.length + silkLayers.length,
+    layerNames: [...copperLayers, ...silkLayers],
+    elementCount: elements,
+    footprintCount: board.footprints.length,
+    padCount,
+    traceCount,
+    viaCount,
+    silkMarkCount,
+    drillCount: board.drill.length,
+    acts
+  }
 }
 
 export function presentationActOrder(acts: ActId[]): ActId[] {

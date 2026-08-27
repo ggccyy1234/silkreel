@@ -24,7 +24,7 @@ export const EASING_OPTIONS = ['expo-out', 'back-out', 'linear', 'sine'] as cons
 export const PALETTE_OPTIONS = Object.keys(PALETTE_ACCENTS) as PaletteName[]
 
 export const DEMO_BOARDS = [
-  { id: 'ecc83-pp', label: 'ECC83 preamp', detail: '159 KB, 2 layers, small through-hole board' },
+  { id: 'ecc83-pp', label: 'ECC83 preamp', detail: '159 KB, through-hole valve preamp' },
   { id: 'kit-dev-coldfire-xilinx_5213', label: 'ColdFire dev kit', detail: '2.8 MB, through-hole + FPGA' },
   { id: 'video', label: 'Video board', detail: '5.8 MB, 4 copper layers, the stress test' }
 ] as const

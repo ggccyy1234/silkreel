@@ -7,5 +7,16 @@ export default defineConfig({
   server: {
     port: 3101,
     strictPort: true
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/node_modules/@remotion/') || id.includes('/node_modules/remotion/')) return 'remotion'
+          if (id.includes('/node_modules/react')) return 'react'
+          return undefined
+        }
+      }
+    }
   }
 })
