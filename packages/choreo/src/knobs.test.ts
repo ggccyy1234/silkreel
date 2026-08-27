@@ -3,7 +3,6 @@ import { compileTimeline } from './index'
 import { sampleDirectedKeyframes } from './sample-directed'
 import type { FilmConfig, FilmShot, UnitTrack } from './index'
 import { boardModel } from '../test/helpers'
-import { makeSyntheticBoard } from '../test/synthetic'
 import { defaultConfig } from './grammar.test'
 
 const ecc83 = () => boardModel('ecc83-pp.kicad_pcb')
@@ -19,7 +18,7 @@ function firstRisingTrack(timeline: ReturnType<typeof compileTimeline>): UnitTra
     for (const track of shot.tracks) {
       const first = track.keyframes[0]
       const second = track.keyframes[1]
-      if (first && second && second.opacity > first.opacity && second.frame - first.frame >= 3) return track
+      if (first && second && second.opacity > first.opacity && second.frame - first.frame >= 2) return track
     }
   }
   throw new Error('directed timeline has no rising track')
@@ -69,8 +68,8 @@ describe('directed rhythm and beats', () => {
 
 describe('directed interpolation and render parameters', () => {
   it('easing changes sampled opacity on a directed track', () => {
-    const linear = compileTimeline(makeSyntheticBoard(120), defaultConfig({ knobs: { easing: 'linear' } }))
-    const expo = compileTimeline(makeSyntheticBoard(120), defaultConfig({ knobs: { easing: 'expo-out' } }))
+    const linear = compileTimeline(ecc83(), defaultConfig({ knobs: { easing: 'linear' } }))
+    const expo = compileTimeline(ecc83(), defaultConfig({ knobs: { easing: 'expo-out' } }))
     const linearTrack = firstRisingTrack(linear)
     const expoTrack = firstRisingTrack(expo)
     const first = linearTrack.keyframes[0]

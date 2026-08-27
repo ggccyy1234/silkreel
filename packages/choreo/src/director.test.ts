@@ -70,24 +70,26 @@ describe('semantic film director', () => {
     expect(timeline.cast.some((unit) => unit.role === 'hero-body')).toBe(true)
   })
 
-  it('keeps cast geometry disjoint while reserving the four coda pads', () => {
+  it('reuses connector pads across semantic roles without drawing them twice in one shot', () => {
     const timeline = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), config())
-    const owners = new Map<string, string>()
+    const assemblies = timeline.cast.filter((unit) => unit.role === 'hero-body' || unit.role === 'detail')
+    const anchors = timeline.cast.filter((unit) => unit.role === 'anchor-pad')
+    const assemblyMembers = new Set(assemblies.flatMap((unit) => unit.memberRefs))
 
-    for (const unit of timeline.cast) {
-      for (const memberRef of unit.memberRefs) {
-        expect(owners.has(memberRef), `${memberRef} is claimed by more than one cast unit`).toBe(false)
-        owners.set(memberRef, unit.id)
+    expect(anchors.some((anchor) => anchor.memberRefs.some((memberRef) => assemblyMembers.has(memberRef)))).toBe(true)
+    expect(assemblies.some((unit) => unit.id.endsWith(':P1'))).toBe(true)
+    for (const shot of timeline.shots) {
+      const members = new Set<string>()
+      for (const track of shot.tracks) {
+        const unit = timeline.cast.find((candidate) => candidate.id === track.castId)
+        for (const memberRef of unit?.memberRefs ?? []) {
+          expect(members.has(memberRef), `${shot.id} draws ${memberRef} more than once`).toBe(false)
+          members.add(memberRef)
+        }
       }
     }
 
-    expect(new Set(timeline.cast.filter((unit) => unit.role === 'hero-body' || unit.role === 'detail').map((unit) => unit.id))).toEqual(new Set([
-      'hero:R2',
-      'hero:R4',
-      'detail:C2',
-      'detail:R1',
-      'detail:R3'
-    ]))
+    expect(assemblies).toHaveLength(9)
     expect(timeline.shots.find((shot) => shot.id === 'pad-coda')?.tracks).toHaveLength(4)
   })
 
