@@ -11,7 +11,8 @@
     "test": "vitest run",
     "lint": "eslint packages",
     "render:canonical": "npm run render:canonical --workspace=@silk-reel/render-api",
-    "metrics:gate": "tsx packages/metrics/src/cli.ts"
+    "metrics:gate": "tsx packages/metrics/src/cli.ts",
+    "visual:compare": "node scripts/compare-reference.mjs"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.515",
