@@ -32,11 +32,16 @@ export interface GateExpectations {
 
 const BG_LIMIT = 8
 const LIT_THRESHOLD = 22
+const CODA_WINDOW_FRAMES = 12
+const CODA_MIN_LIT_PCT = 0.05
+const CODA_MIN_STABLE_FRAMES = 3
+const CODA_MAX_PEAK_RATIO = 0.6
+const CODA_MIN_MIRROR_RATIO = 0.9
+const CODA_MAX_QUADRANT_DEVIATION = 0.15
 
 interface Envelope {
   stats: FrameStats[]
   peakLitPct: number
-  finalLitPct: number
   maximaCount: number
   minLitPct: number
   bestMirrorRatio: number
@@ -46,8 +51,7 @@ interface Envelope {
 
 async function measureEnvelope(videoPath: string): Promise<{ facts: Awaited<ReturnType<typeof probeVideo>>; envelope: Envelope }> {
   const facts = await probeVideo(videoPath)
-  const frameCount = facts.frameCount ?? Math.max(1, Math.round(facts.durationSeconds * facts.fps))
-  const stride = Math.max(1, Math.ceil(frameCount / 120))
+  const stride = 1
   const stats: FrameStats[] = []
   for await (const frame of decodeGrayFrames(videoPath, { width: facts.width, height: facts.height }, { everyNthFrame: stride })) {
     stats.push(analyzeFrame(frame, { litThreshold: LIT_THRESHOLD }))
@@ -58,7 +62,6 @@ async function measureEnvelope(videoPath: string): Promise<{ facts: Awaited<Retu
 
   const litSeries = stats.map((s) => s.litPct)
   const peakLitPct = Math.max(...litSeries)
-  const finalLitPct = litSeries[litSeries.length - 1] ?? 0
   const minLitPct = Math.min(...litSeries)
 
   let maximaCount = 0
@@ -81,7 +84,6 @@ async function measureEnvelope(videoPath: string): Promise<{ facts: Awaited<Retu
     envelope: {
       stats,
       peakLitPct,
-      finalLitPct,
       maximaCount,
       minLitPct,
       bestMirrorRatio,
@@ -142,14 +144,26 @@ function checkEnvelopeShape(envelope: Envelope): GateRuleResult {
   }
 }
 
-function checkSparseCore(envelope: Envelope): GateRuleResult {
-  const nonEmpty = envelope.finalLitPct > 0.05
-  const sparse = envelope.peakLitPct > 0 ? envelope.finalLitPct < envelope.peakLitPct * 0.5 : false
-  const passed = nonEmpty && sparse
+function checkCoda(envelope: Envelope): GateRuleResult {
+  const final = envelope.stats.at(-1)
+  const tail = envelope.stats.slice(-CODA_WINDOW_FRAMES, -1)
+  const nonBlackTail = tail.filter((stat) => stat.litPct > CODA_MIN_LIT_PCT)
+  const tailPeak = Math.max(...nonBlackTail.map((stat) => stat.litPct), 0)
+  const stableFrames = nonBlackTail.filter(
+    (stat) => stat.mirrorRatio >= CODA_MIN_MIRROR_RATIO && stat.quadrantDeviation <= CODA_MAX_QUADRANT_DEVIATION
+  )
+  const allNonBlackFramesAreStable = stableFrames.length === nonBlackTail.length
+  const blackCut = (final?.litPct ?? 0) <= 0.005 && (final?.bgMeanBrightness ?? 0) <= BG_LIMIT
+  const sparseTail =
+    tailPeak > CODA_MIN_LIT_PCT &&
+    nonBlackTail.length >= CODA_MIN_STABLE_FRAMES &&
+    allNonBlackFramesAreStable &&
+    tailPeak < envelope.peakLitPct * CODA_MAX_PEAK_RATIO
+  const passed = blackCut && sparseTail
   return {
-    rule: 'sparse-non-empty-core',
+    rule: 'sparse-four-pad-tail-black-cut',
     passed,
-    detail: `final lit%=${envelope.finalLitPct.toFixed(3)}, peak=${envelope.peakLitPct.toFixed(3)}`
+    detail: `tail peak=${tailPeak.toFixed(3)}, stable tail frames=${stableFrames.length}/${nonBlackTail.length}, final lit%=${(final?.litPct ?? 0).toFixed(3)}, black cut=${blackCut}`
   }
 }
 
@@ -177,7 +191,7 @@ export async function runGate(videoPath: string, expectations: GateExpectations)
     checkSpec(facts, expectations),
     checkBackground(envelope),
     checkEnvelopeShape(envelope),
-    checkSparseCore(envelope),
+    checkCoda(envelope),
     checkSymmetry(envelope),
     checkQuadrants(envelope)
   ]

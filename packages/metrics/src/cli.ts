@@ -34,7 +34,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
 }
 
 async function loadExpectations(specPath: string | undefined): Promise<GateExpectations> {
-  const fallback: GateExpectations = { width: 1080, height: 1350, fps: 15, totalFrames: Math.round(12.733 * 15) }
+  const fallback: GateExpectations = { width: 1080, height: 1350, fps: 15, totalFrames: 167 }
   if (specPath === undefined) return fallback
   const raw = await readFile(specPath, 'utf8')
   const parsed = JSON.parse(raw) as Partial<GateExpectations>
