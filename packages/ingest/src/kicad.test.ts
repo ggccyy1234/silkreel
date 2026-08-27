@@ -300,3 +300,34 @@ describe('VAL-INGEST-010 mirrored silk text stays readable', () => {
     expect(model.footprints[0]?.ref).toBe('R7')
   })
 })
+
+describe('VAL-INGEST-017 pad fidelity', () => {
+  it('preserves custom and trapezoid shapes and expands wildcard copper layers', () => {
+    const doc = `(kicad_pcb (version 20241229) (generator pcbnew)
+      (layers
+        (0 "F.Cu" signal)
+        (2 "In1.Cu" power)
+        (31 "B.Cu" signal)
+      )
+      (footprint "FidelityProbe" (layer "F.Cu")
+        (at 10 20)
+        (property "Reference" "FP1" (at 0 0) (layer "F.SilkS"))
+        (pad "custom" smd custom (at 0 0) (size 2 1) (layers "*.Cu" "*.Mask"))
+        (pad "trapezoid" smd trapezoid (at 3 0) (size 2 1) (layers "B.Cu"))
+      )
+    )`
+    const model = parseKicadPcb(doc, 'pad-fidelity.kicad_pcb')
+
+    const wildcardPads = Object.values(model.copper)
+      .flatMap((layer) => layer.pads)
+      .filter((pad) => pad.footprintRef === 'FP1' && pad.pos.x === 10 && pad.pos.y === 20)
+    expect(wildcardPads.map((pad) => pad.shape)).toEqual(['custom', 'custom', 'custom'])
+    expect(Object.keys(model.copper).sort()).toEqual(['B.Cu', 'F.Cu', 'In1.Cu'])
+
+    const trapezoidPad = model.copper['B.Cu']?.pads.find(
+      (pad) => pad.footprintRef === 'FP1' && pad.pos.x === 13 && pad.pos.y === 20
+    )
+    expect(trapezoidPad?.shape).toBe('trapezoid')
+    expect(model.stats.pads).toBe(2)
+  })
+})

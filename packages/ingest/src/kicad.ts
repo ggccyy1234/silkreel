@@ -104,7 +104,7 @@ function padShapeOf(token: string): PadShape {
       return token
     case 'trapezoid':
     case 'custom':
-      return 'rect'
+      return token
     default:
       return 'roundrect'
   }
@@ -193,6 +193,15 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
 
   const netNamesById = new Map<number, string>()
   const netNodesById = new Map<number, NetNodeRef[]>()
+  const layersDecl = firstListNamed(root, 'layers')
+  const declaredCopperLayerIds: string[] = []
+  if (layersDecl) {
+    for (const entry of children(layersDecl)) {
+      if (!isList(entry)) continue
+      const layerId = atomsAfterHead(entry)[0]
+      if (layerId !== undefined && layerKindOf(layerId) === 'copper') declaredCopperLayerIds.push(layerId)
+    }
+  }
 
   function copperFor(layerId: string): CopperLayers {
     let c = copper[layerId]
@@ -372,7 +381,11 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const layerNodes = listsNamed(node, 'layers')
     const layerSpec = layerNodes.length > 0 ? atomsAfterHead(layerNodes[0] as SExprNode[]) : []
     const throughHole = padType === 'thru_hole' || padType === 'connect' || padType === 'np_thru_hole'
-    const targetLayers = throughHole ? ['F.Cu', 'B.Cu'] : resolveSmdPadLayers(layerSpec)
+    const targetLayers = resolvePadLayers(
+      layerSpec,
+      declaredCopperLayerIds,
+      throughHole ? ['F.Cu', 'B.Cu'] : ['F.Cu']
+    )
     for (const layerId of targetLayers) {
       ensureLayer(layerId)
       copperFor(layerId).pads.push(pad)
@@ -652,7 +665,6 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     for (const p of approx) bbox.point(p)
   }
 
-  const layersDecl = firstListNamed(root, 'layers')
   if (layersDecl) {
     for (const entry of children(layersDecl)) {
       if (!isList(entry)) continue
@@ -721,13 +733,19 @@ function boardNameOf(fileName: string): string {
   return base.replace(/\.kicad_pcb$/i, '')
 }
 
-function resolveSmdPadLayers(layerSpec: string[]): string[] {
+function resolvePadLayers(layerSpec: string[], declaredCopperLayerIds: string[], fallback: string[]): string[] {
   const out: string[] = []
-  for (const tok of layerSpec) {
-    if (tok === '*.Cu') return ['F.Cu']
-    if (tok === 'F.Cu' || tok === 'B.Cu') out.push(tok)
+  const add = (layerId: string): void => {
+    if (!out.includes(layerId)) out.push(layerId)
   }
-  return out.length > 0 ? out : ['F.Cu']
+  for (const tok of layerSpec) {
+    if (tok === '*.Cu') {
+      for (const layerId of declaredCopperLayerIds) add(layerId)
+    } else if (/\.Cu$/.test(tok)) {
+      add(tok)
+    }
+  }
+  return out.length > 0 ? out : fallback
 }
 
 interface ArcGeo {
