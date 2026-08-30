@@ -97,16 +97,24 @@ function codaRule(report: Awaited<ReturnType<typeof runGate>>) {
   return rule
 }
 
+function densityRule(report: Awaited<ReturnType<typeof runGate>>) {
+  const rule = report.rules.find((candidate) => candidate.rule === 'density-envelope')
+  if (rule === undefined) throw new Error('density rule missing from gate report')
+  return rule
+}
+
 describe('gate coda oracle', () => {
   it('accepts the tracked reference and its intended four-pad tail', async () => {
     const reference = await runGate(REFERENCE, { width: 1080, height: 1350, fps: 15, totalFrames: 167 })
     expect(reference.passed).toBe(true)
     expect(codaRule(reference).passed).toBe(true)
+    expect(densityRule(reference).passed).toBe(true)
 
     const coda = fourPadFrame()
     const synthetic = await renderSynthetic('four-pad-coda', [frame(255), ...Array.from({ length: FRAME_COUNT - 2 }, () => coda), frame()])
     const report = await runGate(synthetic, expectations(FRAME_COUNT))
     expect(codaRule(report).passed).toBe(true)
+    expect(densityRule(report).passed).toBe(false)
   }, 120000)
 
   it('rejects black cuts without a stable coda, including empty and random tails', async () => {

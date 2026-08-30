@@ -38,6 +38,8 @@ const CODA_MIN_STABLE_FRAMES = 3
 const CODA_MAX_PEAK_RATIO = 0.6
 const CODA_MIN_MIRROR_RATIO = 0.9
 const CODA_MAX_QUADRANT_DEVIATION = 0.15
+const DENSITY_MIN_PEAK_PCT = 0.45
+const DENSITY_MAX_PEAK_PCT = 0.9
 
 interface Envelope {
   stats: FrameStats[]
@@ -136,11 +138,12 @@ function checkBackground(envelope: Envelope): GateRuleResult {
 function checkEnvelopeShape(envelope: Envelope): GateRuleResult {
   const hasStructure = envelope.maximaCount >= 2
   const hasReset = envelope.minLitPct < Math.max(0.3, envelope.peakLitPct * 0.05)
-  const passed = hasStructure && hasReset
+  const peakInRange = envelope.peakLitPct >= DENSITY_MIN_PEAK_PCT && envelope.peakLitPct <= DENSITY_MAX_PEAK_PCT
+  const passed = hasStructure && hasReset && peakInRange
   return {
     rule: 'density-envelope',
     passed,
-    detail: `local maxima=${envelope.maximaCount}, min lit%=${envelope.minLitPct.toFixed(3)}, peak=${envelope.peakLitPct.toFixed(3)}`
+    detail: `local maxima=${envelope.maximaCount}, min lit%=${envelope.minLitPct.toFixed(3)}, peak=${envelope.peakLitPct.toFixed(3)} within ${DENSITY_MIN_PEAK_PCT.toFixed(2)}-${DENSITY_MAX_PEAK_PCT.toFixed(2)}`
   }
 }
 
