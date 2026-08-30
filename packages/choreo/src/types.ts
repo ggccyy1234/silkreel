@@ -31,6 +31,7 @@ export interface CastUnit {
   id: string
   role: CastRole
   memberRefs: string[]
+  sourceFootprintRefs: string[]
   bounds: BBox
   sourceAct: ActId
 }

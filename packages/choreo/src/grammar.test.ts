@@ -117,11 +117,14 @@ describe('directed cast boundary', () => {
 
     for (const unit of timeline.cast) {
       expect(unit.memberRefs.every((ref) => sourceIds.has(ref))).toBe(true)
-      if (unit.role !== 'hero-body' && unit.role !== 'detail') continue
-      const ref = unit.id.slice(unit.id.indexOf(':') + 1)
-      const footprint = board.footprints.find((candidate) => candidate.ref === ref)
-      expect(footprint).toBeDefined()
-      expect(new Set(unit.memberRefs)).toEqual(new Set([...(footprint?.padRefs ?? []), ...(footprint?.silkRefs ?? [])]))
+      if (unit.role !== 'hero-body' && unit.role !== 'detail') {
+        expect(unit.sourceFootprintRefs).toEqual([])
+        continue
+      }
+      expect(unit.sourceFootprintRefs.length).toBeGreaterThan(0)
+      const footprints = unit.sourceFootprintRefs.map((ref) => board.footprints.find((candidate) => candidate.ref === ref))
+      expect(footprints.every((footprint) => footprint !== undefined)).toBe(true)
+      expect(new Set(unit.memberRefs)).toEqual(new Set(footprints.flatMap((footprint) => [...(footprint?.padRefs ?? []), ...(footprint?.silkRefs ?? [])])))
     }
     for (const shot of timeline.shots) {
       for (const track of shot.tracks) expect(castById.has(track.castId)).toBe(true)

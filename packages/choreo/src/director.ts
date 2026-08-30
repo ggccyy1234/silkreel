@@ -155,10 +155,10 @@ const SHOT_SLOTS: Partial<Record<ShotId, readonly Vec2[]>> = {
     point(0.43, 0.73)
   ],
   'corner-bridge': [
-    point(0.31, 0.30),
-    point(0.69, 0.30),
-    point(0.31, 0.70),
-    point(0.69, 0.70),
+    point(0.34, 0.34),
+    point(0.66, 0.34),
+    point(0.34, 0.66),
+    point(0.66, 0.66),
     point(0.40, 0.47),
     point(0.60, 0.53),
     point(0.47, 0.50),
@@ -187,10 +187,10 @@ const SHOT_SLOTS: Partial<Record<ShotId, readonly Vec2[]>> = {
     point(0.66, 0.63)
   ],
   'pad-coda': [
-    point(0.43, 0.42),
-    point(0.57, 0.42),
-    point(0.43, 0.58),
-    point(0.57, 0.58)
+    point(0.36, 0.42),
+    point(0.64, 0.42),
+    point(0.36, 0.58),
+    point(0.64, 0.58)
   ]
 }
 
@@ -458,13 +458,13 @@ function isCircularAssembly(candidate: FootprintCastCandidate): boolean {
   return candidate.padCount >= 6 && padRatio >= 0.75 && dimensions(candidate.bounds).diagonal >= 16
 }
 
-function castUnit(id: string, role: CastRole, members: InventoryItem[], sourceAct: ActId): CastUnit | undefined {
+function castUnit(id: string, role: CastRole, members: InventoryItem[], sourceAct: ActId, sourceFootprintRefs: string[] = []): CastUnit | undefined {
   const refs = [...new Set(members.map((member) => member.id))].sort()
   if (refs.length === 0) return undefined
   let bounds: BBox | undefined
   for (const member of members) bounds = union(bounds, member.bounds)
   if (!bounds) return undefined
-  return { id, role, memberRefs: refs, bounds, sourceAct }
+  return { id, role, memberRefs: refs, sourceFootprintRefs: [...sourceFootprintRefs].sort(), bounds, sourceAct }
 }
 
 function tracePathGroups(items: Map<string, InventoryItem>, seed: number | null): Array<{ id: string; members: InventoryItem[]; layer: string; score: number }> {
@@ -507,14 +507,14 @@ function buildCast(board: BoardModel, actOrder: ActId[], seed: number | null): C
   const heroLimit = Math.min(MAX_HERO_UNITS, Math.max(1, Math.ceil(heroPool.length / 4)))
   const heroes = selectHeroes(heroPool, heroLimit)
   const heroRefs = new Set(heroes.map((candidate) => candidate.ref))
-  const detailCandidates = candidates.filter((candidate) => !heroRefs.has(candidate.ref) && !isCircularAssembly(candidate)).slice(0, Math.max(0, MAX_ASSEMBLY_UNITS - heroes.length))
+  const detailCandidates = candidates.filter((candidate) => !heroRefs.has(candidate.ref)).slice(0, Math.max(0, MAX_ASSEMBLY_UNITS - heroes.length))
   const cast: CastUnit[] = []
   for (const candidate of heroes) {
-    const unit = castUnit(`hero:${candidate.ref}`, 'hero-body', candidate.members, candidate.sourceAct)
+    const unit = castUnit(`hero:${candidate.ref}`, 'hero-body', candidate.members, candidate.sourceAct, [candidate.ref])
     if (unit) cast.push(unit)
   }
   for (const candidate of detailCandidates) {
-    const unit = castUnit(`detail:${candidate.ref}`, 'detail', candidate.members, candidate.sourceAct)
+    const unit = castUnit(`detail:${candidate.ref}`, 'detail', candidate.members, candidate.sourceAct, [candidate.ref])
     if (unit) cast.push(unit)
   }
 
@@ -580,10 +580,19 @@ function targetFor(
   symmetry?: Exclude<ResolvedConfig['knobs']['symmetry'], 'auto'>,
   unit?: CastUnit
 ): { x: number; y: number } {
+  if (shot === 'corner-bridge' && unit?.role === 'anchor-pad') {
+    return SHOT_SLOTS['corner-bridge']?.[(index + 1) % 4] ?? STAGE_CENTER
+  }
+  if (shot === 'corner-bridge' && unit?.role === 'trace-accent') {
+    return SHOT_SLOTS['corner-bridge']?.[4 + (index % 3)] ?? STAGE_CENTER
+  }
   if (unit?.role === 'trace-accent') {
     const side = index % 2 === 0 ? 0.28 : 0.72
     if (shot === 'corner-bridge') return point(side, index % 2 === 0 ? 0.42 : 0.58)
     if (shot === 'horizontal-study') return point(index % 2 === 0 ? 0.36 : 0.64, index % 2 === 0 ? 0.64 : 0.52)
+  }
+  if (shot === 'bilateral-tower' && unit !== undefined && isLargeAssembly(unit)) {
+    return point(0.5, 0.5)
   }
   const slots = shot === 'bilateral-tower'
     ? symmetry === 'quad' || symmetry === 'mirror-x' ? TOWER_HALF_SLOTS : TOWER_FULL_SLOTS
@@ -594,9 +603,12 @@ function targetFor(
     : index % slots.length
   const direct = slots[slotIndex]
   if (direct) {
+    if (shot === 'vertical-seed') {
+      return point(direct.x, STAGE_CENTER.y + (direct.y - STAGE_CENTER.y) * 0.72)
+    }
     if (shot === 'bilateral-tower') {
       const towerTarget = point(
-        STAGE_CENTER.x + (direct.x - STAGE_CENTER.x) * 1.05,
+        STAGE_CENTER.x + (direct.x - STAGE_CENTER.x) * 0.93,
         0.515 + (direct.y - STAGE_CENTER.y) * 1.04
       )
       if (unit?.role === 'detail' && index % 2 === 1) return point(1 - towerTarget.x, towerTarget.y)
@@ -604,8 +616,8 @@ function targetFor(
     }
     if (shot === 'horizontal-study') {
       return point(
-        STAGE_CENTER.x + (direct.x - STAGE_CENTER.x) * 0.8,
-        0.53 + (direct.y - STAGE_CENTER.y) * 1.2
+        STAGE_CENTER.x + (direct.x - STAGE_CENTER.x) * 0.93,
+        STAGE_CENTER.y + (direct.y - STAGE_CENTER.y) * 0.85
       )
     }
     return direct
@@ -679,6 +691,7 @@ function castForShot(cast: CastUnit[], shot: ShotId, rhythmDensity: number, seed
         ? [...heroes, ...orderUnits(compactDetails, compactnessScore).slice(0, 2), ...connectorDetails.slice(2, 3)].slice(0, 5)
         : orderUnits(componentUnits, compactnessScore).slice(0, 4)
     case 'bilateral-tower':
+      if (componentUnits.length === 0) return []
       return [
         ...towerDetails.slice(0, 1),
         ...heroes.slice(0, 1),
@@ -686,15 +699,14 @@ function castForShot(cast: CastUnit[], shot: ShotId, rhythmDensity: number, seed
         ...heroes.slice(1, 2),
         ...towerDetails.slice(2),
         ...heroes.slice(2),
-        ...connectorDetails
-      ].slice(0, Math.max(6, Math.min(componentUnits.length, 10 + Math.round(rhythmDensity * 12))))
+        ...connectorDetails,
+        ...texts.slice(0, 1)
+      ].slice(0, Math.max(6, Math.min(componentUnits.length + Math.min(1, texts.length), 10 + Math.round(rhythmDensity * 12))))
     case 'corner-bridge':
-      return heroes.length > 0
-        ? [heroes[0] as CastUnit, ...traces.slice(0, 3), ...anchors]
-        : [...traces.slice(0, 3), ...anchors]
+      return [...traces.slice(0, 3), ...anchors]
     case 'horizontal-study':
       return componentUnits.length > 0
-        ? [...horizontalDetails.slice(0, 2), ...connectorDetails.slice(0, 3), ...texts.slice(0, 2), ...heroes.slice(0, 1), ...traces.slice(0, 2)]
+        ? [...horizontalDetails.slice(0, 4), ...connectorDetails.slice(0, 3), ...texts.slice(0, 2), ...heroes.slice(0, 2), ...traces.slice(0, 2)]
         : anchors
     case 'pad-coda':
       return anchors
@@ -710,34 +722,34 @@ function castForShot(cast: CastUnit[], shot: ShotId, rhythmDensity: number, seed
 
 function scaleFor(unit: CastUnit, shot: ShotId): number {
   const role = unit.role
-  if (shot === 'pad-coda') return 1.12
+  if (shot === 'pad-coda') return 0.65
   if (role === 'detail' && isConnectorUnit(unit)) {
-    if (shot === 'vertical-seed') return 0.35
+    if (shot === 'vertical-seed') return 0.3
     if (shot === 'cross-collapse') return 0.4
     if (shot === 'radial-gate') return 0.28
-    if (shot === 'bilateral-tower') return 0.3
-    if (shot === 'horizontal-study') return 0.32
+    if (shot === 'bilateral-tower') return 0.25
+    if (shot === 'horizontal-study') return 0.24
   }
   if (role === 'hero-body') {
-    if (shot === 'bilateral-tower') return 0.5
-    if (shot === 'vertical-seed') return 0.45
+    if (shot === 'bilateral-tower') return 0.42
+    if (shot === 'vertical-seed') return 0.38
     if (shot === 'cross-collapse') return 0.76
     if (shot === 'radial-gate') return 0.35
     if (shot === 'corner-bridge') return 0.68
-    if (shot === 'horizontal-study') return 0.5
+    if (shot === 'horizontal-study') return 0.38
     return 0.74
   }
   if (role === 'detail') {
-    if (shot === 'horizontal-study') return isLargeAssembly(unit) ? 0.3 : 0.55
-    if (shot === 'vertical-seed') return 0.84
+    if (shot === 'horizontal-study') return isLargeAssembly(unit) ? 0.24 : 0.4
+    if (shot === 'vertical-seed') return 0.65
     if (shot === 'cross-collapse') return 0.68
-    if (shot === 'bilateral-tower') return isLargeAssembly(unit) ? 0.16 : 0.5
+    if (shot === 'bilateral-tower') return isLargeAssembly(unit) ? 0.2 : 0.42
     return 0.7
   }
-  if (role === 'anchor-pad') return shot === 'horizontal-study' ? 0.7 : 0.82
-  if (role === 'text-accent') return shot === 'horizontal-study' ? 1.1 : 1.25
-  if (shot === 'horizontal-study') return 0.3
-  if (shot === 'corner-bridge') return 0.48
+  if (role === 'anchor-pad') return shot === 'horizontal-study' ? 0.7 : shot === 'corner-bridge' ? 0.62 : 0.82
+  if (role === 'text-accent') return shot === 'horizontal-study' ? 0.85 : shot === 'bilateral-tower' ? 0.75 : 1.25
+  if (shot === 'horizontal-study') return 0.25
+  if (shot === 'corner-bridge') return 0.34
   return 0.7
 }
 
@@ -748,7 +760,8 @@ function topologyFor(
   index: number
 ): CopyTopology {
   if (shot === 'vertical-seed' || shot === 'cross-collapse' || shot === 'pad-coda') return topology('none')
-  if (shot === 'radial-gate' || shot === 'corner-bridge') return index === 0 ? topology(mode) : topology('none')
+  if (shot === 'radial-gate') return index === 0 ? topology(mode) : topology('none')
+  if (shot === 'corner-bridge') return topology('none')
   if (shot === 'bilateral-tower') {
     if (unit.role === 'hero-body') {
       if (mode === 'quad') return topology('mirror-x')
@@ -756,15 +769,21 @@ function topologyFor(
       return topology(mode)
     }
     if (unit.role === 'detail') {
-      if (index % 4 === 2) return topology('none')
-      if (mode === 'quad' || mode === 'mirror-x') return topology('mirror-x')
+      if (isLargeAssembly(unit)) return topology('none')
+      if (index % 4 !== 0) return topology('none')
+      if (mode === 'quad') return topology('mirror-x')
       return topology(mode)
     }
     return topology('none')
   }
-  if (shot === 'horizontal-study' && unit.role === 'hero-body') return topology(mode)
+  if (shot === 'horizontal-study' && unit.role === 'hero-body') {
+    if (mode === 'quad') return topology('mirror-x')
+    return topology(mode)
+  }
   if (shot === 'horizontal-study' && unit.role === 'detail') {
-    if (mode === 'quad' || mode === 'mirror-x') return topology('mirror-x')
+    if (isLargeAssembly(unit)) return topology('none')
+    if (index % 3 !== 0) return topology('none')
+    if (mode === 'quad') return topology('mirror-x')
     return topology(mode)
   }
   return topology('none')
@@ -823,9 +842,9 @@ function keyframesFor(
     ? Math.min(index, Math.max(0, total - 1 - index)) / Math.max(1, Math.floor(total / 2))
     : index / Math.max(1, total)
   const stagger = Math.min(Math.max(0, length - enter - exit - 1), Math.round(staggerProgress * staggerBudget))
-  const start = shot.startFrame + stagger
+  const start = shot.id === 'horizontal-study' ? shot.startFrame : shot.startFrame + stagger
   const roleOffset = shot.id === 'vertical-seed' || shot.id === 'pad-coda' ? 0 : index % 3
-  const enterFrame = Math.min(shot.endFrame, start + enter + roleOffset)
+  const enterFrame = Math.min(shot.endFrame, start + enter + roleOffset + (shot.id === 'horizontal-study' ? stagger : 0))
   const holdEnd = Math.max(enterFrame, shot.endFrame - exit - exitOffset)
   const direction = index % 2 === 0 ? -1 : 1
   const drift = unit.role === 'trace-accent' ? 0.02 : 0.05
@@ -843,9 +862,14 @@ function keyframesFor(
           : { x: clampStage(target.x + direction * drift), y: clampStage(target.y - drift) }
   const horizontalEndContraction = target.y < STAGE_CENTER.y ? 0.33 : 0.29
   const horizontalGatherContraction = target.y < STAGE_CENTER.y ? 0.28 : 0.03
-  const outgoing = shot.id === 'horizontal-study'
+  const outgoing = shot.id === 'cross-collapse'
     ? {
-        x: clampStage(target.x),
+        x: clampStage(STAGE_CENTER.x + (target.x - STAGE_CENTER.x) * 0.18),
+        y: clampStage(STAGE_CENTER.y + (target.y - STAGE_CENTER.y) * 0.18)
+      }
+    : shot.id === 'horizontal-study'
+    ? {
+        x: clampStage(target.x + (STAGE_CENTER.x - target.x) * 0.28),
         y: clampStage(target.y + (STAGE_CENTER.y - target.y) * horizontalEndContraction)
       }
     : { x: clampStage(target.x - direction * drift), y: clampStage(target.y + drift) }
@@ -867,21 +891,23 @@ function keyframesFor(
       : shot.id === 'bilateral-tower'
         ? 0.18
         : shot.id === 'horizontal-study'
-          ? 0.12
+          ? 0.3
     : shot.id === 'cross-collapse'
       ? 0.78
       : shot.id === 'pad-coda' || shot.id === 'corner-bridge'
         ? 0.96
         : 0.55
-  const entryScale = shot.id === 'radial-gate' ? scale * 0.42 : shot.id === 'bilateral-tower' ? scale * 0.78 : shot.id === 'pad-coda' ? scale * 0.86 : shot.id === 'vertical-seed' ? scale * 0.62 : scale * 0.7
+  const entryScale = shot.id === 'radial-gate' ? scale * 0.42 : shot.id === 'bilateral-tower' ? scale * 0.78 : shot.id === 'horizontal-study' ? scale * 0.85 : shot.id === 'pad-coda' ? scale * 0.86 : shot.id === 'vertical-seed' ? scale * 0.62 : scale * 0.7
   const endOpacity = shot.id === 'cross-collapse'
-    ? 0.72
+    ? 0.02
+    : shot.id === 'bilateral-tower'
+      ? 0.16
     : shot.id === 'corner-bridge'
-      ? 0.22
+      ? 1
       : shot.id === 'horizontal-study'
-        ? 1
+        ? 0.7
         : 0
-  const endScale = shot.id === 'cross-collapse' ? scale * 0.94 : shot.id === 'corner-bridge' ? scale * 0.58 : shot.id === 'horizontal-study' ? scale * 0.95 : hiddenScale
+  const endScale = shot.id === 'cross-collapse' ? scale * 0.28 : shot.id === 'bilateral-tower' ? scale * 0.72 : shot.id === 'corner-bridge' ? scale : shot.id === 'horizontal-study' ? scale * 0.95 : hiddenScale
   const frames = [
     visible(start, incoming.x, incoming.y, entryScale, entryOpacity, entryOpacity > 0 ? 0.35 : 0),
     visible(enterFrame, target.x, target.y, scale, 1, 1),
@@ -892,10 +918,14 @@ function keyframesFor(
     const codaStart = targetFor('pad-coda', index, total)
     const codaTarget = codaFinalTarget(index)
     const contractFrame = Math.min(shot.endFrame, shot.startFrame + Math.max(3, Math.round(length * 0.5)))
+    const codaMid = point(
+      codaStart.x + (codaTarget.x - codaStart.x) * 0.4,
+      codaStart.y + (codaTarget.y - codaStart.y) * 0.4
+    )
     return [
-      visible(shot.startFrame, codaStart.x, codaStart.y, scale * 0.92, 0.95, 0.4),
-      visible(contractFrame, codaTarget.x, codaTarget.y, scale, 1, 1),
-      visible(shot.endFrame, codaTarget.x, codaTarget.y, scale, 1, 1)
+      visible(shot.startFrame, codaStart.x, codaStart.y, scale * 1.2, 0.95, 0.4),
+      visible(contractFrame, codaMid.x, codaMid.y, scale * 1.1, 0.55, 0.35),
+      visible(shot.endFrame, codaTarget.x, codaTarget.y, scale, 0.3, 0.2)
     ]
   }
   if (shot.id === 'radial-gate') {
@@ -910,19 +940,19 @@ function keyframesFor(
   }
   if (shot.id === 'corner-bridge') {
     const quietEnd = Math.min(shot.endFrame, start + 4 + exitOffset)
-    const peak = Math.min(shot.endFrame - 1, start + 8 + exitOffset)
+    const rise = Math.min(shot.endFrame - 1, start + 9 + exitOffset)
     return [
       visible(start, incoming.x, incoming.y, entryScale, 0, 0),
       visible(quietEnd, target.x, target.y, scale * 0.86, 0.04, 0.08),
-      visible(Math.max(quietEnd, peak), target.x, target.y, scale, 1, 1),
-      visible(shot.endFrame, outgoing.x, outgoing.y, endScale, 0.22, 0.3)
+      visible(Math.max(quietEnd, rise), target.x, target.y, scale * 0.94, 0.2, 0.18),
+      visible(shot.endFrame, outgoing.x, outgoing.y, endScale, 1, 1)
     ]
   }
-  if (shot.id === 'vertical-seed' || shot.id === 'bilateral-tower') {
+  if (shot.id === 'vertical-seed') {
     return [
       frames[0] as DirectedKeyframe,
       frames[1] as DirectedKeyframe,
-      visible(shot.endFrame, target.x, target.y, scale, 1, 1)
+      visible(shot.endFrame, target.x, target.y, scale, 0.52, 0.5)
     ]
   }
   if (shot.id === 'cross-collapse' || shot.id === 'horizontal-study') {
@@ -1011,6 +1041,7 @@ function semanticCastAssertions(cast: CastUnit[], board?: BoardModel): void {
       throw new Error(`cast unit ${unit.id} has non-finite bounds`)
     }
     if (new Set(unit.memberRefs).size !== unit.memberRefs.length) throw new Error(`cast unit ${unit.id} repeats a geometry member`)
+    if (new Set(unit.sourceFootprintRefs).size !== unit.sourceFootprintRefs.length) throw new Error(`cast unit ${unit.id} repeats a source footprint`)
     for (const memberRef of unit.memberRefs) {
       if (geometryIds !== undefined && !geometryIds.has(memberRef)) throw new Error(`cast unit ${unit.id} references missing geometry ${memberRef}`)
     }
@@ -1018,17 +1049,18 @@ function semanticCastAssertions(cast: CastUnit[], board?: BoardModel): void {
       throw new Error(`hero cast unit ${unit.id} contains a standalone trace`)
     }
     if (unit.role === 'hero-body' || unit.role === 'detail') {
-      const separator = unit.id.indexOf(':')
-      const ref = separator >= 0 ? unit.id.slice(separator + 1) : ''
-      const footprint = footprintByRef.get(ref)
-      if (board !== undefined && footprint === undefined) throw new Error(`assembly cast unit ${unit.id} has no source footprint`)
-      if (footprint !== undefined) {
-        const expected = new Set([...footprint.padRefs, ...footprint.silkRefs])
-        if (expected.size !== unit.memberRefs.length || unit.memberRefs.some((memberRef) => !expected.has(memberRef))) {
-          throw new Error(`assembly cast unit ${unit.id} does not contain complete footprint membership`)
-        }
-        if (unit.role === 'hero-body' && footprint.padRefs.length === 0) throw new Error(`hero cast unit ${unit.id} has no footprint pads`)
+      const members = new Set(unit.memberRefs)
+      const sources = unit.sourceFootprintRefs.map((ref) => footprintByRef.get(ref))
+      if (sources.length === 0 || sources.some((footprint) => footprint === undefined)) throw new Error(`assembly cast unit ${unit.id} has no source footprint`)
+      const expected = new Set(sources.flatMap((footprint) => [...(footprint?.padRefs ?? []), ...(footprint?.silkRefs ?? [])]))
+      if (expected.size !== members.size || [...members].some((memberRef) => !expected.has(memberRef))) {
+        throw new Error(`assembly cast unit ${unit.id} does not contain complete footprint membership`)
       }
+      if (unit.role === 'hero-body' && sources.every((footprint) => (footprint?.padRefs.length ?? 0) === 0)) {
+        throw new Error(`hero cast unit ${unit.id} has no footprint pads`)
+      }
+    } else if (unit.sourceFootprintRefs.length > 0) {
+      throw new Error(`non-assembly cast unit ${unit.id} carries source footprints`)
     }
   }
 }
@@ -1050,7 +1082,9 @@ function semanticShotAssertions(cast: CastUnit[], shots: FilmShot[], totalFrames
       if (track.copies.transforms.length === 0) throw new Error(`shot ${shot.id} track ${track.castId} has no copy transform`)
       if (unit.role === 'trace-accent' && shot.id !== 'corner-bridge' && shot.id !== 'horizontal-study') throw new Error(`trace ${unit.id} escaped a late shot`)
       if (unit.role === 'anchor-pad' && shot.id !== 'corner-bridge' && shot.id !== 'horizontal-study' && shot.id !== 'pad-coda') throw new Error(`anchor ${unit.id} escaped a late shot`)
-      if (unit.role === 'text-accent' && shot.id !== 'horizontal-study') throw new Error(`text ${unit.id} escaped the horizontal study`)
+      if (unit.role === 'text-accent' && shot.id !== 'bilateral-tower' && shot.id !== 'horizontal-study') {
+        throw new Error(`text ${unit.id} escaped its directed shot window`)
+      }
       for (const memberRef of unit.memberRefs) {
         const previousTrack = shotMembers.get(memberRef)
         if (previousTrack !== undefined) throw new Error(`shot ${shot.id} draws geometry ${memberRef} through both ${previousTrack} and ${unit.id}`)

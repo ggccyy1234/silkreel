@@ -397,11 +397,11 @@ interface RoleTreatment {
 }
 
 const ROLE_TREATMENT: Record<CastRole, RoleTreatment> = {
-  'hero-body': { intensity: 0.92, opacity: 1, strokeScale: 1.28, glow: 1 },
-  detail: { intensity: 0.78, opacity: 0.88, strokeScale: 1, glow: 0.7 },
-  'anchor-pad': { intensity: 0.86, opacity: 0.94, strokeScale: 1.1, glow: 0.8 },
-  'text-accent': { intensity: 0.68, opacity: 0.72, strokeScale: 0.82, glow: 0.2 },
-  'trace-accent': { intensity: 0.56, opacity: 0.58, strokeScale: 0.72, glow: 0.35 }
+  'hero-body': { intensity: 1, opacity: 1, strokeScale: 1.28, glow: 1 },
+  detail: { intensity: 0.95, opacity: 1, strokeScale: 1.05, glow: 0.7 },
+  'anchor-pad': { intensity: 1, opacity: 1, strokeScale: 1.1, glow: 0.8 },
+  'text-accent': { intensity: 0.82, opacity: 0.9, strokeScale: 0.82, glow: 0.2 },
+  'trace-accent': { intensity: 0.8, opacity: 0.8, strokeScale: 0.72, glow: 0.35 }
 }
 
 function castBounds(cast: CastUnit[], geometry: GeometryLookup): Geom[] {

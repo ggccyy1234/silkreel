@@ -14,8 +14,12 @@ function config(seed: number | null = 42) {
   }
 }
 
-function completeMembers(board: BoardModel): Map<string, Set<string>> {
-  return new Map(board.footprints.map((footprint) => [footprint.ref, new Set([...footprint.padRefs, ...footprint.silkRefs])]))
+function completeSourceRefs(board: BoardModel, memberRefs: string[]): string[] {
+  const actual = new Set(memberRefs)
+  const sources = board.footprints.filter((footprint) => [...footprint.padRefs, ...footprint.silkRefs].some((memberRef) => actual.has(memberRef)))
+  const expected = new Set(sources.flatMap((footprint) => [...footprint.padRefs, ...footprint.silkRefs]))
+  expect(actual).toEqual(expected)
+  return sources.map((footprint) => footprint.ref)
 }
 
 function withoutGeometry(board: BoardModel): BoardModel {
@@ -51,22 +55,22 @@ describe('semantic film director', () => {
   it('casts complete footprints and keeps pathological hatch fields out', () => {
     const board = boardModel('ecc83-pp.kicad_pcb')
     const timeline = compileTimeline(board, config())
-    const membersByFootprint = completeMembers(board)
     const assemblyUnits = timeline.cast.filter((unit) => unit.role === 'hero-body' || unit.role === 'detail')
     expect(assemblyUnits.length).toBeGreaterThan(0)
     for (const unit of assemblyUnits) {
-      const ref = unit.id.slice(unit.id.indexOf(':') + 1)
-      expect(new Set(unit.memberRefs)).toEqual(membersByFootprint.get(ref))
+      expect(completeSourceRefs(board, unit.memberRefs).length).toBeGreaterThan(0)
     }
     expect(timeline.cast.some((unit) => unit.id.includes('C1'))).toBe(false)
     expect(timeline.cast.filter((unit) => unit.role === 'hero-body')).toHaveLength(2)
+    expect(timeline.cast.filter((unit) => unit.role === 'hero-body').every((unit) => unit.sourceFootprintRefs.length === 1)).toBe(true)
     expect(timeline.cast.filter((unit) => unit.role === 'trace-accent')).toHaveLength(5)
   })
 
   it('uses footprint identity without promoting oversized circular assemblies', () => {
     const timeline = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), config())
 
-    expect(timeline.cast.some((unit) => unit.id.endsWith(':U1'))).toBe(false)
+    expect(timeline.cast.some((unit) => unit.id === 'detail:U1')).toBe(true)
+    expect(timeline.cast.some((unit) => unit.role === 'hero-body' && unit.id.endsWith(':U1'))).toBe(false)
     expect(timeline.cast.some((unit) => unit.role === 'hero-body')).toBe(true)
   })
 
@@ -89,7 +93,7 @@ describe('semantic film director', () => {
       }
     }
 
-    expect(assemblies).toHaveLength(9)
+    expect(assemblies).toHaveLength(10)
     expect(timeline.shots.find((shot) => shot.id === 'pad-coda')?.tracks).toHaveLength(4)
   })
 
@@ -116,7 +120,8 @@ describe('semantic film director', () => {
         const unit = castById.get(track.castId)
         expect(unit).toBeDefined()
         expect(track.keyframes.every((keyframe) => keyframe.frame >= shot.startFrame && keyframe.frame <= shot.endFrame)).toBe(true)
-        if (unit?.role === 'trace-accent' || unit?.role === 'text-accent') expect(['corner-bridge', 'horizontal-study']).toContain(shot.id)
+        if (unit?.role === 'trace-accent') expect(['corner-bridge', 'horizontal-study']).toContain(shot.id)
+        if (unit?.role === 'text-accent') expect(['bilateral-tower', 'horizontal-study']).toContain(shot.id)
         if (unit?.role === 'anchor-pad') expect(['corner-bridge', 'horizontal-study', 'pad-coda']).toContain(shot.id)
       }
     }
@@ -147,13 +152,20 @@ describe('semantic film director', () => {
   it('builds dense shots through staggered dim entrances', () => {
     const timeline = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), config())
 
-    for (const shotId of ['vertical-seed', 'bilateral-tower', 'horizontal-study'] as const) {
+    for (const shotId of ['vertical-seed', 'bilateral-tower'] as const) {
       const shot = timeline.shots.find((candidate) => candidate.id === shotId)
       expect(shot).toBeDefined()
       const entranceFrames = shot?.tracks.map((track) => track.keyframes[0]?.frame) ?? []
       expect(new Set(entranceFrames).size).toBeGreaterThan(2)
       expect(shot?.tracks.every((track) => (track.keyframes[0]?.opacity ?? 1) <= 0.18)).toBe(true)
     }
+
+    const horizontal = timeline.shots.find((candidate) => candidate.id === 'horizontal-study')
+    const horizontalEntrances = horizontal?.tracks.map((track) => track.keyframes[0]?.frame) ?? []
+    const horizontalArrivals = horizontal?.tracks.map((track) => track.keyframes[1]?.frame) ?? []
+    expect(new Set(horizontalEntrances)).toEqual(new Set([120]))
+    expect(new Set(horizontalArrivals).size).toBeGreaterThan(2)
+    expect(horizontal?.tracks.every((track) => track.keyframes[0]?.opacity === 0.3)).toBe(true)
   })
 
   it('is deterministic for a seed and stays sparse for boards without assemblies', () => {
@@ -181,10 +193,7 @@ describe('semantic film director', () => {
     const timeline = compileTimeline(board, config())
     const traceIds = new Set(traces.map((trace) => trace.id))
     for (const unit of timeline.cast.filter((candidate) => candidate.role === 'hero-body' || candidate.role === 'detail')) {
-      const ref = unit.id.slice(unit.id.indexOf(':') + 1)
-      const footprint = board.footprints.find((candidate) => candidate.ref === ref)
-      expect(footprint).toBeDefined()
-      expect(new Set(unit.memberRefs)).toEqual(new Set([...(footprint?.padRefs ?? []), ...(footprint?.silkRefs ?? [])]))
+      expect(completeSourceRefs(board, unit.memberRefs).length).toBeGreaterThan(0)
     }
     expect(timeline.cast.filter((unit) => unit.role === 'hero-body').some((unit) => unit.memberRefs.some((ref) => traceIds.has(ref)))).toBe(false)
   })

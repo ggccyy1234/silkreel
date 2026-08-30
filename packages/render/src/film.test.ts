@@ -117,6 +117,7 @@ function roleTimeline(base: Timeline): { timeline: Timeline; geometry: GeometryL
     id,
     role,
     memberRefs: [id],
+    sourceFootprintRefs: [],
     bounds: { min: { x: 0, y: 0 }, max: { x: 1, y: 1 } },
     sourceAct: 'outline'
   }))
@@ -395,7 +396,8 @@ describe('render placement and interpolation contract', () => {
     drawTimelineFrame(asCtx(rec), { timeline: tl, geometry: lookup }, tl.totalFrames - 2)
     const summary = summarize(rec)
     expect(summary.count).toBeGreaterThanOrEqual(4)
-    expect(summary.maxAlpha).toBeGreaterThan(0.8)
+    expect(summary.maxAlpha).toBeGreaterThan(0.25)
+    expect(summary.maxAlpha).toBeLessThan(0.5)
     const final = currentRecorder()
     final.reset()
     drawTimelineFrame(asCtx(final), { timeline: tl, geometry: lookup }, tl.totalFrames - 1)
