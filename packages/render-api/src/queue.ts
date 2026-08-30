@@ -52,6 +52,7 @@ export type RenderSubmission =
   | (SubmissionOptions & { boardJson: Record<string, unknown>; demoId?: never })
 
 export interface RenderQueuePort {
+  prepare(): Promise<void>
   submit(input: RenderSubmission): RenderJob
   get(id: string): RenderJob | undefined
   snapshot(): Map<string, RenderJob>
@@ -76,22 +77,33 @@ interface QueueEntry {
   config: FilmConfig
 }
 
+let machineTail: Promise<void> = Promise.resolve()
+
+function enqueueMachine(task: () => Promise<void>): Promise<void> {
+  const scheduled = machineTail.then(task)
+  machineTail = scheduled.catch(() => undefined)
+  return scheduled
+}
+
 export class RenderQueue implements RenderQueuePort {
   private readonly jobs = new Map<string, RenderJob>()
-  private readonly pending: QueueEntry[] = []
   private readonly renderFilm: typeof renderFilm
   private readonly runGate: typeof runGate
   private readonly bundle: BundleRenderer
   private readonly exportsRoot: string
-  private draining = false
-  private drainPromise: Promise<void> | undefined
+  private idlePromise: Promise<void> = Promise.resolve()
   private bundleLocation: string | undefined
+  private bundlePromise: Promise<string> | undefined
 
   constructor(options: RenderQueueOptions = {}) {
     this.renderFilm = options.renderFilm ?? renderFilm
     this.runGate = options.runGate ?? runGate
     this.bundle = options.bundle ?? bundleEntryPoint
     this.exportsRoot = options.exportsRoot ?? exportsRoot
+  }
+
+  async prepare(): Promise<void> {
+    await this.ensureBundle()
   }
 
   submit(input: RenderSubmission): RenderJob {
@@ -107,8 +119,12 @@ export class RenderQueue implements RenderQueuePort {
       config: mergeConfig(input.config)
     }
     this.jobs.set(job.id, job)
-    this.pending.push(entry)
-    this.startDrain()
+    const scheduled = enqueueMachine(() => this.run(entry))
+    const completion = scheduled.then(
+      () => undefined,
+      () => undefined
+    )
+    this.idlePromise = Promise.all([this.idlePromise, completion]).then(() => undefined)
     return { ...job }
   }
 
@@ -126,34 +142,25 @@ export class RenderQueue implements RenderQueuePort {
   }
 
   waitForIdle(): Promise<void> {
-    return this.drainPromise ?? Promise.resolve()
-  }
-
-  private startDrain(): void {
-    if (this.draining) return
-    this.drainPromise = this.drain()
-  }
-
-  private async drain(): Promise<void> {
-    if (this.draining) return
-    this.draining = true
-    try {
-      while (this.pending.length > 0) {
-        const entry = this.pending.shift()
-        if (!entry) break
-        await this.run(entry)
-      }
-    } finally {
-      this.draining = false
-      this.drainPromise = undefined
-    }
+    return this.idlePromise
   }
 
   private async ensureBundle(): Promise<string> {
     if (this.bundleLocation !== undefined) return this.bundleLocation
-    const bundleLocation = await this.bundle(renderEntryPoint)
-    this.bundleLocation = bundleLocation
-    return bundleLocation
+    if (this.bundlePromise === undefined) {
+      this.bundlePromise = this.bundle(renderEntryPoint).then(
+        (bundleLocation) => {
+          this.bundleLocation = bundleLocation
+          this.bundlePromise = undefined
+          return bundleLocation
+        },
+        (err: unknown) => {
+          this.bundlePromise = undefined
+          throw err
+        }
+      )
+    }
+    return await this.bundlePromise
   }
 
   private start(entry: QueueEntry): RenderingJob {
@@ -201,8 +208,10 @@ export class RenderQueue implements RenderQueuePort {
         inputProps,
         outputLocation,
         onProgress: (pct) => {
-          progress = pct
-          this.updateProgress(rendering.id, pct)
+          const nextProgress = nextJobProgress(progress, pct)
+          if (nextProgress === undefined) return
+          progress = nextProgress
+          this.updateProgress(rendering.id, nextProgress)
         }
       })
       const gate = await this.readGateAdvisory(outputLocation, entry.config, inputProps.timeline.totalFrames)
@@ -249,6 +258,11 @@ async function bundleEntryPoint(entryPoint: string): Promise<string> {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+function nextJobProgress(current: number, reported: number): number | undefined {
+  if (!Number.isFinite(reported)) return undefined
+  return Math.max(current, Math.min(100, Math.max(0, reported)))
 }
 
 function mergeConfig(partial: Partial<FilmConfig> | undefined): FilmConfig {

@@ -1,4 +1,5 @@
 export { buildApp } from './server.js'
+export type { BuildAppOptions } from './server.js'
 export { RenderQueue } from './queue.js'
 export type {
   BundleRenderer,

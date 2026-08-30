@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import path from 'node:path'
+import { mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { buildApp } from './server.js'
 import type { GateExpectations, GateReport } from './gate.js'
 import type { RenderJob, RenderQueuePort, RenderSubmission } from './queue.js'
@@ -18,9 +19,30 @@ interface JobStatusResponse {
   status: string
 }
 
+const testExports = path.resolve(import.meta.dirname, '../../../exports/render-api-tests')
+
+function completedJob(id: string, downloadPath: string): RenderJob {
+  const now = new Date().toISOString()
+  return {
+    id,
+    status: 'done',
+    progress: 100,
+    createdAt: now,
+    startedAt: now,
+    finishedAt: now,
+    downloadPath,
+    gate: { status: 'unavailable', error: 'metrics unavailable' },
+    metricsError: 'metrics unavailable'
+  }
+}
+
 class StubQueue implements RenderQueuePort {
   readonly submissions: RenderSubmission[] = []
   private readonly jobs = new Map<string, RenderJob>()
+
+  prepare(): Promise<void> {
+    return Promise.resolve()
+  }
 
   submit(input: RenderSubmission): RenderJob {
     this.submissions.push(input)
@@ -81,7 +103,10 @@ describe('render-api contract', () => {
         { boardJson: [] },
         { boardJson: {} },
         { demoId: 'ecc83-pp', filmConfig: [] },
-        { demoId: 'ecc83-pp', filmConfig: { output: null } }
+        { demoId: 'ecc83-pp', filmConfig: { output: null } },
+        { demoId: 'ecc83-pp', filmConfig: { mystery: true } },
+        { demoId: 'ecc83-pp', filmConfig: { knobs: { palette: 'rainbow' } } },
+        { demoId: 'ecc83-pp', filmConfig: { output: { width: -1 } } }
       ]) {
         const response = await app.inject({
           method: 'POST',
@@ -102,6 +127,19 @@ describe('render-api contract', () => {
       const unknown = await app.inject({ method: 'POST', url: '/render', payload: { demoId: 'nope' } })
       expect(unknown.statusCode).toBe(400)
       expect(queue.submissions).toHaveLength(0)
+    })
+  })
+
+  it('normalizes partial output metadata at the request boundary', async () => {
+    const queue = new StubQueue()
+    await withApp(queue, async (app) => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/render',
+        payload: { demoId: 'ecc83-pp', filmConfig: { output: { fps: 24 } } }
+      })
+      expect(response.statusCode).toBe(202)
+      expect(queue.submissions[0]?.config?.output).toEqual({ width: 1080, height: 1350, fps: 24 })
     })
   })
 
@@ -143,23 +181,40 @@ describe('render-api contract', () => {
   })
 
   it('downloads completed renders when the advisory is unavailable', async () => {
+    await mkdir(testExports, { recursive: true })
+    const downloadPath = path.join(testExports, 'done-job.mp4')
+    await writeFile(downloadPath, 'tiny video')
     const queue = new StubQueue()
-    queue.add({
-      id: 'done-job',
-      status: 'done',
-      progress: 100,
-      createdAt: new Date().toISOString(),
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
-      downloadPath: path.resolve(import.meta.dirname, '../../../fixtures/canonical.mp4'),
-      gate: { status: 'unavailable', error: 'metrics unavailable' },
-      metricsError: 'metrics unavailable'
-    })
-    await withApp(queue, async (app) => {
-      const response = await app.inject({ method: 'GET', url: '/download/done-job' })
-      expect(response.statusCode).toBe(200)
-      expect(response.headers['content-type']).toBe('video/mp4')
-    })
+    queue.add(completedJob('done-job', downloadPath))
+    try {
+      await withApp(queue, async (app) => {
+        const response = await app.inject({ method: 'GET', url: '/download/done-job' })
+        expect(response.statusCode).toBe(200)
+        expect(response.headers['content-type']).toBe('video/mp4')
+        expect(response.body).toBe('tiny video')
+      })
+    } finally {
+      await rm(testExports, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses completed-job paths outside exports and symlinks that escape it', async () => {
+    await mkdir(testExports, { recursive: true })
+    const escapedLink = path.join(testExports, 'escaped.mp4')
+    await symlink('/etc/passwd', escapedLink)
+    const queue = new StubQueue()
+    queue.add(completedJob('outside', '/etc/passwd'))
+    queue.add(completedJob('symlink', escapedLink))
+    try {
+      await withApp(queue, async (app) => {
+        const outside = await app.inject({ method: 'GET', url: '/download/outside' })
+        const symlinked = await app.inject({ method: 'GET', url: '/download/symlink' })
+        expect(outside.statusCode).toBe(410)
+        expect(symlinked.statusCode).toBe(410)
+      })
+    } finally {
+      await rm(testExports, { recursive: true, force: true })
+    }
   })
 
   it('gate endpoint validates path scope', async () => {

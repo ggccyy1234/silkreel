@@ -1,19 +1,49 @@
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import { createReadStream, existsSync } from 'node:fs'
+import { createReadStream } from 'node:fs'
+import { realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { FilmConfig } from '@silk-reel/choreo'
-import { DEMO_BOARDS, isDemoBoardId, boardFromJson } from './boards.js'
+import type { ActId, FilmConfig, Knobs } from '@silk-reel/choreo'
+import { DEMO_BOARDS, boardFromJson, defaultFilmConfig, isDemoBoardId } from './boards.js'
 import { RenderQueue } from './queue.js'
 import type { RenderQueuePort, RenderSubmission } from './queue.js'
 import { runGate } from './gate.js'
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..')
 const allowedVideoRoots = [path.join(repoRoot, 'exports'), path.join(repoRoot, 'fixtures')]
+const FILM_CONFIG_KEYS = ['actOrder', 'knobs', 'seed', 'duration', 'output'] as const
+const KNOB_KEYS = ['symmetry', 'rhythmDensity', 'beatCount', 'beatIntensity', 'seedPairs', 'dissolveStyle', 'easing', 'glow', 'flicker', 'grain', 'exposure', 'palette'] as const
+const NUMERIC_KNOB_KEYS = ['rhythmDensity', 'beatCount', 'beatIntensity', 'seedPairs', 'glow', 'flicker', 'grain', 'exposure'] as const
+const OUTPUT_KEYS = ['width', 'height', 'fps'] as const
+const SYMMETRY_MODES = ['auto', 'mirror-x', 'mirror-y', 'quad', 'rotational180', 'none'] as const
+const DISSOLVE_STYLES = ['center-out', 'fade', 'wipe', 'scatter'] as const
+const EASINGS = ['expo-out', 'back-out', 'linear', 'sine'] as const
+const PALETTES = ['mono', 'phosphor', 'amber', 'copper'] as const
+const DEFAULT_OUTPUT = defaultFilmConfig().output
 
 function isInsideRoot(target: string, root: string): boolean {
   const relative = path.relative(root, target)
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+}
+
+async function safeFilePath(target: string, roots: readonly string[]): Promise<string | undefined> {
+  if (target.length === 0) return undefined
+  const resolved = path.resolve(target)
+  const lexicalRoot = roots.find((root) => isInsideRoot(resolved, root))
+  if (lexicalRoot === undefined) return undefined
+  try {
+    const [realTarget, realRoot] = await Promise.all([realpath(resolved), realpath(lexicalRoot)])
+    if (!isInsideRoot(realTarget, realRoot)) return undefined
+    const details = await stat(realTarget)
+    return details.isFile() ? realTarget : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function downloadFilename(id: string): string {
+  const safeId = id.replace(/[^a-zA-Z0-9._-]/g, '_')
+  return `silk-reel-${safeId || 'job'}.mp4`
 }
 
 export interface BuildAppOptions {
@@ -21,10 +51,18 @@ export interface BuildAppOptions {
   runGate?: typeof runGate
 }
 
+type RenderApiError =
+  | { error: string }
+  | { error: string; known: typeof DEMO_BOARDS }
+
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = fastify({ logger: false, bodyLimit: 64 * 1024 * 1024 })
   const gateRunner = options.runGate ?? runGate
   const queue = options.queue ?? new RenderQueue({ runGate: gateRunner })
+
+  app.addHook('onReady', async () => {
+    await queue.prepare()
+  })
 
   app.get('/health', () => Promise.resolve({ ok: true as const, service: 'render-api' }))
 
@@ -54,12 +92,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (job.status !== 'done') {
       return await reply.code(409).send({ error: `job ${id} is ${job.status}, not done` })
     }
-    if (!existsSync(job.downloadPath)) {
+    const downloadPath = await safeFilePath(job.downloadPath, allowedVideoRoots)
+    if (downloadPath === undefined) {
       return await reply.code(410).send({ error: 'render artifact missing' })
     }
     reply.header('content-type', 'video/mp4')
-    reply.header('content-disposition', `attachment; filename="silk-reel-${id}.mp4"`)
-    return await reply.send(createReadStream(job.downloadPath))
+    reply.header('content-disposition', `attachment; filename="${downloadFilename(job.id)}"`)
+    return await reply.send(createReadStream(downloadPath))
   })
 
   app.post('/gate', async (request, reply) => {
@@ -67,14 +106,15 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (typeof body.videoPath !== 'string' || body.videoPath.length === 0) {
       return await reply.code(400).send({ error: 'videoPath required' })
     }
-    const resolved = path.isAbsolute(body.videoPath) ? path.resolve(body.videoPath) : path.resolve(repoRoot, body.videoPath)
-    if (!allowedVideoRoots.some((root) => isInsideRoot(resolved, root))) {
+    const requestedPath = path.isAbsolute(body.videoPath) ? body.videoPath : path.resolve(repoRoot, body.videoPath)
+    if (!allowedVideoRoots.some((root) => isInsideRoot(path.resolve(requestedPath), root))) {
       return await reply.code(400).send({ error: 'videoPath must live under exports/ or fixtures/' })
     }
-    if (!existsSync(resolved)) {
+    const videoPath = await safeFilePath(requestedPath, allowedVideoRoots)
+    if (videoPath === undefined) {
       return await reply.code(404).send({ error: `no file at ${body.videoPath}` })
     }
-    const report = await gateRunner(resolved, {
+    const report = await gateRunner(videoPath, {
       width: 1080,
       height: 1350,
       fps: 15,
@@ -93,8 +133,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
 type RenderRequestResult =
   | { ok: true; input: RenderSubmission }
-  | { ok: false; error: string }
-  | { ok: false; error: string; known: typeof DEMO_BOARDS }
+  | ({ ok: false } & RenderApiError)
 
 type FilmConfigResult =
   | { ok: true; config: Partial<FilmConfig> | undefined }
@@ -104,35 +143,95 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function unknownField(value: Record<string, unknown>, allowed: readonly string[]): string | undefined {
+  return Object.keys(value).find((key) => !allowed.includes(key))
+}
+
+function includesString<T extends string>(allowed: readonly T[], value: unknown): value is T {
+  return typeof value === 'string' && allowed.some((candidate) => candidate === value)
+}
+
+function isActId(value: unknown): value is ActId {
+  return (
+    value === 'outline' ||
+    value === 'drill' ||
+    (typeof value === 'string' &&
+      ((value.startsWith('copper:') && value.length > 'copper:'.length) ||
+        (value.startsWith('silk:') && value.length > 'silk:'.length)))
+  )
+}
+
+function parseKnobs(value: unknown): { ok: true; knobs: Knobs } | { ok: false; error: string } {
+  if (!isRecord(value)) return { ok: false, error: 'filmConfig.knobs must be an object' }
+  const unexpected = unknownField(value, KNOB_KEYS)
+  if (unexpected !== undefined) return { ok: false, error: `filmConfig.knobs.${unexpected} is not supported` }
+  for (const key of NUMERIC_KNOB_KEYS) {
+    if (Object.hasOwn(value, key) && (typeof value[key] !== 'number' || !Number.isFinite(value[key]))) {
+      return { ok: false, error: `filmConfig.knobs.${key} must be a finite number` }
+    }
+  }
+  if (Object.hasOwn(value, 'symmetry') && !includesString(SYMMETRY_MODES, value.symmetry)) return { ok: false, error: 'filmConfig.knobs.symmetry is invalid' }
+  if (Object.hasOwn(value, 'dissolveStyle') && !includesString(DISSOLVE_STYLES, value.dissolveStyle)) return { ok: false, error: 'filmConfig.knobs.dissolveStyle is invalid' }
+  if (Object.hasOwn(value, 'easing') && !includesString(EASINGS, value.easing)) return { ok: false, error: 'filmConfig.knobs.easing is invalid' }
+  if (Object.hasOwn(value, 'palette') && !includesString(PALETTES, value.palette)) return { ok: false, error: 'filmConfig.knobs.palette is invalid' }
+  return { ok: true, knobs: value }
+}
+
 function parseFilmConfig(value: unknown): FilmConfigResult {
   if (value === undefined) return { ok: true, config: undefined }
   if (!isRecord(value)) return { ok: false, error: 'filmConfig must be an object' }
-  if ('actOrder' in value && (!Array.isArray(value.actOrder) || !value.actOrder.every((item) => typeof item === 'string'))) {
-    return { ok: false, error: 'filmConfig.actOrder must be an array of strings' }
+  const unexpected = unknownField(value, FILM_CONFIG_KEYS)
+  if (unexpected !== undefined) return { ok: false, error: `filmConfig.${unexpected} is not supported` }
+
+  const config: Partial<FilmConfig> = {}
+  if (Object.hasOwn(value, 'actOrder')) {
+    if (!Array.isArray(value.actOrder) || !value.actOrder.every(isActId)) {
+      return { ok: false, error: 'filmConfig.actOrder must contain valid act ids' }
+    }
+    config.actOrder = value.actOrder
   }
-  if ('knobs' in value && !isRecord(value.knobs)) {
-    return { ok: false, error: 'filmConfig.knobs must be an object' }
+  if (Object.hasOwn(value, 'knobs')) {
+    const parsed = parseKnobs(value.knobs)
+    if (!parsed.ok) return parsed
+    config.knobs = parsed.knobs
   }
-  if ('output' in value && !isRecord(value.output)) {
-    return { ok: false, error: 'filmConfig.output must be an object' }
+  if (Object.hasOwn(value, 'seed')) {
+    if (value.seed === null) {
+      config.seed = null
+    } else {
+      if (typeof value.seed !== 'number' || !Number.isFinite(value.seed)) return { ok: false, error: 'filmConfig.seed must be a finite number or null' }
+      config.seed = value.seed
+    }
   }
-  if ('seed' in value && value.seed !== null && typeof value.seed !== 'number') {
-    return { ok: false, error: 'filmConfig.seed must be a number or null' }
+  if (Object.hasOwn(value, 'duration')) {
+    if (value.duration === 'auto') {
+      config.duration = 'auto'
+    } else {
+      if (typeof value.duration !== 'number' || !Number.isFinite(value.duration) || value.duration <= 0) return { ok: false, error: "filmConfig.duration must be 'auto' or a positive finite number" }
+      config.duration = value.duration
+    }
   }
-  if ('duration' in value && value.duration !== 'auto' && typeof value.duration !== 'number') {
-    return { ok: false, error: "filmConfig.duration must be 'auto' or a number" }
+  if (Object.hasOwn(value, 'output')) {
+    if (!isRecord(value.output)) return { ok: false, error: 'filmConfig.output must be an object' }
+    const unexpectedOutput = unknownField(value.output, OUTPUT_KEYS)
+    if (unexpectedOutput !== undefined) return { ok: false, error: `filmConfig.output.${unexpectedOutput} is not supported` }
+    const output = { ...DEFAULT_OUTPUT }
+    for (const key of OUTPUT_KEYS) {
+      if (!Object.hasOwn(value.output, key)) continue
+      const number = value.output[key]
+      const valid = typeof number === 'number' && Number.isFinite(number) && number > 0 && number <= (key === 'fps' ? 240 : 8192)
+      if (!valid || (key !== 'fps' && !Number.isInteger(number))) return { ok: false, error: `filmConfig.output.${key} is invalid` }
+      output[key] = number
+    }
+    config.output = output
   }
-  const output = value.output
-  if (isRecord(output)) {
-    if ('width' in output && typeof output.width !== 'number') return { ok: false, error: 'filmConfig.output.width must be a number' }
-    if ('height' in output && typeof output.height !== 'number') return { ok: false, error: 'filmConfig.output.height must be a number' }
-    if ('fps' in output && typeof output.fps !== 'number') return { ok: false, error: 'filmConfig.output.fps must be a number' }
-  }
-  return { ok: true, config: value }
+  return { ok: true, config }
 }
 
 function parseRenderRequest(body: unknown): RenderRequestResult {
   if (!isRecord(body)) return { ok: false, error: 'request body must be an object' }
+  const unexpected = unknownField(body, ['demoId', 'boardJson', 'filmConfig'])
+  if (unexpected !== undefined) return { ok: false, error: `${unexpected} is not supported` }
   const hasDemo = Object.hasOwn(body, 'demoId')
   const hasBoard = Object.hasOwn(body, 'boardJson')
   if (hasDemo === hasBoard) return { ok: false, error: 'provide exactly one of demoId or boardJson' }

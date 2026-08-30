@@ -77,6 +77,8 @@ describe('render queue execution', () => {
       }
     })
 
+    await queue.prepare()
+
     const first = queue.submit({ demoId: 'ecc83-pp' })
     const second = queue.submit({ demoId: 'ecc83-pp' })
     const third = queue.submit({ demoId: 'ecc83-pp' })
@@ -99,5 +101,58 @@ describe('render queue execution', () => {
     expect(completed.map((job) => job.gate.status)).toEqual(['passed', 'failed', 'unavailable'])
     expect(completed.map((job) => job.downloadPath)).toEqual([...outputPaths])
     expect(completed.every((job) => job.progress === 100)).toBe(true)
+  })
+
+  it('serializes rendering across queue instances', async () => {
+    const events: string[] = []
+    let active = 0
+    const render = async (options: RenderFilmOptions): Promise<RenderFilmResult> => {
+      const jobId = path.basename(options.outputLocation, '.mp4')
+      expect(active).toBe(0)
+      active += 1
+      events.push(`start:${jobId}`)
+      outputPaths.add(options.outputLocation)
+      await new Promise<void>((resolve) => setTimeout(resolve, 2))
+      await writeFile(options.outputLocation, 'test video')
+      active -= 1
+      events.push(`finish:${jobId}`)
+      return { bundleLocation: 'test-bundle', outputLocation: options.outputLocation }
+    }
+    const options = {
+      renderFilm: render,
+      runGate: (videoPath: string) => Promise.resolve(gateReport(videoPath, true)),
+      bundle: () => Promise.resolve('test-bundle')
+    }
+    const firstQueue = new RenderQueue(options)
+    const secondQueue = new RenderQueue(options)
+    const first = firstQueue.submit({ demoId: 'ecc83-pp' })
+    const second = secondQueue.submit({ demoId: 'ecc83-pp' })
+
+    await Promise.all([firstQueue.waitForIdle(), secondQueue.waitForIdle()])
+
+    expect(events).toEqual([`start:${first.id}`, `finish:${first.id}`, `start:${second.id}`, `finish:${second.id}`])
+  })
+
+  it('keeps reported progress finite, bounded, and monotonic', async () => {
+    const observed: number[] = []
+    const render = async (options: RenderFilmOptions): Promise<RenderFilmResult> => {
+      const id = path.basename(options.outputLocation, '.mp4')
+      outputPaths.add(options.outputLocation)
+      for (const progress of [50, 20, Number.NaN, 140]) {
+        options.onProgress?.(progress)
+        observed.push(queue.get(id)?.progress ?? -1)
+      }
+      await writeFile(options.outputLocation, 'test video')
+      return { bundleLocation: 'test-bundle', outputLocation: options.outputLocation }
+    }
+    const queue = new RenderQueue({
+      renderFilm: render,
+      runGate: (videoPath) => Promise.resolve(gateReport(videoPath, true)),
+      bundle: () => Promise.resolve('test-bundle')
+    })
+    queue.submit({ demoId: 'ecc83-pp' })
+    await queue.waitForIdle()
+
+    expect(observed).toEqual([50, 50, 50, 100])
   })
 })
