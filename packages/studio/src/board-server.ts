@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { parseKicadPcb } from '@silk-reel/ingest'
+import { parseKicadPcb, UnsupportedFormatError } from '@silk-reel/ingest'
 import type { BoardModel } from '@silk-reel/ingest'
 
 const DEMO_IDS = ['ecc83-pp', 'kit-dev-coldfire-xilinx_5213', 'video'] as const
@@ -23,6 +23,12 @@ export async function loadDemoBoard(demoId: DemoId): Promise<BoardModel> {
 }
 
 export function parseKicadText(fileName: string, contents: string): BoardModel {
+  if (/\.kicad_mod$/i.test(fileName)) {
+    throw new UnsupportedFormatError(
+      fileName,
+      'standalone .kicad_mod footprint files are not board inputs and cannot be represented faithfully as BoardModel; upload a .kicad_pcb board'
+    )
+  }
   return parseKicadPcb(contents, fileName)
 }
 

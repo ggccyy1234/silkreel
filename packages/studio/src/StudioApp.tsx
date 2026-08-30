@@ -257,7 +257,7 @@ const Landing: React.FC<{
           <span className="intake-number">source</span>
           <div className="intake-copy">
             <strong>Load a board</strong>
-            <p>Drop a .kicad_pcb or .kicad_mod</p>
+            <p>Drop a .kicad_pcb</p>
           </div>
           <button className="intake-button" disabled={busy} onClick={() => {
             fileInput.current?.click()
@@ -265,7 +265,7 @@ const Landing: React.FC<{
           <input
             ref={fileInput}
             type="file"
-            accept=".kicad_pcb,.kicad_mod,.gtl,.gbl,.gml,.gko,.gts,.gbs,.gto,.gbo,.gtp,.gbp,.drl,.drd,.xln,.cmp,.sol,.gpi"
+            accept=".kicad_pcb,.gtl,.gbl,.gml,.gko,.gts,.gbs,.gto,.gbo,.gtp,.gbp,.drl,.drd,.xln,.cmp,.sol,.gpi"
             hidden
             onChange={(e) => {
               const file = e.target.files?.[0]
