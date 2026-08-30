@@ -48,6 +48,7 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 6px 14px;
+  min-height: 36px;
   cursor: pointer;
   transition: border-color 120ms ease, background-color 120ms ease, transform 100ms ease-out;
 }
@@ -84,6 +85,7 @@ input[type='number'] {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 6px 10px;
+  min-height: 36px;
   width: 100%;
   transition: border-color 120ms ease;
 }
@@ -101,6 +103,7 @@ select {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 6px 10px;
+  min-height: 36px;
   width: 100%;
 }
 
@@ -121,5 +124,20 @@ label {
   * {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 560px) {
+  button,
+  input[type='text'],
+  input[type='number'],
+  select {
+    min-height: 44px;
+  }
+
+  input[type='text'],
+  input[type='number'],
+  select {
+    font-size: 16px;
   }
 }

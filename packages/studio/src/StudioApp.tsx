@@ -85,6 +85,10 @@ export const StudioApp: React.FC = () => {
     [actOrder, knobs, seed, duration]
   )
 
+  React.useEffect(() => {
+    if (!exportInFlightRef.current) setExportState(null)
+  }, [config])
+
   const recompile = useCallback(() => {
     if (!summary) return
     try {
@@ -93,7 +97,6 @@ export const StudioApp: React.FC = () => {
         timeline,
         warnings: timeline.warnings.map((w) => w.message)
       })
-      if (seed === null) setSeed(timeline.seedUsed)
       setCompileError(null)
       setCompileStale(false)
     } catch (err) {
@@ -198,6 +201,10 @@ export const StudioApp: React.FC = () => {
       }}
       exportState={exportState}
       onExport={startExport}
+      onCancelExport={() => {
+        cancelExport()
+        setExportState(null)
+      }}
     />
   )
 }
@@ -247,7 +254,7 @@ const Landing: React.FC<{
             if (file) void onFile(file)
           }}
         >
-          <span className="intake-number">01 / source</span>
+          <span className="intake-number">source</span>
           <div className="intake-copy">
             <strong>Load a board</strong>
             <p>Drop a .kicad_pcb or .kicad_mod</p>
@@ -281,7 +288,7 @@ const Landing: React.FC<{
         </div>
       )}
       <div className="demo-heading">
-        <span>02 / bench stock</span>
+        <span>bench stock</span>
         <span>start from a known board</span>
       </div>
       <section className="demo-grid" aria-label="demo boards">
@@ -322,17 +329,19 @@ interface WorkspaceProps {
   onHome: () => void
   exportState: ExportState | null
   onExport: () => Promise<void>
+  onCancelExport: () => void
 }
 
 const Workspace: React.FC<WorkspaceProps> = (props) => {
   const { summary, film, compileError } = props
+  const exportBusy = props.exportState?.status === 'submitting' || props.exportState?.status === 'rendering'
   return (
     <main className="workspace">
       <header className="topbar">
         <button className="ghost" onClick={props.onHome}>← boards</button>
         <h1 className="board-name">{summary.fileName}</h1>
         <span className="board-meta">{summary.layerCount} source layers · {summary.elementCount.toLocaleString()} primitives</span>
-        <ExportControl state={props.exportState} onExport={props.onExport} disabled={props.compileStale || film === null} />
+        <ExportControl state={props.exportState} onExport={props.onExport} onCancel={props.onCancelExport} disabled={props.compileStale || film === null} />
       </header>
       <div className="workspace-body">
         <section className="player-pane" aria-label="preview">
@@ -354,8 +363,8 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
             </details>
           )}
           <BoardLedger summary={summary} castCount={film?.timeline.cast.length ?? 0} />
-          <ActList acts={summary.acts} order={props.actOrder} onChange={props.onActOrder} compiledIds={film?.timeline.cast.map((unit) => unit.sourceAct) ?? []} />
-          <KnobPanel knobs={props.knobs} onKnobs={props.onKnobs} seed={props.seed} onSeed={props.onSeed} duration={props.duration} onDuration={props.onDuration} />
+          <ActList acts={summary.acts} order={props.actOrder} onChange={props.onActOrder} compiledIds={film?.timeline.cast.map((unit) => unit.sourceAct) ?? []} disabled={exportBusy} />
+          <KnobPanel knobs={props.knobs} onKnobs={props.onKnobs} seed={props.seed} onSeed={props.onSeed} duration={props.duration} onDuration={props.onDuration} disabled={exportBusy} />
         </aside>
       </div>
     </main>
@@ -383,10 +392,13 @@ const BoardLedger: React.FC<{ summary: BoardSummary; castCount: number }> = ({ s
 const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel; stale: boolean }> = ({ timeline, board, stale }) => {
   const playerRef = React.useRef<PlayerRef>(null)
   const [currentFrame, setCurrentFrame] = React.useState(0)
+  const [playing, setPlaying] = React.useState(false)
 
   React.useEffect(() => {
     const player = playerRef.current
     if (player === null) return
+
+    setPlaying(false)
 
     const updateFrame = (event: { detail: { frame: number } }): void => {
       setCurrentFrame(event.detail.frame)
@@ -410,10 +422,27 @@ const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel; stale: boole
         compositionWidth={timeline.width}
         compositionHeight={timeline.height}
         style={{ width: '100%', maxHeight: 'calc(100dvh - 160px)', aspectRatio: `${timeline.width} / ${timeline.height}` }}
-        controls
+        controls={false}
         loop
         acknowledgeRemotionLicense
       />
+      <div className="preview-transport">
+        <button
+          className="transport-button"
+          type="button"
+          aria-label={playing ? 'pause preview' : 'play preview'}
+          onClick={() => {
+            const player = playerRef.current
+            if (player === null) return
+            if (playing) player.pause()
+            else player.play()
+            setPlaying(!playing)
+          }}
+        >
+          {playing ? 'pause' : 'play'}
+        </button>
+        <span className="frame-readout">frame {currentFrame + 1} / {timeline.totalFrames}</span>
+      </div>
       <ActRibbon timeline={timeline} playerRef={playerRef} currentFrame={currentFrame} />
     </div>
   )
@@ -490,7 +519,7 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
             padding: 0,
             cursor: 'ew-resize'
           }}
-          title={`${shot.id}: frames ${shot.startFrame}–${shot.endFrame}`}
+          title={`${shot.id}: frames ${shot.startFrame}-${shot.endFrame}`}
         >
           {beats
             .filter((b) => b.frame >= shot.startFrame && b.frame <= shot.endFrame)
@@ -510,7 +539,7 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
   )
 }
 
-const ActList: React.FC<{ acts: ActId[]; order: ActId[]; onChange: (order: ActId[]) => void; compiledIds: string[] }> = ({ acts, order, onChange, compiledIds }) => {
+const ActList: React.FC<{ acts: ActId[]; order: ActId[]; onChange: (order: ActId[]) => void; compiledIds: string[]; disabled: boolean }> = ({ acts, order, onChange, compiledIds, disabled }) => {
   const dragIndex = React.useRef<number | null>(null)
   const move = (from: number, to: number): void => {
     onChange(moveAct(order, from, to))
@@ -524,14 +553,14 @@ const ActList: React.FC<{ acts: ActId[]; order: ActId[]; onChange: (order: ActId
           return (
             <li
               key={act}
-              draggable
+              draggable={!disabled}
               onDragStart={() => { dragIndex.current = i }}
               onDragOver={(e) => {
                 e.preventDefault()
               }}
               onDrop={(e) => {
                 e.preventDefault()
-                if (dragIndex.current !== null && dragIndex.current !== i) move(dragIndex.current, i)
+                if (!disabled && dragIndex.current !== null && dragIndex.current !== i) move(dragIndex.current, i)
                 dragIndex.current = null
               }}
               className={`act-row${compiled ? '' : ' act-empty'}`}
@@ -545,7 +574,7 @@ const ActList: React.FC<{ acts: ActId[]; order: ActId[]; onChange: (order: ActId
                   className="act-move"
                   aria-label={`move ${act} up`}
                   title={`move ${act} up`}
-                  disabled={i === 0}
+                  disabled={disabled || i === 0}
                   onClick={() => {
                     move(i, i - 1)
                   }}
@@ -557,7 +586,7 @@ const ActList: React.FC<{ acts: ActId[]; order: ActId[]; onChange: (order: ActId
                   className="act-move"
                   aria-label={`move ${act} down`}
                   title={`move ${act} down`}
-                  disabled={i === order.length - 1}
+                  disabled={disabled || i === order.length - 1}
                   onClick={() => {
                     move(i, i + 1)
                   }}
@@ -572,6 +601,7 @@ const ActList: React.FC<{ acts: ActId[]; order: ActId[]; onChange: (order: ActId
       {acts.some((a) => !order.includes(a)) && (
         <button
           className="ghost"
+          disabled={disabled}
           onClick={() => {
             onChange([...order, ...acts.filter((a) => !order.includes(a))])
           }}
@@ -590,7 +620,8 @@ const KnobPanel: React.FC<{
   onSeed: (seed: number | null) => void
   duration: 'auto' | number
   onDuration: (duration: 'auto' | number) => void
-}> = ({ knobs, onKnobs, seed, onSeed, duration, onDuration }) => {
+  disabled: boolean
+}> = ({ knobs, onKnobs, seed, onSeed, duration, onDuration, disabled }) => {
   const rangeKnobs: Array<{ key: keyof typeof KNOB_RANGES; label: string }> = [
     { key: 'rhythmDensity', label: 'rhythm density' },
     { key: 'beatCount', label: 'beats' },
@@ -610,6 +641,7 @@ const KnobPanel: React.FC<{
           <select
             id="knob-palette"
             value={knobs.palette ?? 'mono'}
+            disabled={disabled}
             onChange={(e) => {
               onKnobs({ palette: e.target.value as Exclude<StudioKnobs['palette'], undefined> })
             }}
@@ -622,6 +654,7 @@ const KnobPanel: React.FC<{
           <select
             id="knob-symmetry"
             value={knobs.symmetry ?? 'auto'}
+            disabled={disabled}
             onChange={(e) => {
               onKnobs({ symmetry: e.target.value as Exclude<StudioKnobs['symmetry'], undefined> })
             }}
@@ -634,6 +667,7 @@ const KnobPanel: React.FC<{
           <select
             id="knob-dissolve"
             value={knobs.dissolveStyle ?? 'center-out'}
+            disabled={disabled}
             onChange={(e) => {
               onKnobs({ dissolveStyle: e.target.value as Exclude<StudioKnobs['dissolveStyle'], undefined> })
             }}
@@ -646,6 +680,7 @@ const KnobPanel: React.FC<{
           <select
             id="knob-easing"
             value={knobs.easing ?? 'expo-out'}
+            disabled={disabled}
             onChange={(e) => {
               onKnobs({ easing: e.target.value as Exclude<StudioKnobs['easing'], undefined> })
             }}
@@ -668,6 +703,7 @@ const KnobPanel: React.FC<{
                   max={range.max}
                   step={range.step}
                   value={value}
+                  disabled={disabled}
                   onChange={(e) => {
                     onKnobs({ [key]: Number(e.target.value) })
                   }}
@@ -685,6 +721,7 @@ const KnobPanel: React.FC<{
               type="number"
               value={seed ?? ''}
               placeholder="random each render"
+              disabled={disabled}
               onChange={(e) => {
                 const raw = e.target.value
                 onSeed(raw === '' ? null : Math.floor(Number(raw)))
@@ -694,6 +731,7 @@ const KnobPanel: React.FC<{
               className="ghost"
               aria-label="randomize seed"
               title="randomize seed"
+              disabled={disabled}
               onClick={() => {
                 onSeed(Math.floor(Math.random() * 1_000_000))
               }}
@@ -704,6 +742,7 @@ const KnobPanel: React.FC<{
               className="ghost"
               aria-label="clear seed"
               title="clear seed"
+              disabled={disabled}
               onClick={() => {
                 onSeed(null)
               }}
@@ -723,12 +762,13 @@ const KnobPanel: React.FC<{
               step={0.5}
               value={duration === 'auto' ? '' : duration}
               placeholder="auto"
+              disabled={disabled}
               onChange={(e) => {
                 const raw = e.target.value
                 onDuration(raw === '' ? 'auto' : Number(raw))
               }}
             />
-            <button className="ghost" onClick={() => {
+            <button className="ghost" disabled={disabled} onClick={() => {
               onDuration('auto')
             }}>auto</button>
           </div>
@@ -738,7 +778,7 @@ const KnobPanel: React.FC<{
   )
 }
 
-const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promise<void>; disabled: boolean }> = ({ state, onExport, disabled }) => {
+const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promise<void>; onCancel: () => void; disabled: boolean }> = ({ state, onExport, onCancel, disabled }) => {
   return (
     <div className="export-control">
       {state === null && (
@@ -747,10 +787,16 @@ const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promi
         }}>export film</button>
       )}
       {state?.status === 'submitting' && (
-        <span className="export-status" role="status">submitting…</span>
+        <>
+          <span className="export-status" role="status">submitting…</span>
+          <button className="ghost" onClick={onCancel}>cancel</button>
+        </>
       )}
       {state?.status === 'rendering' && (
-        <span className="export-status" role="status">rendering {state.job.progress > 0 ? `${state.job.progress}%` : '…'}</span>
+        <>
+          <span className="export-status" role="status">rendering {state.job.progress > 0 ? `${state.job.progress}%` : '…'}</span>
+          <button className="ghost" onClick={onCancel}>cancel</button>
+        </>
       )}
       {state?.status === 'failed' && (
         <>
@@ -765,11 +811,9 @@ const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promi
       )}
       {state?.status === 'completed' && (
         <>
-          {state.job.gatePassed !== null && (
-            <span className={`gate-chip ${state.job.gatePassed ? 'gate-ok' : 'gate-warn'}`} title={state.job.gateDetail ?? ''}>
-              gate {state.job.gatePassed ? 'pass' : 'advisory'}
-            </span>
-          )}
+          <span className={`gate-chip ${state.job.gatePassed === true ? 'gate-ok' : 'gate-warn'}`} title={state.job.gateDetail ?? 'advisory metrics unavailable'}>
+            {state.job.gatePassed === null ? 'gate unavailable' : `gate ${state.job.gatePassed ? 'pass' : 'advisory'}`}
+          </span>
           <a className="button-link" href={downloadUrl(state.job.jobId)}>download</a>
           <button className="ghost" disabled={disabled} onClick={() => {
             void onExport()
