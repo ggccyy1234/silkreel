@@ -7,8 +7,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "build": "tsc --noEmit && vite build",
-    "dev": "tsx src/studio-server.ts"
+    "build": "tsc --noEmit && vite build --configLoader runner",
+    "dev": "vite --configLoader runner",
+    "start": "vite preview --configLoader runner --host 0.0.0.0"
   },
   "dependencies": {
     "@remotion/player": "4.0.515",

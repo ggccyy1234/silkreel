@@ -1,12 +1,9 @@
-import { createServer } from 'vite'
-import react from '@vitejs/plugin-react'
-import type { Connect, Plugin, ViteDevServer } from 'vite'
+import type { Connect, Plugin } from 'vite'
 import type { ServerResponse } from 'node:http'
-import { isDemoId, loadDemoBoard, parseKicadText } from './board-server.js'
-import { DEMO_IDS } from './board-server.js'
+import { DEMO_IDS, isDemoId, loadDemoBoard, parseKicadText } from './board-server.js'
 
-const RENDER_API = 'http://127.0.0.1:3102'
-const PORT = 3101
+const DEFAULT_RENDER_API_URL = 'http://127.0.0.1:3102'
+const DEFAULT_STUDIO_PORT = 3101
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status
@@ -16,11 +13,12 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 
 async function readBody(req: Connect.IncomingMessage): Promise<string> {
   const chunks: Buffer[] = []
+  let size = 0
   for await (const chunk of req) {
-    chunks.push(chunk as Buffer)
-    if (chunks.reduce((n, c) => n + c.length, 0) > 64 * 1024 * 1024) {
-      throw new Error('payload too large')
-    }
+    const buffer = chunk as Buffer
+    size += buffer.length
+    if (size > 64 * 1024 * 1024) throw new Error('payload too large')
+    chunks.push(buffer)
   }
   return Buffer.concat(chunks).toString('utf8')
 }
@@ -31,11 +29,11 @@ interface ParseBody {
   contents?: string
 }
 
-async function proxyToRenderApi(req: Connect.IncomingMessage, res: ServerResponse, targetPath: string): Promise<void> {
+async function proxyToRenderApi(req: Connect.IncomingMessage, res: ServerResponse, targetPath: string, renderApiUrl: string): Promise<void> {
   try {
     const method = req.method ?? 'GET'
     const body = ['POST', 'PUT'].includes(method) ? await readBody(req) : undefined
-    const upstream = await fetch(`${RENDER_API}${targetPath}`, {
+    const upstream = await fetch(`${renderApiUrl.replace(/\/$/, '')}${targetPath}`, {
       method,
       headers: { 'content-type': 'application/json' },
       ...(body !== undefined ? { body } : {})
@@ -53,45 +51,36 @@ async function proxyToRenderApi(req: Connect.IncomingMessage, res: ServerRespons
   }
 }
 
-const middleware: Connect.NextHandleFunction = (req, res, next) => {
-  const url = req.url ?? '/'
-  const isApi = url === '/api/demos' || url.startsWith('/api/demo/') || url === '/api/parse' || url.startsWith('/api/export') || url.startsWith('/api/job/') || url.startsWith('/api/download/')
-  if (!isApi) {
-    next()
-    return
-  }
-  void handle(req, res, next).catch((err: unknown) => {
-    if (!res.writableEnded) {
-      json(res, 400, { error: err instanceof Error ? err.message : String(err) })
-    }
-  })
+function requestUrl(req: Connect.IncomingMessage): URL {
+  return new URL(req.url ?? '/', 'http://studio')
 }
 
-const PROXY_MAP: Array<{ match: RegExp; target: (url: string) => string }> = [
+function isApiPath(pathname: string): boolean {
+  return pathname === '/api/demos' || pathname.startsWith('/api/demo/') || pathname === '/api/parse' || pathname === '/api/export' || pathname.startsWith('/api/job/') || pathname.startsWith('/api/download/')
+}
+
+const PROXY_MAP: Array<{ match: RegExp; target: (pathname: string) => string }> = [
   { match: /^\/api\/export$/, target: () => '/render' },
-  { match: /^\/api\/job\//, target: (url) => url.replace('/api/job/', '/job/') },
-  { match: /^\/api\/download\//, target: (url) => url.replace('/api/download/', '/download/') }
+  { match: /^\/api\/job\//, target: (pathname) => pathname.replace('/api/job/', '/job/') },
+  { match: /^\/api\/download\//, target: (pathname) => pathname.replace('/api/download/', '/download/') }
 ]
 
-function proxyTarget(url: string): { pathname: string; query: string } | undefined {
-  const [rawPath, rawQuery = ''] = url.split('?')
-  if (rawPath === undefined) return undefined
+function proxyTarget(pathname: string, search: string): string | undefined {
   for (const rule of PROXY_MAP) {
-    if (rule.match.test(rawPath)) {
-      return { pathname: rule.target(rawPath), query: rawQuery !== '' ? `?${rawQuery}` : '' }
-    }
+    if (rule.match.test(pathname)) return `${rule.target(pathname)}${search}`
   }
   return undefined
 }
 
-async function handle(req: Connect.IncomingMessage, res: ServerResponse, next: Connect.NextFunction): Promise<void> {
-  const url = req.url ?? '/'
-  if (url === '/api/demos' && req.method === 'GET') {
+async function handle(req: Connect.IncomingMessage, res: ServerResponse, renderApiUrl: string): Promise<void> {
+  const url = requestUrl(req)
+  const pathname = url.pathname
+  if (pathname === '/api/demos' && req.method === 'GET') {
     json(res, 200, { demos: DEMO_IDS })
     return
   }
-  if (url.startsWith('/api/demo/') && req.method === 'GET') {
-    const demoId = decodeURIComponent(url.slice('/api/demo/'.length).split('?')[0] ?? '')
+  if (pathname.startsWith('/api/demo/') && req.method === 'GET') {
+    const demoId = decodeURIComponent(pathname.slice('/api/demo/'.length))
     if (!isDemoId(demoId)) {
       json(res, 404, { error: `unknown demo board ${demoId}` })
       return
@@ -100,7 +89,7 @@ async function handle(req: Connect.IncomingMessage, res: ServerResponse, next: C
     json(res, 200, board)
     return
   }
-  if (url === '/api/parse' && req.method === 'POST') {
+  if (pathname === '/api/parse' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req)) as ParseBody
     if (body.kind !== 'kicad' || typeof body.contents !== 'string' || typeof body.fileName !== 'string') {
       json(res, 400, { error: 'expected { kind: "kicad", fileName, contents }' })
@@ -110,28 +99,55 @@ async function handle(req: Connect.IncomingMessage, res: ServerResponse, next: C
     json(res, 200, board)
     return
   }
-  const upstream = proxyTarget(url)
-  if (upstream !== undefined) {
-    await proxyToRenderApi(req, res, `${upstream.pathname}${upstream.query}`)
+  const target = proxyTarget(pathname, url.search)
+  if (target !== undefined) {
+    await proxyToRenderApi(req, res, target, renderApiUrl)
     return
   }
-  next()
+  json(res, 405, { error: `method ${req.method ?? 'UNKNOWN'} not allowed for ${pathname}` })
 }
 
-const studioApiPlugin: Plugin = {
-  name: 'silk-reel-studio-api',
-  configureServer(server) {
-    server.middlewares.use(middleware)
+function createMiddleware(renderApiUrl: string): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const pathname = requestUrl(req).pathname
+    const isApi = isApiPath(pathname)
+    if (!isApi) {
+      next()
+      return
+    }
+    void handle(req, res, renderApiUrl).catch((err: unknown) => {
+      if (!res.writableEnded) {
+        json(res, 400, { error: err instanceof Error ? err.message : String(err) })
+      }
+    })
   }
 }
 
-const server: ViteDevServer = await createServer({
-  configFile: false,
-  root: new URL('..', import.meta.url).pathname,
-  plugins: [react(), studioApiPlugin],
-  server: { port: PORT, strictPort: true },
-  appType: 'spa'
-})
+function renderApiUrl(): string {
+  return process.env.RENDER_API_URL || DEFAULT_RENDER_API_URL
+}
 
-await server.listen()
-console.log(`studio listening on http://localhost:${PORT}`)
+export function studioPort(): number {
+  const rawPort = process.env.STUDIO_PORT ?? process.env.PORT
+  if (rawPort === undefined || rawPort.trim() === '') return DEFAULT_STUDIO_PORT
+  const port = Number(rawPort)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('STUDIO_PORT must be an integer between 1 and 65535')
+  }
+  return port
+}
+
+export function createStudioApiPlugin(config: { renderApiUrl?: string } = {}): Plugin {
+  const middleware = createMiddleware(config.renderApiUrl ?? renderApiUrl())
+  return {
+    name: 'silk-reel-studio-api',
+    configureServer(server) {
+      server.middlewares.use(middleware)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(middleware)
+    }
+  }
+}
+
+export const studioApiPlugin = createStudioApiPlugin()

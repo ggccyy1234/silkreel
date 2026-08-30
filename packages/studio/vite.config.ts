@@ -1,11 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { studioApiPlugin, studioPort } from './src/studio-server.js'
 
 export default defineConfig({
-  plugins: [react()],
-  publicDir: '../../fixtures',
+  plugins: [react(), studioApiPlugin],
+  publicDir: false,
   server: {
-    port: 3101,
+    port: studioPort(),
+    strictPort: true
+  },
+  preview: {
+    port: studioPort(),
     strictPort: true
   },
   build: {

@@ -9,6 +9,7 @@
     "test": "vitest run",
     "build": "tsc --noEmit",
     "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
     "render:canonical": "tsx src/scripts/render-canonical.ts"
   },
   "dependencies": {
