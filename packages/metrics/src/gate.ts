@@ -29,6 +29,7 @@ export interface GateExpectations {
   height: number
   fps: number
   totalFrames: number
+  style?: 'trace' | 'glyph'
 }
 
 const BG_LIMIT = 15
@@ -221,12 +222,12 @@ function checkMotion(envelope: Envelope): GateRuleResult {
 
 export async function runGate(videoPath: string, expectations: GateExpectations): Promise<GateReport> {
   const { facts, envelope } = await measureEnvelope(videoPath)
+  const glyphOnly = expectations.style === undefined || expectations.style === 'glyph'
   const rules: GateRuleResult[] = [
     checkSpec(facts, expectations),
     checkBackground(envelope),
     checkCoverage(envelope),
-    checkSymmetry(envelope),
-    checkBreathing(envelope),
+    ...(glyphOnly ? [checkSymmetry(envelope), checkBreathing(envelope)] : []),
     checkLoop(envelope),
     checkMotion(envelope)
   ]

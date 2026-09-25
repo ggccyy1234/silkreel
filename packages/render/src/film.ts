@@ -1,7 +1,5 @@
 import { sampleTrack } from '@silk-reel/choreo'
-import type { AtomState, GlyphLabel, Timeline } from '@silk-reel/choreo'
-
-const INK = '#ffffff'
+import type { AtomState, GlyphLabel, GlyphTimeline, Timeline } from '@silk-reel/choreo'
 /** hairline stroke width in output pixels (constant regardless of glyph scale) */
 const INK_PX = 1.3
 /** stage [-1,1] maps to ±33% of frame height around the center */
@@ -18,11 +16,6 @@ export interface GlyphRender {
 
 export interface Scene {
   glyphs: Map<string, GlyphRender>
-}
-
-export interface DrawFrameInput {
-  timeline: Timeline
-  scene: Scene
 }
 
 function smooth01(t: number): number {
@@ -89,17 +82,25 @@ function drawAtom(
   ctx.restore()
 }
 
-export function drawTimelineFrame(
+export function drawFrame(
   ctx: CanvasRenderingContext2D,
-  input: DrawFrameInput,
+  timeline: Timeline,
+  scene: Scene,
   frame: number
 ): number {
-  const { timeline, scene } = input
   ctx.setTransform(1, 0, 0, 1, 0, 0)
-  ctx.fillStyle = '#000000'
+  ctx.fillStyle = timeline.palette.bg
   ctx.fillRect(0, 0, timeline.width, timeline.height)
-  if (timeline.style !== 'glyph') return 0
+  if (timeline.style === 'trace') return 0
+  return drawGlyphFrame(ctx, timeline, scene, frame)
+}
 
+export function drawGlyphFrame(
+  ctx: CanvasRenderingContext2D,
+  timeline: GlyphTimeline,
+  scene: Scene,
+  frame: number
+): number {
   const phase = frame / timeline.totalFrames
   const breath = smooth01(phase / BREATH) * smooth01((1 - phase) / BREATH)
   if (breath <= 0.003) return 0
@@ -107,8 +108,9 @@ export function drawTimelineFrame(
   const stagePx = timeline.height * STAGE
   const cx = timeline.width / 2
   const cy = timeline.height / 2
-  ctx.strokeStyle = INK
-  ctx.fillStyle = INK
+  const ink = timeline.palette.silk
+  ctx.strokeStyle = ink
+  ctx.fillStyle = ink
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
 

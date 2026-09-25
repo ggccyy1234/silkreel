@@ -1,7 +1,7 @@
 import React from 'react'
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion'
 import type { Timeline } from '@silk-reel/choreo'
-import { drawTimelineFrame, buildScene } from './film'
+import { drawFrame, buildScene } from './film'
 import type { Scene } from './film'
 
 export interface FilmProps {
@@ -21,12 +21,12 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, children }) => {
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    drawTimelineFrame(ctx, { timeline, scene }, frame)
+    drawFrame(ctx, timeline, scene, frame)
   }, [frame, timeline, scene])
 
   return React.createElement(
     AbsoluteFill,
-    { style: { backgroundColor: '#000000' } },
+    { style: { backgroundColor: timeline.palette.bg } },
     React.createElement('canvas', {
       ref: canvasRef,
       width,

@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { mkdir, rm } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import type { FilmConfig } from '@silk-reel/choreo'
+import type { FilmConfig, Timeline } from '@silk-reel/choreo'
 import type { GateReport } from '@silk-reel/metrics'
 import { renderFilm } from './render-film.js'
 import { compileFilm, loadDemoBoard, boardFromJson, defaultFilmConfig } from './boards.js'
@@ -206,13 +206,14 @@ export class RenderQueue implements RenderQueuePort {
     await rm(outputLocation, { force: true }).catch(() => undefined)
   }
 
-  private async readGateAdvisory(outputLocation: string, config: FilmConfig, totalFrames: number): Promise<GateAdvisory> {
+  private async readGateAdvisory(outputLocation: string, config: FilmConfig, timeline: Timeline): Promise<GateAdvisory> {
     try {
       const report = await this.runGate(outputLocation, {
         width: config.output.width,
         height: config.output.height,
         fps: config.output.fps,
-        totalFrames
+        totalFrames: timeline.totalFrames,
+        style: timeline.style
       })
       return report.passed ? { status: 'passed', report } : { status: 'failed', report }
     } catch (err) {
@@ -252,7 +253,7 @@ export class RenderQueue implements RenderQueuePort {
         await this.discardOutput(outputLocation)
         return
       }
-      const gate = await this.readGateAdvisory(outputLocation, entry.config, inputProps.timeline.totalFrames)
+      const gate = await this.readGateAdvisory(outputLocation, entry.config, inputProps.timeline)
       if (this.isCancelled(rendering.id)) {
         await this.discardOutput(outputLocation)
         return

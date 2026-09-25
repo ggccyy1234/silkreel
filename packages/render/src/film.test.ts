@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { compileTimeline } from '@silk-reel/choreo'
 import type { FilmConfig, GlyphTimeline } from '@silk-reel/choreo'
 import type { BoardModel } from '@silk-reel/ingest'
-import { buildScene, drawTimelineFrame } from './film.js'
+import { buildScene, drawFrame } from './film.js'
 import { asCtx, currentRecorder, RecordingCtx } from './test-recorder.js'
 import { boardModel } from '../../choreo/test/helpers.js'
 
@@ -41,13 +41,13 @@ describe('buildScene', () => {
   })
 })
 
-describe('drawTimelineFrame', () => {
+describe('drawFrame', () => {
   const board = boardModel('ecc83-pp.kicad_pcb')
 
   it('clears to black and inks in pure white', () => {
     const timeline = compiled(board)
     const scene = buildScene(timeline)
-    drawTimelineFrame(asCtx(currentRecorder()), { timeline, scene }, Math.floor(timeline.totalFrames * 0.4))
+    drawFrame(asCtx(currentRecorder()), timeline, scene, Math.floor(timeline.totalFrames * 0.4))
     const fill = callsOf('fillRect')[0]
     expect(fill).toBeDefined()
     const props = currentRecorder().props
@@ -58,7 +58,7 @@ describe('drawTimelineFrame', () => {
   it('draws nothing at the loop point (breath = 0)', () => {
     const timeline = compiled(board)
     const scene = buildScene(timeline)
-    const drawn = drawTimelineFrame(asCtx(currentRecorder()), { timeline, scene }, 0)
+    const drawn = drawFrame(asCtx(currentRecorder()), timeline, scene, 0)
     expect(drawn).toBe(0)
     expect(callsOf('stroke').length).toBe(0)
     expect(callsOf('fillText').length).toBe(0)
@@ -67,7 +67,7 @@ describe('drawTimelineFrame', () => {
   it('draws atoms during formation holds', () => {
     const timeline = compiled(board)
     const scene = buildScene(timeline)
-    const drawn = drawTimelineFrame(asCtx(currentRecorder()), { timeline, scene }, Math.floor(timeline.totalFrames * 0.8))
+    const drawn = drawFrame(asCtx(currentRecorder()), timeline, scene, Math.floor(timeline.totalFrames * 0.8))
     expect(drawn).toBeGreaterThan(0)
     expect(callsOf('stroke').length + callsOf('fillText').length).toBeGreaterThan(0)
   })
@@ -75,7 +75,7 @@ describe('drawTimelineFrame', () => {
   it('mirrored atoms render with a flipped transform', () => {
     const timeline = compiled(board)
     const scene = buildScene(timeline)
-    drawTimelineFrame(asCtx(currentRecorder()), { timeline, scene }, Math.floor(timeline.totalFrames * 0.6))
+    drawFrame(asCtx(currentRecorder()), timeline, scene, Math.floor(timeline.totalFrames * 0.6))
     const flips = callsOf('scale').filter((c) => (c.args[0] as number) < 0 || (c.args[1] as number) < 0)
     expect(flips.length).toBeGreaterThan(0)
   })
@@ -83,7 +83,7 @@ describe('drawTimelineFrame', () => {
   it('uses a constant screen-space hairline regardless of glyph scale', () => {
     const timeline = compiled(board)
     const scene = buildScene(timeline)
-    drawTimelineFrame(asCtx(currentRecorder()), { timeline, scene }, Math.floor(timeline.totalFrames * 0.8))
+    drawFrame(asCtx(currentRecorder()), timeline, scene, Math.floor(timeline.totalFrames * 0.8))
     // lineWidth is set in glyph space as INK_PX/sizePx — the recorded widths
     // must vary with scale (bigger glyph -> smaller glyph-space width)
     const widths = callsOf('set:lineWidth').map((c) => c.args[0] as number)
@@ -98,7 +98,7 @@ describe('drawTimelineFrame', () => {
     const labelled = timeline.cast.filter((g) => (g.labels?.length ?? 0) > 0)
     expect(labelled.length).toBeGreaterThan(0)
     const scene = buildScene(timeline)
-    drawTimelineFrame(asCtx(currentRecorder()), { timeline, scene }, Math.floor(timeline.totalFrames * 0.8))
+    drawFrame(asCtx(currentRecorder()), timeline, scene, Math.floor(timeline.totalFrames * 0.8))
     const texts = callsOf('fillText').map((c) => c.args[0])
     const labelTexts = new Set(labelled.flatMap((g) => (g.labels ?? []).map((l) => l.text)))
     expect(texts.some((t) => labelTexts.has(t as string))).toBe(true)
@@ -108,7 +108,22 @@ describe('drawTimelineFrame', () => {
     const timeline = compiled(boardModel('video.kicad_pcb'), { seed: 7 })
     const scene = buildScene(timeline)
     for (const frame of [0, 5, timeline.totalFrames - 1]) {
-      expect(() => drawTimelineFrame(asCtx(new RecordingCtx()), { timeline, scene }, frame)).not.toThrow()
+      expect(() => drawFrame(asCtx(new RecordingCtx()), timeline, scene, frame)).not.toThrow()
     }
+  })
+
+  it('fills the palette background and draws nothing for an empty trace scene', () => {
+    const timeline = compileTimeline(board, cfg({ style: 'trace' }))
+    if (timeline.style !== 'trace') throw new Error('expected a trace timeline')
+    const scene = buildScene(timeline)
+    const rec = currentRecorder()
+    const drawn = drawFrame(asCtx(rec), timeline, scene, 10)
+    expect(drawn).toBe(0)
+    const fill = callsOf('fillRect')[0]
+    expect(fill?.args).toEqual([0, 0, timeline.width, timeline.height])
+    const bgSet = rec.calls.filter((c) => c.method === 'set:fillStyle').map((c) => c.args[0])
+    expect(bgSet).toContain(timeline.palette.bg)
+    expect(callsOf('stroke').length).toBe(0)
+    expect(callsOf('fillText').length).toBe(0)
   })
 })
