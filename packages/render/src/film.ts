@@ -1,5 +1,6 @@
 import { sampleTrack } from '@silk-reel/choreo'
 import type { AtomState, GlyphLabel, GlyphTimeline, Timeline } from '@silk-reel/choreo'
+import { drawTraceFrame } from './trace-draw.js'
 /** hairline stroke width in output pixels (constant regardless of glyph scale) */
 const INK_PX = 1.3
 /** stage [-1,1] maps to ±33% of frame height around the center */
@@ -88,10 +89,10 @@ export function drawFrame(
   scene: Scene,
   frame: number
 ): number {
+  if (timeline.style === 'trace') return drawTraceFrame(ctx, timeline, frame)
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.fillStyle = timeline.palette.bg
   ctx.fillRect(0, 0, timeline.width, timeline.height)
-  if (timeline.style === 'trace') return 0
   return drawGlyphFrame(ctx, timeline, scene, frame)
 }
 

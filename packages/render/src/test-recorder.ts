@@ -69,6 +69,11 @@ export class RecordingCtx {
       'setLineDash', 'drawImage', 'clip'
     ]
     for (const m of methods) target[m] = this.forward(m)
+    target.createLinearGradient = (): { addColorStop: (offset: number, color: string) => void } => ({
+      addColorStop: (offset: number, color: string) => {
+        this.calls.push({ method: 'gradient-stop', args: [offset, color] })
+      }
+    })
     target.createRadialGradient = (): { addColorStop: (offset: number, color: string) => void } => ({
       addColorStop: (offset: number, color: string) => {
         this.calls.push({ method: 'gradient-stop', args: [offset, color] })

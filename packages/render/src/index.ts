@@ -1,4 +1,5 @@
 export { drawFrame, drawGlyphFrame, buildScene } from './film.js'
+export { drawTraceFrame } from './trace-draw.js'
 export type { Scene, GlyphRender } from './film.js'
 export { Film, FilmCanvas } from './FilmComponent.js'
 export type { FilmProps } from './FilmComponent.js'

@@ -1,7 +1,7 @@
 import './test-recorder.js'
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from '@silk-reel/choreo'
-import type { FilmConfig, GlyphTimeline } from '@silk-reel/choreo'
+import type { FilmConfig, GlyphTimeline, TraceTimeline } from '@silk-reel/choreo'
 import type { BoardModel } from '@silk-reel/ingest'
 import { buildScene, drawFrame } from './film.js'
 import { asCtx, currentRecorder, RecordingCtx } from './test-recorder.js'
@@ -113,8 +113,12 @@ describe('drawFrame', () => {
   })
 
   it('fills the palette background and draws nothing for an empty trace scene', () => {
-    const timeline = compileTimeline(board, cfg({ style: 'trace' }))
-    if (timeline.style !== 'trace') throw new Error('expected a trace timeline')
+    const compiled = compileTimeline(board, cfg({ style: 'trace' }))
+    if (compiled.style !== 'trace') throw new Error('expected a trace timeline')
+    const timeline: TraceTimeline = {
+      ...compiled,
+      scene: { ...compiled.scene, outline: [], layers: [], pads: [], vias: [], zones: [], silkStrokes: [], texts: [] }
+    }
     const scene = buildScene(timeline)
     const rec = currentRecorder()
     const drawn = drawFrame(asCtx(rec), timeline, scene, 10)
