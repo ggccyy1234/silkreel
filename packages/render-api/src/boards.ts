@@ -72,10 +72,12 @@ export function compileFilm(board: BoardModel, config: FilmConfig): { timeline: 
 export function defaultFilmConfig(demoId?: string): FilmConfig {
   const cast = isDemoBoardId(demoId ?? '') ? HERO_HINTS[demoId as DemoBoardId] : undefined
   return {
+    style: 'trace',
+    aspect: '4:5',
     knobs: {},
     seed: 42,
     duration: 'auto',
-    output: { width: 1080, height: 1350, fps: 15 },
+    output: { width: 1080, height: 1350, fps: 30 },
     ...(cast !== undefined ? { cast } : {})
   }
 }

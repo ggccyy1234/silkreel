@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { createReadStream } from 'node:fs'
 import { realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { FilmConfig, Knobs } from '@silk-reel/choreo'
+import type { Aspect, FilmConfig, Knobs, PaletteId, StyleId, TitleCard } from '@silk-reel/choreo'
 import { DEMO_BOARDS, boardFromJson, defaultFilmConfig, isDemoBoardId } from './boards.js'
 import { RenderQueue } from './queue.js'
 import type { RenderQueuePort, RenderSubmission } from './queue.js'
@@ -11,9 +11,12 @@ import { runGate } from './gate.js'
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..')
 const allowedVideoRoots = [path.join(repoRoot, 'exports'), path.join(repoRoot, 'fixtures')]
-const FILM_CONFIG_KEYS = ['knobs', 'seed', 'duration', 'output', 'cast'] as const
+const FILM_CONFIG_KEYS = ['knobs', 'seed', 'duration', 'output', 'cast', 'style', 'aspect', 'palette', 'accent', 'title', 'transparent'] as const
 const CAST_KEYS = ['preferRefs', 'preferTexts'] as const
-const KNOB_KEYS = ['density', 'texts'] as const
+const KNOB_KEYS = ['density', 'texts', 'tempo'] as const
+const STYLE_IDS: readonly StyleId[] = ['trace', 'glyph']
+const ASPECT_IDS: readonly Aspect[] = ['4:5', '1:1', '9:16', '16:9']
+const PALETTE_IDS: readonly PaletteId[] = ['mono', 'copper', 'blueprint', 'phosphor']
 const OUTPUT_KEYS = ['width', 'height', 'fps'] as const
 const DEFAULT_OUTPUT = defaultFilmConfig().output
 
@@ -172,6 +175,43 @@ function parseFilmConfig(value: unknown): FilmConfigResult {
   if (unexpected !== undefined) return { ok: false, error: `filmConfig.${unexpected} is not supported` }
 
   const config: Partial<FilmConfig> = {}
+  if (Object.hasOwn(value, 'style')) {
+    if (typeof value.style !== 'string' || !STYLE_IDS.includes(value.style as StyleId)) {
+      return { ok: false, error: `filmConfig.style must be one of ${STYLE_IDS.join(', ')}` }
+    }
+    config.style = value.style as StyleId
+  }
+  if (Object.hasOwn(value, 'aspect')) {
+    if (typeof value.aspect !== 'string' || !ASPECT_IDS.includes(value.aspect as Aspect)) {
+      return { ok: false, error: `filmConfig.aspect must be one of ${ASPECT_IDS.join(', ')}` }
+    }
+    config.aspect = value.aspect as Aspect
+  }
+  if (Object.hasOwn(value, 'palette')) {
+    if (typeof value.palette !== 'string' || !PALETTE_IDS.includes(value.palette as PaletteId)) {
+      return { ok: false, error: `filmConfig.palette must be one of ${PALETTE_IDS.join(', ')}` }
+    }
+    config.palette = value.palette as PaletteId
+  }
+  if (Object.hasOwn(value, 'accent')) {
+    if (typeof value.accent !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value.accent)) {
+      return { ok: false, error: 'filmConfig.accent must be a #rrggbb hex color' }
+    }
+    config.accent = value.accent
+  }
+  if (Object.hasOwn(value, 'title')) {
+    const title = value.title
+    if (!isRecord(title) || typeof title.name !== 'string' || (title.version !== undefined && typeof title.version !== 'string')) {
+      return { ok: false, error: 'filmConfig.title must be an object { name: string, version?: string }' }
+    }
+    const card: TitleCard = { name: title.name }
+    if (title.version !== undefined) card.version = title.version
+    config.title = card
+  }
+  if (Object.hasOwn(value, 'transparent')) {
+    if (typeof value.transparent !== 'boolean') return { ok: false, error: 'filmConfig.transparent must be a boolean' }
+    config.transparent = value.transparent
+  }
   if (Object.hasOwn(value, 'knobs')) {
     const parsed = parseKnobs(value.knobs)
     if (!parsed.ok) return parsed

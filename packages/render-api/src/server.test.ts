@@ -155,6 +155,27 @@ describe('render-api contract', () => {
     })
   })
 
+  it('accepts style engine fields and rejects a bad aspect', async () => {
+    const queue = new StubQueue()
+    await withApp(queue, async (app) => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/render',
+        payload: {
+          demoId: 'glasgow',
+          filmConfig: { knobs: {}, seed: 1, duration: 'auto', output: { width: 1080, height: 1350, fps: 30 }, style: 'glyph', aspect: '1:1', palette: 'mono' }
+        }
+      })
+      expect(response.statusCode).toBe(202)
+      const bad = await app.inject({
+        method: 'POST',
+        url: '/render',
+        payload: { demoId: 'glasgow', filmConfig: { aspect: '3:2' } }
+      })
+      expect(bad.statusCode).toBe(400)
+    })
+  })
+
   it('accepts a valid submission and exposes job lifecycle endpoints', async () => {
     const queue = new StubQueue()
     await withApp(queue, async (app) => {

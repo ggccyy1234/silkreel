@@ -3,10 +3,11 @@ import type { FilmConfig, Knobs } from '@silk-reel/choreo'
 import type { BoardModel } from '@silk-reel/ingest'
 
 export function compileStudioFilm(board: BoardModel, config: FilmConfig) {
-  const timeline = compileTimeline(board, config)
+  const resolved: FilmConfig = { ...config, style: 'glyph' }
+  const timeline = compileTimeline(board, resolved)
   return {
     timeline,
-    config: { ...config, seed: timeline.seedUsed },
+    config: { ...resolved, seed: timeline.seedUsed },
     warnings: timeline.warnings.map((warning) => warning.message)
   }
 }

@@ -315,12 +315,18 @@ function mergeConfig(partial: Partial<FilmConfig> | undefined, demoId?: string):
   const base = defaultFilmConfig(demoId)
   if (!partial) return base
   const config: FilmConfig = {
+    ...base,
     knobs: { ...base.knobs, ...partial.knobs },
     seed: partial.seed !== undefined ? partial.seed : base.seed,
     duration: partial.duration !== undefined ? partial.duration : base.duration,
     output: { ...base.output, ...partial.output }
   }
-  const cast = partial.cast !== undefined ? partial.cast : base.cast
-  if (cast !== undefined) config.cast = cast
+  if (partial.style !== undefined) config.style = partial.style
+  if (partial.aspect !== undefined) config.aspect = partial.aspect
+  if (partial.palette !== undefined) config.palette = partial.palette
+  if (partial.accent !== undefined) config.accent = partial.accent
+  if (partial.title !== undefined) config.title = partial.title
+  if (partial.transparent !== undefined) config.transparent = partial.transparent
+  if (partial.cast !== undefined) config.cast = partial.cast
   return config
 }
