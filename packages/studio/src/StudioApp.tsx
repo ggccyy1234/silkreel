@@ -358,7 +358,7 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
               </ul>
             </details>
           )}
-          <BoardLedger summary={summary} elementCount={film?.timeline.cast.length ?? 0} />
+          <BoardLedger summary={summary} elementCount={film !== null && film.timeline.style === 'glyph' ? film.timeline.cast.length : 0} />
           <KnobPanel
             knobs={props.knobs}
             onKnobs={props.onKnobs}
@@ -407,7 +407,8 @@ const PlayerPane: React.FC<{ timeline: Timeline; stale: boolean }> = ({ timeline
 
     setPlaying(player.isPlaying())
     if (!posterChosen.current) {
-      const quad = timeline.formations.find((formation) => formation.id === 'quad') ?? timeline.formations[timeline.formations.length - 1]
+      const formations = timeline.style === 'glyph' ? timeline.formations : []
+      const quad = formations.find((formation) => formation.id === 'quad') ?? formations[formations.length - 1]
       const posterFrame = Math.floor(((quad?.startPhase ?? 0) + (quad?.endPhase ?? 1)) / 2 * timeline.totalFrames)
       player.seekTo(posterFrame)
       currentFrameRef.current = posterFrame
@@ -491,13 +492,14 @@ const FORMATION_LABELS: Record<string, string> = {
 
 const FormationRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<PlayerRef | null>; currentFrame: number }> = ({ timeline, playerRef, currentFrame }) => {
   const total = timeline.totalFrames
+  const formations = timeline.style === 'glyph' ? timeline.formations : []
   const seekFromPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
     const bounds = event.currentTarget.getBoundingClientRect()
     const progress = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
     playerRef.current?.seekTo(Math.min(total - 1, Math.floor(progress * total)))
   }
   const p = currentFrame / total
-  const active = timeline.formations.find((formation) => p >= formation.startPhase && p <= formation.endPhase)
+  const active = formations.find((formation) => p >= formation.startPhase && p <= formation.endPhase)
   const activeLabel = active ? FORMATION_LABELS[active.id] ?? active.id : 'film'
   return (
     <div
@@ -537,7 +539,7 @@ const FormationRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject
         playerRef.current?.seekTo(Math.max(0, Math.min(total - 1, currentFrame + step)))
       }}
     >
-      {timeline.formations.map((formation, i) => (
+      {formations.map((formation, i) => (
         <span
           key={formation.beat}
           className={`act-block${active?.beat === formation.beat ? ' act-block-active' : ''}`}

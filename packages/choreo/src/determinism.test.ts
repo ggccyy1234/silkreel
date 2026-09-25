@@ -7,6 +7,7 @@ import { syntheticBoardWithFootprints } from '../test/synthetic'
 
 function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   return {
+    style: 'glyph',
     knobs: {},
     seed: 42,
     duration: 'auto',
@@ -37,6 +38,7 @@ describe('seeded determinism', () => {
     const digests = new Set<string>()
     for (let i = 0; i < 3; i++) {
       const tl = compileTimeline(syntheticBoardWithFootprints(12), cfg({ seed: null }))
+      if (tl.style !== 'glyph') throw new Error('expected a glyph timeline')
       digests.add(sha256Of(tl))
       expect(tl.cast.length).toBeGreaterThan(0)
       expect(tl.formations[0]?.startPhase).toBe(0)

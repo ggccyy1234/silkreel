@@ -32,6 +32,7 @@ function smooth01(t: number): number {
 
 export function buildScene(timeline: Timeline): Scene {
   const glyphs = new Map<string, GlyphRender>()
+  if (timeline.style !== 'glyph') return { glyphs }
   for (const glyph of timeline.cast) {
     let path: Path2D | undefined
     if (glyph.strokes.length > 0) {
@@ -97,6 +98,7 @@ export function drawTimelineFrame(
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.fillStyle = '#000000'
   ctx.fillRect(0, 0, timeline.width, timeline.height)
+  if (timeline.style !== 'glyph') return 0
 
   const phase = frame / timeline.totalFrames
   const breath = smooth01(phase / BREATH) * smooth01((1 - phase) / BREATH)

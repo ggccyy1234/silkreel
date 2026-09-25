@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from './index'
-import type { FilmConfig } from './index'
+import type { FilmConfig, GlyphTimeline } from './index'
+import type { BoardModel } from '@silk-reel/ingest'
 import { boardModel } from '../test/helpers'
 
 function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   return {
+    style: 'glyph',
     knobs: {},
     seed: 42,
     duration: 'auto',
@@ -15,31 +17,34 @@ function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
 
 const board = () => boardModel('ecc83-pp.kicad_pcb')
 
+function compile(board: BoardModel, overrides: Partial<FilmConfig> = {}): GlyphTimeline {
+  const tl = compileTimeline(board, cfg(overrides))
+  if (tl.style !== 'glyph') throw new Error('expected a glyph timeline')
+  return tl
+}
+
 describe('knobs', () => {
   it('density scales the package cast size', () => {
-    const sparse = compileTimeline(board(), cfg({ knobs: { density: 0.5 } }))
-    const dense = compileTimeline(board(), cfg({ knobs: { density: 1.5 } }))
+    const sparse = compile(board(), { knobs: { density: 0.5 } })
+    const dense = compile(board(), { knobs: { density: 1.5 } })
     const pk = (tl: typeof sparse) => tl.cast.filter((g) => g.kind === 'package').length
     expect(pk(dense)).toBeGreaterThan(pk(sparse))
   })
 
   it('texts=0 removes text glyphs; texts=1 includes them', () => {
-    const off = compileTimeline(board(), cfg({ knobs: { texts: 0 } }))
-    const on = compileTimeline(board(), cfg({ knobs: { texts: 1 } }))
+    const off = compile(board(), { knobs: { texts: 0 } })
+    const on = compile(board(), { knobs: { texts: 1 } })
     expect(off.cast.some((g) => g.kind === 'text')).toBe(false)
     expect(on.cast.some((g) => g.kind === 'text')).toBe(true)
   })
 
   it('unknown knobs are ignored rather than failing', () => {
-    const tl = compileTimeline(
-      board(),
-      cfg({ knobs: { density: 1, mystery: 5 } as unknown as FilmConfig['knobs'] })
-    )
+    const tl = compile(board(), { knobs: { density: 1, mystery: 5 } as unknown as FilmConfig['knobs'] })
     expect(tl.cast.length).toBeGreaterThan(0)
   })
 
   it('out-of-range values clamp into bounds with a warning', () => {
-    const tl = compileTimeline(board(), cfg({ knobs: { density: -2, texts: 7 } }))
+    const tl = compile(board(), { knobs: { density: -2, texts: 7 } })
     const clamped = tl.warnings.filter((w) => w.code === 'knob-clamped')
     expect(clamped.some((w) => w.message.includes('density'))).toBe(true)
     expect(clamped.some((w) => w.message.includes('texts'))).toBe(true)

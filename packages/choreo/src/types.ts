@@ -73,14 +73,47 @@ export interface CastHints {
   preferTexts?: string[]
 }
 
+export type StyleId = 'trace' | 'glyph'
+export type Aspect = '4:5' | '1:1' | '9:16' | '16:9'
+export type PaletteId = 'mono' | 'copper' | 'blueprint' | 'phosphor'
+
+export interface Palette {
+  id: PaletteId | 'custom'
+  bg: string
+  /** main copper/ink */
+  copper: string
+  /** back-side / inner copper, zones */
+  copperDim: string
+  silk: string
+  /** growing trace heads, flashes — the bloom source */
+  head: string
+  /** 0..1 bloom strength for the post pass */
+  bloom: number
+}
+
+export interface TitleCard {
+  name: string
+  version?: string | undefined
+}
+
 export interface Knobs {
-  /** scales cast size and per-formation crowding, 0.5-1.5 */
+  /** scales cast size / crowding, 0.5-1.5 */
   density?: number
   /** silkscreen text glyphs on/off, 0 or 1 */
   texts?: number
+  /** playback speed, 0.75-1.5; duration = base / tempo */
+  tempo?: number
 }
 
 export interface FilmConfig {
+  style?: StyleId
+  aspect?: Aspect
+  palette?: PaletteId
+  /** #rrggbb — overrides palette.head and tints copper */
+  accent?: string
+  title?: TitleCard
+  /** alpha-capable output: no background, no vignette/grain */
+  transparent?: boolean
   knobs: Knobs
   seed: number | null
   duration: 'auto' | number
@@ -93,18 +126,75 @@ export interface TimelineWarning {
   message: string
 }
 
-export interface Timeline {
+interface TimelineBase {
   fps: number
   totalFrames: number
   durationSeconds: number
   width: number
   height: number
   output: { width: number; height: number; fps: number }
+  palette: Palette
+  title?: TitleCard | undefined
+  transparent: boolean
+  warnings: TimelineWarning[]
+  seedUsed: number
+}
+
+export interface GlyphTimeline extends TimelineBase {
+  style: 'glyph'
   cast: Glyph[]
   tracks: Track[]
   formations: FormationEvent[]
-  warnings: TimelineWarning[]
-  seedUsed: number
+}
+
+export interface TraceTimeline extends TimelineBase {
+  style: 'trace'
+  scene: TraceScene
+}
+
+export type Timeline = GlyphTimeline | TraceTimeline
+
+/** closed polyline, flat [x0,y0,x1,y1,...] */
+export type FlatPath = number[]
+
+export interface TraceLayer {
+  id: string
+  side: 'F' | 'B' | 'inner'
+  /** stride 7: x0,y0,x1,y1,widthPx,t0,t1 — (x0,y0) is where growth starts; sorted by t0 */
+  segs: number[]
+}
+export interface TracePad {
+  x: number; y: number; w: number; h: number; rot: number
+  shape: 'rect' | 'round' | 'circle'
+  /** pop-in time */
+  t: number
+  side: 'F' | 'B' | 'both'
+}
+export interface TraceVia { x: number; y: number; r: number; t: number }
+export interface TraceZone { fill: FlatPath; side: 'F' | 'B' | 'inner'; t0: number; t1: number }
+export interface TraceText { text: string; x: number; y: number; size: number; rot: number; t: number }
+export interface TraceBeats {
+  outline: [number, number]
+  pads: [number, number]
+  growth: [number, number]
+  zones: [number, number]
+  silk: [number, number]
+  hold: [number, number]
+  fade: [number, number]
+}
+export interface TraceScene {
+  outline: FlatPath[]
+  layers: TraceLayer[]          // draw order: back → front
+  pads: TracePad[]
+  vias: TraceVia[]
+  zones: TraceZone[]
+  silkStrokes: Array<{ path: FlatPath; t: number }>
+  texts: TraceText[]
+  /** growth origin (hero footprint center), px — used by zone wipe + glint */
+  origin: { x: number; y: number }
+  /** slow push-in about the frame center */
+  camera: { from: number; to: number }
+  beats: TraceBeats
 }
 
 export type CompileTimeline = (board: BoardModel, config: FilmConfig) => Timeline

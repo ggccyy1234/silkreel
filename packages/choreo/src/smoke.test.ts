@@ -13,11 +13,13 @@ describe('choreo package smoke', () => {
   ]) {
     it(`compiles ${name} to a looping glyph timeline`, () => {
       const tl = compileTimeline(boardModel(name), {
+        style: 'glyph',
         knobs: {},
         seed: 42,
         duration: 'auto',
         output: { width: 1080, height: 1350, fps: 15 }
       })
+      if (tl.style !== 'glyph') throw new Error('expected a glyph timeline')
       expect(tl.totalFrames).toBeGreaterThan(0)
       expect(tl.cast.length).toBeGreaterThan(0)
       expect(tl.tracks.length).toBe(tl.cast.filter((g) => tl.tracks.some((t) => t.glyphId === g.id)).length)

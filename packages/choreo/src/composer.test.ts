@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from './index'
 import { sampleTrack } from './composer'
-import type { AtomState, FilmConfig, Timeline } from './types'
+import type { AtomState, FilmConfig, GlyphTimeline } from './types'
+import type { BoardModel } from '@silk-reel/ingest'
 import { boardModel } from '../test/helpers'
 import { syntheticBoardWithFootprints } from '../test/synthetic'
 import { makeSyntheticBoard } from '../test/synthetic'
 
 function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   return {
+    style: 'glyph',
     knobs: {},
     seed: 42,
     duration: 'auto',
@@ -16,7 +18,13 @@ function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   }
 }
 
-function atomsAt(tl: Timeline, phase: number): AtomState[] {
+function compile(board: BoardModel, overrides: Partial<FilmConfig> = {}): GlyphTimeline {
+  const tl = compileTimeline(board, cfg(overrides))
+  if (tl.style !== 'glyph') throw new Error('expected a glyph timeline')
+  return tl
+}
+
+function atomsAt(tl: GlyphTimeline, phase: number): AtomState[] {
   const out: AtomState[] = []
   for (const track of tl.tracks) out.push(...sampleTrack(track, phase))
   return out
@@ -39,7 +47,7 @@ function assertMirrorBalanced(atoms: AtomState[], context: string): void {
 
 describe('composeFilm cast', () => {
   it('extracts package, text and mark glyphs from a real board', () => {
-    const tl = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), cfg())
+    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
     const kinds = new Set(tl.cast.map((g) => g.kind))
     expect(kinds.has('package')).toBe(true)
     expect(kinds.has('text')).toBe(true)
@@ -53,7 +61,7 @@ describe('composeFilm cast', () => {
   })
 
   it('keeps package glyphs unit-normalized and centered', () => {
-    const tl = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), cfg())
+    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
     for (const g of tl.cast.filter((g) => g.kind === 'package')) {
       let maxAbs = 0
       let minX = Infinity
@@ -71,15 +79,14 @@ describe('composeFilm cast', () => {
   })
 
   it('warns when a board exposes too few package outlines', () => {
-    const tl = compileTimeline(makeSyntheticBoard(40), cfg())
+    const tl = compile(makeSyntheticBoard(40))
     expect(tl.warnings.some((w) => w.code === 'thin-cast')).toBe(true)
   })
 
   it('cast hints promote the listed refs and texts into the cast', () => {
-    const tl = compileTimeline(
-      boardModel('icebreaker.kicad_pcb'),
-      cfg({ cast: { preferRefs: ['P1', 'J31'], preferTexts: ['iCEBreaker', 'FPGA'] } })
-    )
+    const tl = compile(boardModel('icebreaker.kicad_pcb'), {
+      cast: { preferRefs: ['P1', 'J31'], preferTexts: ['iCEBreaker', 'FPGA'] }
+    })
     const ids = tl.cast.map((g) => g.id)
     expect(ids).toContain('pkg:P1')
     expect(ids).toContain('pkg:J31')
@@ -88,10 +95,9 @@ describe('composeFilm cast', () => {
   })
 
   it('cast hints that miss produce a warning, not an error', () => {
-    const tl = compileTimeline(
-      boardModel('ecc83-pp.kicad_pcb'),
-      cfg({ cast: { preferRefs: ['NOPE99'], preferTexts: ['NOT_A_LABEL'] } })
-    )
+    const tl = compile(boardModel('ecc83-pp.kicad_pcb'), {
+      cast: { preferRefs: ['NOPE99'], preferTexts: ['NOT_A_LABEL'] }
+    })
     const misses = tl.warnings.filter((w) => w.code === 'cast-hint-miss')
     expect(misses.length).toBe(2)
     expect(tl.cast.length).toBeGreaterThan(0)
@@ -110,7 +116,7 @@ describe('composeFilm cast', () => {
   })
 
   it('embeds silkscreen labels inside package glyphs', () => {
-    const tl = compileTimeline(boardModel('icebreaker.kicad_pcb'), cfg())
+    const tl = compile(boardModel('icebreaker.kicad_pcb'))
     const labelled = tl.cast.filter((g) => g.kind === 'package' && (g.labels?.length ?? 0) > 0)
     expect(labelled.length).toBeGreaterThan(0)
     for (const g of labelled) {
@@ -126,7 +132,7 @@ describe('composeFilm cast', () => {
 
 describe('composeFilm formations', () => {
   it('emits the ordered formation arc with non-overlapping holds inside [0,1)', () => {
-    const tl = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), cfg())
+    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
     expect(tl.formations.map((f) => f.id)).toEqual([
       'marks',
       'spine',
@@ -152,7 +158,7 @@ describe('composeFilm formations', () => {
   })
 
   it('gives every track sorted knots inside [0,1)', () => {
-    const tl = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), cfg())
+    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
     expect(tl.tracks.length).toBeGreaterThan(0)
     for (const track of tl.tracks) {
       expect(track.knots.length).toBeGreaterThanOrEqual(2)
@@ -172,7 +178,7 @@ describe('composeFilm formations', () => {
 
 describe('sampleTrack', () => {
   it('is mirror-balanced at every sampled phase, including mid-transition', () => {
-    const tl = compileTimeline(boardModel('video.kicad_pcb'), cfg())
+    const tl = compile(boardModel('video.kicad_pcb'))
     for (let i = 0; i < 200; i++) {
       const p = i / 200
       const atoms = atomsAt(tl, p).filter((a) => a.alpha > 0.01)
@@ -182,7 +188,7 @@ describe('sampleTrack', () => {
   })
 
   it('produces identical atom states at phase 0 and phase 1 (seamless loop)', () => {
-    const tl = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), cfg())
+    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
     for (const track of tl.tracks) {
       expect(sampleTrack(track, 1)).toEqual(sampleTrack(track, 0))
     }
@@ -193,7 +199,7 @@ describe('sampleTrack', () => {
   })
 
   it('keeps atoms finite with sane alpha and scale everywhere', () => {
-    const tl = compileTimeline(syntheticBoardWithFootprints(10), cfg())
+    const tl = compile(syntheticBoardWithFootprints(10))
     for (let i = 0; i < 64; i++) {
       for (const a of atomsAt(tl, i / 64)) {
         expect(Number.isFinite(a.x)).toBe(true)
@@ -207,7 +213,7 @@ describe('sampleTrack', () => {
   })
 
   it('dims mid-transition so holds read as separate density waves', () => {
-    const tl = compileTimeline(boardModel('ecc83-pp.kicad_pcb'), cfg())
+    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
     // midpoint of a transition bracket: alpha should dip below both endpoint levels
     const track = tl.tracks.find((t) => t.knots.some((k) => k.transit !== undefined))
     expect(track).toBeDefined()

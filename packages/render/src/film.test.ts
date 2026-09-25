@@ -1,7 +1,7 @@
 import './test-recorder.js'
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from '@silk-reel/choreo'
-import type { FilmConfig, Timeline } from '@silk-reel/choreo'
+import type { FilmConfig, GlyphTimeline } from '@silk-reel/choreo'
 import type { BoardModel } from '@silk-reel/ingest'
 import { buildScene, drawTimelineFrame } from './film.js'
 import { asCtx, currentRecorder, RecordingCtx } from './test-recorder.js'
@@ -9,6 +9,7 @@ import { boardModel } from '../../choreo/test/helpers.js'
 
 function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   return {
+    style: 'glyph',
     knobs: {},
     seed: 42,
     duration: 'auto',
@@ -17,8 +18,10 @@ function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   }
 }
 
-function compiled(board: BoardModel, overrides: Partial<FilmConfig> = {}): Timeline {
-  return compileTimeline(board, cfg(overrides))
+function compiled(board: BoardModel, overrides: Partial<FilmConfig> = {}): GlyphTimeline {
+  const tl = compileTimeline(board, cfg(overrides))
+  if (tl.style !== 'glyph') throw new Error('expected a glyph timeline')
+  return tl
 }
 
 function callsOf(method: string) {
