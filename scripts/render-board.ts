@@ -5,7 +5,7 @@ import type { FilmConfig } from '../packages/choreo/src/index.js'
 import { renderFilm } from '../packages/render-api/src/render-film.js'
 import { loadDemoBoard, defaultFilmConfig } from '../packages/render-api/src/boards.js'
 
-const root = '/Users/hridyaagrawal/Honey/silk-reel'
+const root = path.resolve(import.meta.dirname, '..')
 const [boardName, outName] = [process.argv[2] ?? 'video', process.argv[3]]
 const demoId = path.basename(boardName, '.kicad_pcb')
 const out = path.join(root, 'exports', outName ?? `${demoId}-loop.mp4`)

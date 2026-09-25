@@ -13,6 +13,7 @@
     "render:canonical": "npm run render:canonical --workspace=@silk-reel/render-api",
     "metrics:gate": "tsx packages/metrics/src/cli.ts fixtures/canonical.mp4",
     "frame-sheet": "node scripts/frame-sheet.mjs",
+    "review": "tsx scripts/review.ts",
     "test:production": "node scripts/production-smoke.mjs"
   },
   "dependencies": {
