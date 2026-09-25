@@ -72,6 +72,20 @@ describe('drawTraceFrame', () => {
     expect(fillStyles).toContain(timeline.palette.copperDim)
   })
 
+  it('promotes back copper to the hero color when a board has no front layer', () => {
+    const timeline = traceTimeline('ecc83-pp.kicad_pcb')
+    expect(timeline.scene.layers.every((l) => l.side === 'B')).toBe(true)
+    const rec = currentRecorder()
+    drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.5))
+    const strokeStyles = rec.calls.filter((c) => c.method === 'set:strokeStyle').map((c) => c.args[0])
+    expect(strokeStyles).toContain(timeline.palette.copper)
+    // and the growth still draws dimmed inner/B layers as copperDim on mixed boards
+    const mixed = traceTimeline('glasgow.kicad_pcb')
+    drawTraceFrame(asCtx(currentRecorder()), mixed, Math.floor(mixed.totalFrames * 0.5))
+    const mixedStyles = currentRecorder().calls.filter((c) => c.method === 'set:strokeStyle').map((c) => c.args[0])
+    expect(mixedStyles).toContain(mixed.palette.copperDim)
+  })
+
   it('clears instead of filling on a transparent timeline', () => {
     const timeline = traceTimeline('glasgow.kicad_pcb', { transparent: true })
     const rec = new RecordingCtx()

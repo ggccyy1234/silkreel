@@ -142,9 +142,12 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
 
   // 3 copper layers back -> front; complete segs batched per rounded width,
   // growing segs stroked to their lerp point with a head queued behind them
+  // layers run inner -> B -> F, so the last is the topmost — on boards with no
+  // F copper the top present side is promoted to the hero color, not dimmed
+  const topSide = s.layers.some((l) => l.side === 'F') ? 'F' : (s.layers[s.layers.length - 1]?.side ?? 'F')
   const heads: Array<{ x: number; y: number; w: number }> = []
   for (const layer of s.layers) {
-    const front = layer.side === 'F'
+    const front = layer.side === topSide
     ctx.strokeStyle = front ? pal.copper : pal.copperDim
     const segs = layer.segs
     const n = liveSegs(segs, p)
@@ -295,7 +298,7 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     ctx.globalAlpha = fade * 0.5
     ctx.strokeStyle = gradient
     for (const layer of s.layers) {
-      if (layer.side !== 'F') continue
+      if (layer.side !== topSide) continue
       const segs = layer.segs
       const n = liveSegs(segs, p)
       const batches = new Map<number, Path2D>()
