@@ -1,13 +1,21 @@
 import { ChoreoConfigError } from './errors'
 import { clamp } from './curves'
-import type { CastHints, FilmConfig, Knobs } from './types'
+import { ASPECT_SIZE } from './layout'
+import { PALETTES, resolvePalette } from './palette'
+import type { Aspect, CastHints, FilmConfig, Knobs, Palette, PaletteId, StyleId, TitleCard } from './types'
 
 export interface ResolvedKnobs {
   density: number
   texts: number
+  tempo: number
 }
 
 export interface ResolvedConfig {
+  style: StyleId
+  aspect: Aspect | undefined
+  palette: Palette
+  title: TitleCard | undefined
+  transparent: boolean
   knobs: ResolvedKnobs
   seed: number | null
   durationSeconds: number | 'auto'
@@ -46,6 +54,49 @@ export function resolveConfig(config: FilmConfig): ResolvedConfig {
   if (typeof config !== 'object') {
     throw new ChoreoConfigError('config', config, 'expected a FilmConfig object')
   }
+  const styleRaw: unknown = config.style
+  if (styleRaw !== undefined && styleRaw !== 'trace' && styleRaw !== 'glyph') {
+    throw new ChoreoConfigError('style', styleRaw, "expected 'trace' or 'glyph'")
+  }
+  const style: StyleId = styleRaw ?? 'trace'
+
+  const aspectRaw: unknown = config.aspect
+  if (aspectRaw !== undefined && !Object.hasOwn(ASPECT_SIZE, aspectRaw as string)) {
+    throw new ChoreoConfigError('aspect', aspectRaw, "expected '4:5', '1:1', '9:16' or '16:9'")
+  }
+  const aspect = aspectRaw as Aspect | undefined
+
+  const paletteIdRaw: unknown = config.palette
+  if (paletteIdRaw !== undefined && !Object.hasOwn(PALETTES, paletteIdRaw as string)) {
+    throw new ChoreoConfigError('palette', paletteIdRaw, "expected 'mono', 'copper', 'blueprint' or 'phosphor'")
+  }
+
+  if (config.accent !== undefined && !/^#[0-9a-fA-F]{6}$/.test(config.accent)) {
+    throw new ChoreoConfigError('accent', config.accent, 'expected a #rrggbb hex color')
+  }
+
+  const titleRaw: unknown = config.title
+  let title: TitleCard | undefined
+  if (titleRaw !== undefined) {
+    if (typeof titleRaw !== 'object' || titleRaw === null) {
+      throw new ChoreoConfigError('title', titleRaw, 'expected a { name, version? } object')
+    }
+    const name = (titleRaw as TitleCard).name
+    const version = (titleRaw as TitleCard).version
+    if (typeof name !== 'string' || name.length < 1 || name.length > 40) {
+      throw new ChoreoConfigError('title.name', name, 'expected 1-40 characters')
+    }
+    if (version !== undefined && (typeof version !== 'string' || version.length > 24)) {
+      throw new ChoreoConfigError('title.version', version, 'expected 0-24 characters')
+    }
+    title = config.title
+  }
+
+  if (config.transparent !== undefined && typeof config.transparent !== 'boolean') {
+    throw new ChoreoConfigError('transparent', config.transparent, 'expected a boolean')
+  }
+  const transparent = config.transparent ?? false
+
   if (config.seed !== null && (typeof config.seed !== 'number' || !Number.isFinite(config.seed))) {
     throw new ChoreoConfigError('seed', config.seed, 'expected a finite number or null')
   }
@@ -55,9 +106,10 @@ export function resolveConfig(config: FilmConfig): ResolvedConfig {
 
   const density = bounded('density', knobs.density, 0.5, 1.5, 1)
   const texts = bounded('texts', knobs.texts, 0, 1, 1)
+  const tempo = bounded('tempo', knobs.tempo, 0.75, 1.5, 1)
 
   const knobWarnings: Array<{ code: string; message: string }> = []
-  for (const [field, result] of Object.entries({ density, texts })) {
+  for (const [field, result] of Object.entries({ density, texts, tempo })) {
     if (result.requested !== undefined && result.value !== result.requested) {
       knobWarnings.push({
         code: 'knob-clamped',
@@ -87,6 +139,18 @@ export function resolveConfig(config: FilmConfig): ResolvedConfig {
     throw new ChoreoConfigError('output.fps', output.fps, 'expected fps in (0, 240]')
   }
 
+  let width = output.width
+  let height = output.height
+  const aspectSize = aspect === undefined ? undefined : ASPECT_SIZE[aspect]
+  if (aspectSize !== undefined && (aspectSize.width !== width || aspectSize.height !== height)) {
+    knobWarnings.push({
+      code: 'aspect-overrides-output',
+      message: `aspect ${aspect} sets ${aspectSize.width}x${aspectSize.height}; overriding output ${width}x${height}`
+    })
+    width = aspectSize.width
+    height = aspectSize.height
+  }
+
   const cast: unknown = config.cast
   if (cast !== undefined) {
     if (typeof cast !== 'object' || cast === null || Array.isArray(cast)) {
@@ -103,27 +167,32 @@ export function resolveConfig(config: FilmConfig): ResolvedConfig {
   }
 
   return {
-    knobs: { density: density.value, texts: texts.value },
+    style,
+    aspect,
+    palette: resolvePalette(style, paletteIdRaw as PaletteId | undefined, config.accent),
+    title,
+    transparent,
+    knobs: { density: density.value, texts: texts.value, tempo: tempo.value },
     seed: config.seed,
     durationSeconds: durationRaw,
-    width: output.width,
-    height: output.height,
+    width,
+    height,
     fps: output.fps,
     cast: cast,
     knobWarnings
   }
 }
 
-/** the loop's content doesn't scale with board size — a fixed ~11s cycle */
-export function autoDurationSeconds(): number {
-  return 167 / 15
+/** the loop's content doesn't scale with board size — a fixed ~11s glyph cycle, 12s for trace */
+export function autoDurationSeconds(style: StyleId): number {
+  return style === 'glyph' ? 167 / 15 : 12
 }
 
-export function planDuration(resolved: Pick<ResolvedConfig, 'durationSeconds' | 'fps'>): DurationPlan {
+export function planDuration(resolved: Pick<ResolvedConfig, 'durationSeconds' | 'fps' | 'style' | 'knobs'>): DurationPlan {
   const warnings: DurationPlan['warnings'] = []
   let seconds: number
   if (resolved.durationSeconds === 'auto') {
-    seconds = autoDurationSeconds()
+    seconds = clamp(autoDurationSeconds(resolved.style) / resolved.knobs.tempo, MIN_FILM_SECONDS, MAX_FILM_SECONDS)
   } else {
     seconds = resolved.durationSeconds
     if (seconds < MIN_FILM_SECONDS) {

@@ -8,7 +8,7 @@ const repoRoot = path.resolve(import.meta.dirname, '../../../..')
 const outPath = path.join(repoRoot, 'fixtures', 'canonical.mp4')
 
 const board = await loadDemoBoard('icebreaker')
-const config: FilmConfig = { ...defaultFilmConfig('icebreaker'), knobs: { density: 1, texts: 1 } }
+const config: FilmConfig = { ...defaultFilmConfig('icebreaker'), style: 'glyph', knobs: { density: 1, texts: 1 } }
 const { timeline, inputProps } = compileFilm(board, config)
 
 console.log(

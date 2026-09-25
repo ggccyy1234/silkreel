@@ -3,6 +3,7 @@ import { compileTimeline } from '../packages/choreo/src/index'
 import { sampleTrack } from '../packages/choreo/src/composer'
 
 const tl = compileTimeline(boardModel('icebreaker.kicad_pcb'), {
+  style: 'glyph',
   knobs: {},
   seed: 42,
   duration: 'auto',

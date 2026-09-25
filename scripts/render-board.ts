@@ -10,7 +10,7 @@ const [boardName, outName] = [process.argv[2] ?? 'video', process.argv[3]]
 const demoId = path.basename(boardName, '.kicad_pcb')
 const out = path.join(root, 'exports', outName ?? `${demoId}-loop.mp4`)
 const board = await loadDemoBoard(demoId)
-const config: FilmConfig = { ...defaultFilmConfig(demoId), knobs: { density: 1, texts: 1 } }
+const config: FilmConfig = { ...defaultFilmConfig(demoId), style: 'glyph', knobs: { density: 1, texts: 1 } }
 const t0 = Date.now()
 const timeline = compileTimeline(board, config)
 console.log(`${demoId}: ${timeline.totalFrames}f ${timeline.durationSeconds.toFixed(1)}s cast=${timeline.cast.length} tracks=${timeline.tracks.length} compile=${Date.now()-t0}ms`)
