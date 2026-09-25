@@ -58,6 +58,20 @@ describe('drawTraceFrame', () => {
     for (const a of alphas) expect(a).toBeLessThan(0.3)
   })
 
+  it('fades the drill constellation in during the outline beat', () => {
+    const timeline = traceTimeline('glasgow.kicad_pcb')
+    const rec = currentRecorder()
+    // p=0.03: outline drawing, pads/zones/copper not started — only drills fill
+    drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.03))
+    const fills = callsOf('fill').length
+    const arcs = callsOf('arc').length
+    expect(fills).toBe(timeline.scene.drills.length)
+    expect(fills).toBeGreaterThan(100)
+    expect(arcs).toBe(fills)
+    const fillStyles = rec.calls.filter((c) => c.method === 'set:fillStyle').map((c) => c.args[0])
+    expect(fillStyles).toContain(timeline.palette.copperDim)
+  })
+
   it('clears instead of filling on a transparent timeline', () => {
     const timeline = traceTimeline('glasgow.kicad_pcb', { transparent: true })
     const rec = new RecordingCtx()

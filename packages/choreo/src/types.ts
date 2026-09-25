@@ -187,6 +187,8 @@ export interface TraceScene {
   layers: TraceLayer[]          // draw order: back → front
   pads: TracePad[]
   vias: TraceVia[]
+  /** drilled holes (pads, vias, mounts) — the constellation that fades in with the outline */
+  drills: Array<{ x: number; y: number; r: number }>
   zones: TraceZone[]
   silkStrokes: Array<{ path: FlatPath; t: number }>
   texts: TraceText[]

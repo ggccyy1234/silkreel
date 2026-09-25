@@ -255,6 +255,11 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
     t: s0 + 0.04 + (textRaw.length > 1 ? (i / (textRaw.length - 1)) * (s1 - s0 - 0.08) : 0)
   }))
 
+  const drills = board.drill.map((d) => {
+    const m = fit.map(d.pos)
+    return { x: m.x, y: m.y, r: Math.max(0.8, (d.dia / 2) * fit.scale) }
+  })
+
   const warnings: TimelineWarning[] = []
   if (segs.length === 0) warnings.push({ code: 'trace-no-copper', message: 'board has no copper segments to grow' })
   if (hero === undefined) warnings.push({ code: 'trace-no-hero', message: 'no hero footprint; growth ordered from board center' })
@@ -265,6 +270,7 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
       layers,
       pads,
       vias,
+      drills,
       zones,
       silkStrokes,
       texts,

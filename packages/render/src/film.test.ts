@@ -117,7 +117,7 @@ describe('drawFrame', () => {
     if (compiled.style !== 'trace') throw new Error('expected a trace timeline')
     const timeline: TraceTimeline = {
       ...compiled,
-      scene: { ...compiled.scene, outline: [], layers: [], pads: [], vias: [], zones: [], silkStrokes: [], texts: [] }
+      scene: { ...compiled.scene, outline: [], layers: [], pads: [], vias: [], drills: [], zones: [], silkStrokes: [], texts: [] }
     }
     const scene = buildScene(timeline)
     const rec = currentRecorder()

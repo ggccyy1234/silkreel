@@ -109,6 +109,20 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     }
   }
 
+  // 1b drill hits — a faint hole constellation fading in with the outline,
+  // persisting as texture under the copper
+  const drillAlpha = 0.3 * outlineFrac
+  if (drillAlpha > 0.001) {
+    ctx.fillStyle = pal.copperDim
+    ctx.globalAlpha = fade * drillAlpha
+    for (const d of s.drills) {
+      ctx.beginPath()
+      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2)
+      ctx.fill()
+      drawn += 1
+    }
+  }
+
   // 2 zones — radial wipe clip from the growth origin, low alpha
   for (const zone of s.zones) {
     const frac = within(p, [zone.t0, zone.t1])
