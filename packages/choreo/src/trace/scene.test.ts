@@ -35,45 +35,46 @@ for (const name of BOARDS) {
       it('packs segs at stride 7, t0 ascending, all t within [0, 0.8]', () => {
         let total = 0
         let inBeat = 0
+        // count violations, assert once — per-seg expect() is too slow on big boards
+        let badStride = 0
+        let badTime = 0
         for (const layer of scene.layers) {
-          expect(layer.segs.length % 7).toBe(0)
+          if (layer.segs.length % 7 !== 0) badStride += 1
           let prev = -1
           for (let i = 0; i < layer.segs.length; i += 7) {
             const t0 = layer.segs[i + 5] as number
             const t1 = layer.segs[i + 6] as number
-            expect(t0).toBeGreaterThanOrEqual(prev)
-            expect(t0).toBeGreaterThanOrEqual(0)
-            expect(t0).toBeLessThanOrEqual(t1)
-            expect(t1).toBeLessThanOrEqual(0.8)
+            if (t0 < prev || t0 < 0 || t0 > t1 || t1 > 0.8) badTime += 1
             prev = t0
             total += 1
             if (t0 >= scene.beats.growth[0]) inBeat += 1
           }
         }
+        expect(badStride).toBe(0)
+        expect(badTime).toBe(0)
         expect(inBeat / total).toBeGreaterThanOrEqual(0.9)
       })
 
       it('keeps every seg endpoint and pad inside the frame', () => {
         const pad = 2
+        let out = 0
         for (const layer of scene.layers) {
           for (let i = 0; i < layer.segs.length; i += 7) {
             for (const x of [layer.segs[i] as number, layer.segs[i + 2] as number]) {
-              expect(x).toBeGreaterThanOrEqual(-pad)
-              expect(x).toBeLessThanOrEqual(r.width + pad)
+              if (x < -pad || x > r.width + pad) out += 1
             }
             for (const y of [layer.segs[i + 1] as number, layer.segs[i + 3] as number]) {
-              expect(y).toBeGreaterThanOrEqual(-pad)
-              expect(y).toBeLessThanOrEqual(r.height + pad)
+              if (y < -pad || y > r.height + pad) out += 1
             }
           }
         }
+        expect(out).toBe(0)
         expect(scene.pads.length).toBeGreaterThan(0)
+        let padsOut = 0
         for (const p of scene.pads) {
-          expect(p.x).toBeGreaterThanOrEqual(-pad)
-          expect(p.x).toBeLessThanOrEqual(r.width + pad)
-          expect(p.y).toBeGreaterThanOrEqual(-pad)
-          expect(p.y).toBeLessThanOrEqual(r.height + pad)
+          if (p.x < -pad || p.x > r.width + pad || p.y < -pad || p.y > r.height + pad) padsOut += 1
         }
+        expect(padsOut).toBe(0)
       })
     })
   }
