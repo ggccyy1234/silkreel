@@ -30,23 +30,25 @@ export function makeSyntheticBoard(elementCount: number): BoardModel {
 export function syntheticBoardFrom(elements: SyntheticElement[]): BoardModel {
   const frontTraces = elements
     .filter((e) => e.kind === 'trace')
-    .map((e) => ({
+    .map((e, i) => ({
       id: e.id,
       points: [
         { x: e.pos.x - e.size / 2, y: e.pos.y },
         { x: e.pos.x + e.size / 2, y: e.pos.y }
       ],
-      width: 0.25
+      width: 0.25,
+      netId: 1 + (i % 4)
     }))
   const backTraces = elements
     .filter((e) => e.kind === 'trace-b')
-    .map((e) => ({
+    .map((e, i) => ({
       id: e.id,
       points: [
         { x: e.pos.x - e.size / 2, y: e.pos.y },
         { x: e.pos.x + e.size / 2, y: e.pos.y }
       ],
-      width: 0.25
+      width: 0.25,
+      netId: 1 + (i % 4)
     }))
   const texts = elements
     .filter((e) => e.kind === 'text')
@@ -105,4 +107,43 @@ export function syntheticBoardFrom(elements: SyntheticElement[]): BoardModel {
     },
     warnings: []
   }
+}
+
+/** board with N footprints, each owning a closed chamfered-rect silk outline */
+export function syntheticBoardWithFootprints(count: number): BoardModel {
+  const board = syntheticBoardFrom([])
+  const lines: import('@silk-reel/ingest').Trace[] = []
+  const footprints: import('@silk-reel/ingest').Footprint[] = []
+  for (let i = 0; i < count; i++) {
+    const ox = i * 8
+    const w = 5 + (i % 3)
+    const h = 3 + (i % 2)
+    const chamfer = 0.8
+    const silkRefs: string[] = []
+    const segs: [Vec2, Vec2][] = [
+      [{ x: ox + chamfer, y: 0 }, { x: ox + w, y: 0 }],
+      [{ x: ox + w, y: 0 }, { x: ox + w, y: h }],
+      [{ x: ox + w, y: h }, { x: ox, y: h }],
+      [{ x: ox, y: h }, { x: ox, y: chamfer }],
+      [{ x: ox, y: chamfer }, { x: ox + chamfer, y: 0 }]
+    ]
+    for (const [j, [a, b]] of segs.entries()) {
+      const id = `sl:fp${i}:${j}`
+      lines.push({ id, points: [a, b], width: 0.12 })
+      silkRefs.push(id)
+    }
+    footprints.push({
+      ref: `U${i + 1}`,
+      value: `VAL${i + 1}`,
+      pos: { x: ox + w / 2, y: h / 2 },
+      rot: 0,
+      layer: 'F.Cu',
+      padRefs: [],
+      silkRefs
+    })
+  }
+  const silk = board.silkscreen['F.SilkS']
+  if (silk) silk.lines.push(...lines)
+  board.footprints.push(...footprints)
+  return board
 }

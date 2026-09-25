@@ -1,16 +1,15 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runGate } from './gate.js'
 
 const WIDTH = 320
 const HEIGHT = 240
 const FPS = 15
-const FRAME_COUNT = 13
+const FRAME_COUNT = 30
 const FFMPEG = '/opt/homebrew/bin/ffmpeg'
-const REFERENCE = resolve(import.meta.dirname, '../../../fixtures/reference/pcbanimation.mp4')
 
 let workDir: string | undefined
 
@@ -27,30 +26,26 @@ function frame(value = 0): Uint8Array {
 }
 
 function drawBox(target: Uint8Array, x0: number, y0: number, size: number): void {
-  for (let y = y0; y < y0 + size; y++) {
-    for (let x = x0; x < x0 + size; x++) target[y * WIDTH + x] = 255
+  for (let y = y0; y < y0 + size && y < HEIGHT; y++) {
+    for (let x = x0; x < x0 + size && x < WIDTH; x++) target[y * WIDTH + x] = 255
   }
 }
 
-function fourPadFrame(): Uint8Array {
+/** a mirrored pair of white boxes — the abstract film's smallest symmetric unit */
+function pairFrame(size: number, pairs = 1): Uint8Array {
   const result = frame()
-  const size = 32
-  const x0 = 80
-  const y0 = 50
-  drawBox(result, x0, y0, size)
-  drawBox(result, WIDTH - x0 - size, y0, size)
-  drawBox(result, x0, HEIGHT - y0 - size, size)
-  drawBox(result, WIDTH - x0 - size, HEIGHT - y0 - size, size)
+  for (let i = 0; i < pairs; i++) {
+    const x = Math.round(WIDTH * 0.2 + i * WIDTH * 0.12)
+    const y = Math.round(HEIGHT * 0.35 + i * HEIGHT * 0.12)
+    drawBox(result, x, y, size)
+    drawBox(result, WIDTH - x - size, y, size)
+  }
   return result
 }
 
-function randomFrame(): Uint8Array {
+function lopsidedFrame(size: number): Uint8Array {
   const result = frame()
-  for (let y = 0; y < HEIGHT; y++) {
-    for (let x = 0; x < WIDTH; x++) {
-      if ((x * 13 + y * 17 + x * y) % 97 < 5) result[y * WIDTH + x] = 255
-    }
-  }
+  drawBox(result, Math.round(WIDTH * 0.2), Math.round(HEIGHT * 0.4), size)
   return result
 }
 
@@ -91,54 +86,88 @@ function expectations(totalFrames: number): Parameters<typeof runGate>[1] {
   return { width: WIDTH, height: HEIGHT, fps: FPS, totalFrames }
 }
 
-function codaRule(report: Awaited<ReturnType<typeof runGate>>) {
-  const rule = report.rules.find((candidate) => candidate.rule === 'sparse-four-pad-tail-black-cut')
-  if (rule === undefined) throw new Error('coda rule missing from gate report')
-  return rule
+function rule(report: Awaited<ReturnType<typeof runGate>>, name: string) {
+  const found = report.rules.find((candidate) => candidate.rule === name)
+  if (found === undefined) throw new Error(`rule ${name} missing from gate report`)
+  return found
 }
 
-function densityRule(report: Awaited<ReturnType<typeof runGate>>) {
-  const rule = report.rules.find((candidate) => candidate.rule === 'density-envelope')
-  if (rule === undefined) throw new Error('density rule missing from gate report')
-  return rule
+/** sparse symmetric clip: black -> wave -> trough -> bigger wave -> black (loops) */
+function loopFrames(): Uint8Array[] {
+  const frames: Uint8Array[] = [frame(), frame(), frame()]
+  // wave 1 builds to ~1.3% lit (two 22px boxes = 968/76800)
+  for (const s of [8, 14, 22, 22, 18, 10]) frames.push(pairFrame(s))
+  // trough — one small pair, ~0.26%
+  for (let i = 0; i < 4; i++) frames.push(pairFrame(10))
+  // wave 2 — two pairs of 22px = 1936/76800 ≈ 2.5%
+  for (let i = 0; i < 6; i++) frames.push(pairFrame(22, 2))
+  // dissolve back to black
+  frames.push(pairFrame(14))
+  frames.push(pairFrame(8))
+  while (frames.length < FRAME_COUNT) frames.push(frame())
+  return frames
 }
 
-describe('gate coda oracle', () => {
-  it('accepts the tracked reference and its intended four-pad tail', async () => {
-    const reference = await runGate(REFERENCE, { width: 1080, height: 1350, fps: 15, totalFrames: 167 })
-    expect(reference.passed).toBe(true)
-    expect(codaRule(reference).passed).toBe(true)
-    expect(densityRule(reference).passed).toBe(true)
-
-    const coda = fourPadFrame()
-    const synthetic = await renderSynthetic('four-pad-coda', [frame(255), ...Array.from({ length: FRAME_COUNT - 2 }, () => coda), frame()])
-    const report = await runGate(synthetic, expectations(FRAME_COUNT))
-    expect(codaRule(report).passed).toBe(true)
-    expect(densityRule(report).passed).toBe(false)
+describe('glyph-film gate', () => {
+  it('passes a reference-shaped clip: dark, sparse, symmetric, breathing, closed loop', async () => {
+    const mp4 = await renderSynthetic('glyph-good', loopFrames())
+    const report = await runGate(mp4, expectations(FRAME_COUNT))
+    for (const name of ['spec-exact', 'dark-ground', 'coverage', 'symmetry-always', 'breathing', 'loop-closure', 'motion-present']) {
+      expect(rule(report, name).passed, `${name}: ${rule(report, name).detail}`).toBe(true)
+    }
+    expect(report.passed).toBe(true)
   }, 120000)
 
-  it('rejects black cuts without a stable coda, including empty and random tails', async () => {
-    const emptyTail = await renderSynthetic('empty-tail', [frame(255), ...Array.from({ length: FRAME_COUNT - 1 }, () => frame())])
-    const random = randomFrame()
-    const randomTail = await renderSynthetic('random-tail', [frame(255), ...Array.from({ length: FRAME_COUNT - 2 }, () => random), frame()])
-    const [emptyReport, randomReport] = await Promise.all([
-      runGate(emptyTail, expectations(FRAME_COUNT)),
-      runGate(randomTail, expectations(FRAME_COUNT))
-    ])
-
-    expect(codaRule(emptyReport).passed).toBe(false)
-    expect(codaRule(randomReport).passed).toBe(false)
+  it('fails a permanently black video on coverage and breathing', async () => {
+    const mp4 = await renderSynthetic('glyph-black', Array.from({ length: FRAME_COUNT }, () => frame()))
+    const report = await runGate(mp4, expectations(FRAME_COUNT))
+    expect(rule(report, 'coverage').passed).toBe(false)
+    expect(rule(report, 'breathing').passed).toBe(false)
+    expect(report.passed).toBe(false)
   }, 120000)
 
-  it('rejects a short coda and a non-black final frame', async () => {
-    const coda = fourPadFrame()
-    const singleFrame = await renderSynthetic('single-frame-tail', [frame(255), coda, ...Array.from({ length: FRAME_COUNT - 3 }, () => frame())])
-    const nonBlackFinal = await renderSynthetic('non-black-final', [frame(255), ...Array.from({ length: FRAME_COUNT - 1 }, () => coda)])
-    const [singleReport, nonBlackReport] = await Promise.all([
-      runGate(singleFrame, expectations(FRAME_COUNT)),
-      runGate(nonBlackFinal, expectations(FRAME_COUNT))
-    ])
-    expect(codaRule(singleReport).passed).toBe(false)
-    expect(codaRule(nonBlackReport).passed).toBe(false)
+  it('fails asymmetric content on symmetry-always', async () => {
+    const frames: Uint8Array[] = [frame(), frame()]
+    for (let i = 0; i < FRAME_COUNT - 2; i++) frames.push(lopsidedFrame(20))
+    const mp4 = await renderSynthetic('glyph-asym', frames)
+    const report = await runGate(mp4, expectations(FRAME_COUNT))
+    expect(rule(report, 'symmetry-always').passed).toBe(false)
+    expect(report.passed).toBe(false)
+  }, 120000)
+
+  it('fails a dense slab on coverage and dark-ground', async () => {
+    const dense = frame()
+    for (let y = Math.round(HEIGHT * 0.2); y < HEIGHT * 0.8; y++) {
+      for (let x = Math.round(WIDTH * 0.2); x < WIDTH * 0.8; x++) dense[y * WIDTH + x] = 255
+    }
+    const mp4 = await renderSynthetic('glyph-dense', Array.from({ length: FRAME_COUNT }, () => dense))
+    const report = await runGate(mp4, expectations(FRAME_COUNT))
+    expect(rule(report, 'coverage').passed).toBe(false)
+    expect(rule(report, 'dark-ground').passed).toBe(false)
+    expect(report.passed).toBe(false)
+  }, 120000)
+
+  it('fails a clip whose last frame does not match the first (broken loop)', async () => {
+    const frames = loopFrames()
+    frames[FRAME_COUNT - 1] = pairFrame(40, 2)
+    const mp4 = await renderSynthetic('glyph-unclosed', frames)
+    const report = await runGate(mp4, expectations(FRAME_COUNT))
+    expect(rule(report, 'loop-closure').passed).toBe(false)
+    expect(report.passed).toBe(false)
+  }, 120000)
+
+  it('fails a flat unbreathing clip on breathing and motion', async () => {
+    const mp4 = await renderSynthetic('glyph-flat', Array.from({ length: FRAME_COUNT }, () => pairFrame(22)))
+    const report = await runGate(mp4, expectations(FRAME_COUNT))
+    expect(rule(report, 'breathing').passed).toBe(false)
+    expect(rule(report, 'motion-present').passed).toBe(false)
+    expect(report.passed).toBe(false)
+  }, 120000)
+
+  it('fails on wrong dimensions or frame count', async () => {
+    const mp4 = await renderSynthetic('glyph-spec', loopFrames())
+    const report = await runGate(mp4, { width: WIDTH * 2, height: HEIGHT, fps: FPS, totalFrames: FRAME_COUNT })
+    expect(rule(report, 'spec-exact').passed).toBe(false)
+    expect(report.passed).toBe(false)
   }, 120000)
 })

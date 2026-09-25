@@ -1,34 +1,32 @@
 import React from 'react'
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion'
 import type { Timeline } from '@silk-reel/choreo'
-import { drawTimelineFrame, buildGeometryLookup, computeCastView } from './film'
-import type { GeometryLookup } from './film'
+import { drawTimelineFrame, buildScene } from './film'
+import type { Scene } from './film'
 
 export interface FilmProps {
   timeline: Timeline
-  board: import('@silk-reel/ingest').BoardModel
   children?: React.ReactNode
 }
 
-export const FilmCanvas: React.FC<FilmProps> = ({ timeline, board, children }) => {
+export const FilmCanvas: React.FC<FilmProps> = ({ timeline, children }) => {
   const frame = useCurrentFrame()
   const { width, height } = useVideoConfig()
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
 
-  const geometry = React.useMemo<GeometryLookup>(() => buildGeometryLookup(board), [board])
-  const view = React.useMemo(() => computeCastView(timeline, geometry), [geometry, timeline, width, height])
+  const scene = React.useMemo<Scene>(() => buildScene(timeline), [timeline])
 
   React.useLayoutEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    drawTimelineFrame(ctx, { timeline, geometry, view }, frame)
-  }, [frame, timeline, geometry, view])
+    drawTimelineFrame(ctx, { timeline, scene }, frame)
+  }, [frame, timeline, scene])
 
   return React.createElement(
     AbsoluteFill,
-    { style: { backgroundColor: '#050505' } },
+    { style: { backgroundColor: '#000000' } },
     React.createElement('canvas', {
       ref: canvasRef,
       width,

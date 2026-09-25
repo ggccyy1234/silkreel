@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { createReadStream } from 'node:fs'
 import { realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { ActId, FilmConfig, Knobs } from '@silk-reel/choreo'
+import type { FilmConfig, Knobs } from '@silk-reel/choreo'
 import { DEMO_BOARDS, boardFromJson, defaultFilmConfig, isDemoBoardId } from './boards.js'
 import { RenderQueue } from './queue.js'
 import type { RenderQueuePort, RenderSubmission } from './queue.js'
@@ -11,14 +11,10 @@ import { runGate } from './gate.js'
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..')
 const allowedVideoRoots = [path.join(repoRoot, 'exports'), path.join(repoRoot, 'fixtures')]
-const FILM_CONFIG_KEYS = ['actOrder', 'knobs', 'seed', 'duration', 'output'] as const
-const KNOB_KEYS = ['symmetry', 'rhythmDensity', 'beatCount', 'beatIntensity', 'seedPairs', 'dissolveStyle', 'easing', 'glow', 'flicker', 'grain', 'exposure', 'palette'] as const
-const NUMERIC_KNOB_KEYS = ['rhythmDensity', 'beatCount', 'beatIntensity', 'seedPairs', 'glow', 'flicker', 'grain', 'exposure'] as const
+const FILM_CONFIG_KEYS = ['knobs', 'seed', 'duration', 'output', 'cast'] as const
+const CAST_KEYS = ['preferRefs', 'preferTexts'] as const
+const KNOB_KEYS = ['density', 'texts'] as const
 const OUTPUT_KEYS = ['width', 'height', 'fps'] as const
-const SYMMETRY_MODES = ['auto', 'mirror-x', 'mirror-y', 'quad', 'rotational180', 'none'] as const
-const DISSOLVE_STYLES = ['center-out', 'fade', 'wipe', 'scatter'] as const
-const EASINGS = ['expo-out', 'back-out', 'linear', 'sine'] as const
-const PALETTES = ['mono', 'phosphor', 'amber', 'copper'] as const
 const DEFAULT_OUTPUT = defaultFilmConfig().output
 
 function isInsideRoot(target: string, root: string): boolean {
@@ -85,6 +81,16 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return await reply.send(job)
   })
 
+  app.post('/job/:id/cancel', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const job = queue.cancel(id)
+    if (!job) return await reply.code(404).send({ error: `no job ${id}` })
+    if (job.status === 'done' || job.status === 'error') {
+      return await reply.code(409).send({ error: `job ${id} is ${job.status}, not cancellable`, job })
+    }
+    return await reply.send(job)
+  })
+
   app.get('/download/:id', async (request, reply) => {
     const { id } = request.params as { id: string }
     const job = queue.get(id)
@@ -147,33 +153,15 @@ function unknownField(value: Record<string, unknown>, allowed: readonly string[]
   return Object.keys(value).find((key) => !allowed.includes(key))
 }
 
-function includesString<T extends string>(allowed: readonly T[], value: unknown): value is T {
-  return typeof value === 'string' && allowed.some((candidate) => candidate === value)
-}
-
-function isActId(value: unknown): value is ActId {
-  return (
-    value === 'outline' ||
-    value === 'drill' ||
-    (typeof value === 'string' &&
-      ((value.startsWith('copper:') && value.length > 'copper:'.length) ||
-        (value.startsWith('silk:') && value.length > 'silk:'.length)))
-  )
-}
-
 function parseKnobs(value: unknown): { ok: true; knobs: Knobs } | { ok: false; error: string } {
   if (!isRecord(value)) return { ok: false, error: 'filmConfig.knobs must be an object' }
   const unexpected = unknownField(value, KNOB_KEYS)
   if (unexpected !== undefined) return { ok: false, error: `filmConfig.knobs.${unexpected} is not supported` }
-  for (const key of NUMERIC_KNOB_KEYS) {
+  for (const key of KNOB_KEYS) {
     if (Object.hasOwn(value, key) && (typeof value[key] !== 'number' || !Number.isFinite(value[key]))) {
       return { ok: false, error: `filmConfig.knobs.${key} must be a finite number` }
     }
   }
-  if (Object.hasOwn(value, 'symmetry') && !includesString(SYMMETRY_MODES, value.symmetry)) return { ok: false, error: 'filmConfig.knobs.symmetry is invalid' }
-  if (Object.hasOwn(value, 'dissolveStyle') && !includesString(DISSOLVE_STYLES, value.dissolveStyle)) return { ok: false, error: 'filmConfig.knobs.dissolveStyle is invalid' }
-  if (Object.hasOwn(value, 'easing') && !includesString(EASINGS, value.easing)) return { ok: false, error: 'filmConfig.knobs.easing is invalid' }
-  if (Object.hasOwn(value, 'palette') && !includesString(PALETTES, value.palette)) return { ok: false, error: 'filmConfig.knobs.palette is invalid' }
   return { ok: true, knobs: value }
 }
 
@@ -184,12 +172,6 @@ function parseFilmConfig(value: unknown): FilmConfigResult {
   if (unexpected !== undefined) return { ok: false, error: `filmConfig.${unexpected} is not supported` }
 
   const config: Partial<FilmConfig> = {}
-  if (Object.hasOwn(value, 'actOrder')) {
-    if (!Array.isArray(value.actOrder) || !value.actOrder.every(isActId)) {
-      return { ok: false, error: 'filmConfig.actOrder must contain valid act ids' }
-    }
-    config.actOrder = value.actOrder
-  }
   if (Object.hasOwn(value, 'knobs')) {
     const parsed = parseKnobs(value.knobs)
     if (!parsed.ok) return parsed
@@ -224,6 +206,19 @@ function parseFilmConfig(value: unknown): FilmConfigResult {
       output[key] = number
     }
     config.output = output
+  }
+  if (Object.hasOwn(value, 'cast')) {
+    const cast = value.cast
+    if (!isRecord(cast)) return { ok: false, error: 'filmConfig.cast must be an object' }
+    const unexpectedCast = unknownField(cast, CAST_KEYS)
+    if (unexpectedCast !== undefined) return { ok: false, error: `filmConfig.cast.${unexpectedCast} is not supported` }
+    for (const key of CAST_KEYS) {
+      const list = cast[key]
+      if (list !== undefined && (!Array.isArray(list) || list.some((v) => typeof v !== 'string'))) {
+        return { ok: false, error: `filmConfig.cast.${key} must be a string array` }
+      }
+    }
+    config.cast = cast
   }
   return { ok: true, config }
 }

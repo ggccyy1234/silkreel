@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { defaultActOrder } from '@silk-reel/choreo'
-import type { ActId } from '@silk-reel/choreo'
 import type { BoardModel } from '@silk-reel/ingest'
 
 export interface BoardSummary {
@@ -13,9 +11,10 @@ export interface BoardSummary {
   padCount: number
   traceCount: number
   viaCount: number
+  zoneCount: number
   silkMarkCount: number
   drillCount: number
-  acts: ActId[]
+  netCount: number
 }
 
 const API = ''
@@ -81,19 +80,20 @@ export function summarize(board: BoardModel, fileName: string): BoardSummary {
   let padCount = 0
   let traceCount = 0
   let viaCount = 0
+  let zoneCount = 0
   let silkMarkCount = 0
   let elements = board.outline.length + board.drill.length
   for (const c of Object.values(board.copper)) {
     padCount += c.pads.length
     traceCount += c.traces.length
     viaCount += c.vias.length
+    zoneCount += c.zones.length
     elements += c.traces.length + c.pads.length + c.vias.length + c.zones.length
   }
   for (const s of Object.values(board.silkscreen)) {
     silkMarkCount += s.lines.length + s.texts.length + s.arcs.length
     elements += s.lines.length + s.texts.length + s.arcs.length
   }
-  const acts = defaultActOrder(board)
   return {
     board,
     fileName,
@@ -104,28 +104,11 @@ export function summarize(board: BoardModel, fileName: string): BoardSummary {
     padCount,
     traceCount,
     viaCount,
+    zoneCount,
     silkMarkCount,
     drillCount: board.drill.length,
-    acts
+    netCount: board.nets.length
   }
-}
-
-export function presentationActOrder(acts: ActId[]): ActId[] {
-  const copper = acts.filter((id) => id.startsWith('copper:'))
-  const frontCopper = copper.filter((id) => id === 'copper:F.Cu')
-  const otherCopper = copper.filter((id) => id !== 'copper:F.Cu')
-  const silk = acts.filter((id) => id.startsWith('silk:'))
-  const structural = acts.filter((id) => id === 'drill' || id === 'outline')
-  return [...frontCopper, ...silk, ...structural, ...otherCopper]
-}
-
-export function moveAct(order: ActId[], from: number, to: number): ActId[] {
-  if (from < 0 || from >= order.length || to < 0 || to >= order.length || from === to) return order
-  const next = [...order]
-  const [act] = next.splice(from, 1)
-  if (act === undefined) return order
-  next.splice(to, 0, act)
-  return next
 }
 
 export function useDebouncedCallback<A extends unknown[]>(fn: (...args: A) => void, delayMs: number): (...args: A) => void {
@@ -163,7 +146,7 @@ interface RenderJobResponse {
   metricsError?: string
 }
 
-export type JobPhase = 'pending' | 'rendering' | 'done' | 'error'
+export type JobPhase = 'pending' | 'rendering' | 'done' | 'error' | 'cancelled'
 
 export interface ExportJob {
   jobId: string
@@ -198,6 +181,15 @@ export async function submitExport(payload: Record<string, unknown>, signal?: Ab
   }
   const body = (await res.json()) as JobResponse
   return body.jobId
+}
+
+export async function cancelJob(jobId: string): Promise<ExportJob> {
+  const res = await fetch(`${API}/api/job/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null
+    throw new Error(body?.error ?? `job cancellation failed (${res.status})`)
+  }
+  return toExportJob(jobId, (await res.json()) as RenderJobResponse)
 }
 
 export interface PollJobOptions {
@@ -242,7 +234,7 @@ export async function pollJob(jobId: string, options: PollJobOptions = {}): Prom
     const response = (await res.json()) as RenderJobResponse
     const job = toExportJob(jobId, response)
     options.onUpdate?.(job)
-    if (job.status === 'done' || job.status === 'error') return job
+    if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') return job
   }
   throw new Error('job polling timed out')
 }

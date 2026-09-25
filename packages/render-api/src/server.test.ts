@@ -56,6 +56,16 @@ class StubQueue implements RenderQueuePort {
     return { ...job }
   }
 
+  cancel(id: string): RenderJob | undefined {
+    const job = this.jobs.get(id)
+    if (job === undefined || job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
+      return job ? { ...job } : undefined
+    }
+    const cancelled: RenderJob = { ...job, status: 'cancelled', finishedAt: new Date().toISOString() }
+    this.jobs.set(id, cancelled)
+    return { ...cancelled }
+  }
+
   get(id: string): RenderJob | undefined {
     const job = this.jobs.get(id)
     return job ? { ...job } : undefined
@@ -106,7 +116,9 @@ describe('render-api contract', () => {
         { demoId: 'ecc83-pp', filmConfig: { output: null } },
         { demoId: 'ecc83-pp', filmConfig: { mystery: true } },
         { demoId: 'ecc83-pp', filmConfig: { knobs: { palette: 'rainbow' } } },
-        { demoId: 'ecc83-pp', filmConfig: { output: { width: -1 } } }
+        { demoId: 'ecc83-pp', filmConfig: { output: { width: -1 } } },
+        { demoId: 'ecc83-pp', filmConfig: { cast: { hero: ['U1'] } } },
+        { demoId: 'ecc83-pp', filmConfig: { cast: { preferRefs: 'U1' } } }
       ]) {
         const response = await app.inject({
           method: 'POST',
@@ -149,7 +161,7 @@ describe('render-api contract', () => {
       const submitted = await app.inject({
         method: 'POST',
         url: '/render',
-        payload: { demoId: 'ecc83-pp', filmConfig: { knobs: { glow: 0.5 } } }
+        payload: { demoId: 'ecc83-pp', filmConfig: { knobs: { density: 1.2 } } }
       })
       expect(submitted.statusCode).toBe(202)
       const submittedBody: JobResponse = submitted.json()
@@ -161,6 +173,27 @@ describe('render-api contract', () => {
       expect(polled.json<JobStatusResponse>().status).toBe('pending')
       const missing = await app.inject({ method: 'GET', url: '/job/does-not-exist' })
       expect(missing.statusCode).toBe(404)
+    })
+  })
+
+  it('cancels queued jobs and rejects cancellation after completion', async () => {
+    const queue = new StubQueue()
+    await withApp(queue, async (app) => {
+      const submitted = await app.inject({ method: 'POST', url: '/render', payload: { demoId: 'ecc83-pp' } })
+      const jobId = submitted.json<JobResponse>().jobId
+      const cancelled = await app.inject({ method: 'POST', url: `/job/${jobId}/cancel` })
+      expect(cancelled.statusCode).toBe(200)
+      expect(cancelled.json<JobStatusResponse>().status).toBe('cancelled')
+      const repeated = await app.inject({ method: 'POST', url: `/job/${jobId}/cancel` })
+      expect(repeated.statusCode).toBe(200)
+      expect(repeated.json<JobStatusResponse>().status).toBe('cancelled')
+      const missing = await app.inject({ method: 'POST', url: '/job/does-not-exist/cancel' })
+      expect(missing.statusCode).toBe(404)
+
+      queue.add(completedJob('done-job', path.join(testExports, 'done-job.mp4')))
+      const completed = await app.inject({ method: 'POST', url: '/job/done-job/cancel' })
+      expect(completed.statusCode).toBe(409)
+      expect(completed.json<{ job: RenderJob }>().job.status).toBe('done')
     })
   })
 
@@ -248,7 +281,8 @@ describe('render-api contract', () => {
           durationSeconds: expectations.totalFrames / expectations.fps,
           frameCount: expectations.totalFrames,
           codec: 'h264',
-          pixFmt: 'yuv420p'
+          pixFmt: 'yuv420p',
+          audioStreamCount: 0
         },
         rules: []
       })
@@ -258,7 +292,7 @@ describe('render-api contract', () => {
       const response = await app.inject({
         method: 'POST',
         url: '/gate',
-        payload: { videoPath: 'fixtures/canonical.mp4' }
+        payload: { videoPath: 'fixtures/boards/ecc83-pp.kicad_pcb' }
       })
       expect(response.statusCode).toBe(200)
       expect(response.json<GateReport>().passed).toBe(true)

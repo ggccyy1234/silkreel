@@ -12,7 +12,7 @@
     "lint": "eslint packages",
     "render:canonical": "npm run render:canonical --workspace=@silk-reel/render-api",
     "metrics:gate": "tsx packages/metrics/src/cli.ts fixtures/canonical.mp4",
-    "visual:compare": "node scripts/compare-reference.mjs",
+    "frame-sheet": "node scripts/frame-sheet.mjs",
     "test:production": "node scripts/production-smoke.mjs"
   },
   "dependencies": {

@@ -9,6 +9,7 @@ export interface VideoFacts {
   frameCount: number | undefined
   codec: string | undefined
   pixFmt: string | undefined
+  audioStreamCount: number
 }
 
 export interface DecodedFrame {
@@ -92,7 +93,8 @@ export async function probeVideo(videoPath: string): Promise<VideoFacts> {
     durationSeconds,
     frameCount: nbFrames,
     codec: video.codec_name,
-    pixFmt: video.pix_fmt
+    pixFmt: video.pix_fmt,
+    audioStreamCount: (parsed.streams ?? []).filter((stream) => stream.codec_type === 'audio').length
   }
 }
 

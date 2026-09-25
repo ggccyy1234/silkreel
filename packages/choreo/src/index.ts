@@ -1,5 +1,5 @@
 export type * from './types'
 export * from './errors'
 export { compileTimeline } from './compile'
-export { defaultActOrder } from './config'
-export { ease } from './curves'
+export { sampleTrack } from './composer'
+export { clamp, clamp01 } from './curves'

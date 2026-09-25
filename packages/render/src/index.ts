@@ -1,5 +1,5 @@
-export { drawTimelineFrame, buildGeometryLookup, computeViewBox } from './film.js'
-export type { Geom, GeometryLookup, ViewBox, DrawFrameInput } from './film.js'
+export { drawTimelineFrame, buildScene } from './film.js'
+export type { Scene, GlyphRender, DrawFrameInput } from './film.js'
 export { Film, FilmCanvas } from './FilmComponent.js'
 export type { FilmProps } from './FilmComponent.js'
 export type { FilmInputProps } from './remotion-entry.js'

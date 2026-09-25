@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { rm, writeFile } from 'node:fs/promises'
+import { access, rm, writeFile } from 'node:fs/promises'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { GateReport } from './gate.js'
 import type { RenderFilmOptions, RenderFilmResult } from './render-film.js'
@@ -24,7 +24,8 @@ function gateReport(file: string, passed: boolean): GateReport {
       durationSeconds: 167 / 15,
       frameCount: 167,
       codec: 'h264',
-      pixFmt: 'yuv420p'
+      pixFmt: 'yuv420p',
+      audioStreamCount: 0
     },
     rules: []
   }
@@ -154,5 +155,85 @@ describe('render queue execution', () => {
     await queue.waitForIdle()
 
     expect(observed).toEqual([50, 50, 50, 100])
+  })
+
+  it('cancels queued jobs before they start', async () => {
+    const started: string[] = []
+    let releaseFirst: (() => void) | undefined
+    let resolveFirstStarted: (() => void) | undefined
+    const firstStarted = new Promise<void>((resolve) => {
+      resolveFirstStarted = resolve
+    })
+    const render = async (options: RenderFilmOptions): Promise<RenderFilmResult> => {
+      const id = path.basename(options.outputLocation, '.mp4')
+      started.push(id)
+      outputPaths.add(options.outputLocation)
+      resolveFirstStarted?.()
+      if (started.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve
+        })
+      }
+      await writeFile(options.outputLocation, 'test video')
+      return { bundleLocation: 'test-bundle', outputLocation: options.outputLocation }
+    }
+    const queue = new RenderQueue({
+      renderFilm: render,
+      runGate: (videoPath) => Promise.resolve(gateReport(videoPath, true)),
+      bundle: () => Promise.resolve('test-bundle')
+    })
+    const first = queue.submit({ demoId: 'ecc83-pp' })
+    const second = queue.submit({ demoId: 'ecc83-pp' })
+
+    await firstStarted
+    const cancelled = queue.cancel(second.id)
+    expect(cancelled?.status).toBe('cancelled')
+    expect(started).toEqual([first.id])
+
+    releaseFirst?.()
+    await queue.waitForIdle()
+
+    expect(started).toEqual([first.id])
+    expect(queue.get(second.id)?.status).toBe('cancelled')
+  })
+
+  it('cancels an active render, discards its artifact, and skips the gate', async () => {
+    let releaseRender: (() => void) | undefined
+    let renderStarted: (() => void) | undefined
+    let outputLocation: string | undefined
+    const started = new Promise<void>((resolve) => {
+      renderStarted = resolve
+    })
+    let gateCalls = 0
+    const render = async (options: RenderFilmOptions): Promise<RenderFilmResult> => {
+      outputLocation = options.outputLocation
+      outputPaths.add(options.outputLocation)
+      renderStarted?.()
+      await new Promise<void>((resolve) => {
+        releaseRender = resolve
+      })
+      await writeFile(options.outputLocation, 'test video')
+      return { bundleLocation: 'test-bundle', outputLocation: options.outputLocation }
+    }
+    const queue = new RenderQueue({
+      renderFilm: render,
+      runGate: (videoPath) => {
+        gateCalls += 1
+        return Promise.resolve(gateReport(videoPath, true))
+      },
+      bundle: () => Promise.resolve('test-bundle')
+    })
+    const submitted = queue.submit({ demoId: 'ecc83-pp' })
+
+    await started
+    const cancelled = queue.cancel(submitted.id)
+    expect(cancelled?.status).toBe('cancelled')
+    releaseRender?.()
+    await queue.waitForIdle()
+
+    expect(queue.get(submitted.id)?.status).toBe('cancelled')
+    expect(gateCalls).toBe(0)
+    expect(outputLocation).toBeDefined()
+    await expect(access(outputLocation as string)).rejects.toThrow()
   })
 })

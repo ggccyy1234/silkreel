@@ -49,7 +49,8 @@ export interface Via {
 export interface Zone {
   id: string
   outline: Vec2[]
-  holes: Vec2[][]
+  /** filled_polygon pour geometry — the actual rendered copper, keepouts already subtracted */
+  fills: Vec2[][]
   netId?: number | undefined
 }
 

@@ -1,25 +1,23 @@
 import React from 'react'
 import { Composition, registerRoot, getInputProps } from 'remotion'
 import type { Timeline } from '@silk-reel/choreo'
-import type { BoardModel } from '@silk-reel/ingest'
 import { Film } from './FilmComponent'
 
 export interface FilmInputProps {
   timeline: Timeline
-  board: BoardModel
 }
 
 function readInputProps(source: unknown): FilmInputProps {
   const props = source as Partial<FilmInputProps> | undefined
-  if (!props?.timeline || !props.board) {
-    throw new Error('remotion-entry requires inputProps { timeline, board }')
+  if (!props?.timeline) {
+    throw new Error('remotion-entry requires inputProps { timeline }')
   }
-  return { timeline: props.timeline, board: props.board }
+  return { timeline: props.timeline }
 }
 
 const EntryFilm: React.FC<Record<string, unknown>> = (props) => {
-  const { timeline, board } = readInputProps(props)
-  return <Film timeline={timeline} board={board} />
+  const { timeline } = readInputProps(props)
+  return <Film timeline={timeline} />
 }
 
 const Root: React.FC = () => {

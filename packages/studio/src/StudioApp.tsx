@@ -1,27 +1,24 @@
 import React, { useCallback, useMemo, useState } from 'react'
-import type { ActId, FilmConfig, Timeline } from '@silk-reel/choreo'
-import { compileTimeline } from '@silk-reel/choreo'
+import type { FilmConfig, Timeline } from '@silk-reel/choreo'
 import { Film } from '@silk-reel/render'
 import { Player } from '@remotion/player'
 import type { PlayerRef } from '@remotion/player'
 import type { BoardModel } from '@silk-reel/ingest'
 import './workspace.css'
-import { DEFAULT_KNOBS, PALETTE_ACCENTS, KNOB_RANGES, SYMMETRY_OPTIONS, DISSOLVE_OPTIONS, EASING_OPTIONS, PALETTE_OPTIONS, DEMO_BOARDS } from './film-config'
+import { compileStudioFilm, DEFAULT_KNOBS, KNOB_RANGES, DEMO_BOARDS } from './film-config'
 import type { StudioKnobs } from './film-config'
-import { downloadUrl, moveAct, pollJob, presentationActOrder, submitExport, summarize, useBoardSources, useDebouncedCallback } from './api'
+import { cancelJob, downloadUrl, pollJob, submitExport, summarize, useBoardSources, useDebouncedCallback } from './api'
 import type { BoardSummary, ExportJob } from './api'
 
 type Screen = 'landing' | 'workspace'
 
-interface CompiledFilm {
-  timeline: Timeline
-  warnings: string[]
-}
+type CompiledFilm = ReturnType<typeof compileStudioFilm>
 
 type ExportState =
   | { status: 'submitting' }
   | { status: 'rendering'; job: ExportJob }
   | { status: 'completed'; job: ExportJob }
+  | { status: 'cancelled' }
   | { status: 'failed'; job: ExportJob | null; error: string }
 
 function isAbortError(error: unknown): boolean {
@@ -31,13 +28,13 @@ function isAbortError(error: unknown): boolean {
 function stateForExportJob(job: ExportJob): ExportState {
   if (job.status === 'done') return { status: 'completed', job }
   if (job.status === 'error') return { status: 'failed', job, error: job.error ?? 'render failed' }
+  if (job.status === 'cancelled') return { status: 'cancelled' }
   return { status: 'rendering', job }
 }
 
 export const StudioApp: React.FC = () => {
   const [screen, setScreen] = useState<Screen>('landing')
   const [summary, setSummary] = useState<BoardSummary | null>(null)
-  const [actOrder, setActOrder] = useState<ActId[]>([])
   const [knobs, setKnobs] = useState<StudioKnobs>(DEFAULT_KNOBS)
   const [seed, setSeed] = useState<number | null>(42)
   const [duration, setDuration] = useState<'auto' | number>('auto')
@@ -46,24 +43,36 @@ export const StudioApp: React.FC = () => {
   const [compileStale, setCompileStale] = useState(false)
   const [exportState, setExportState] = useState<ExportState | null>(null)
   const exportControllerRef = React.useRef<AbortController | null>(null)
+  const exportJobIdRef = React.useRef<string | null>(null)
   const exportInFlightRef = React.useRef(false)
   const sources = useBoardSources()
 
-  const cancelExport = useCallback(() => {
+  const cancelExport = useCallback(async (showResult: boolean) => {
+    const jobId = exportJobIdRef.current
     exportControllerRef.current?.abort()
     exportControllerRef.current = null
+    exportJobIdRef.current = null
     exportInFlightRef.current = false
+    if (showResult) setExportState({ status: 'cancelled' })
+    if (jobId === null) {
+      return
+    }
+    try {
+      await cancelJob(jobId)
+    } catch (error) {
+      if (showResult) {
+        setExportState({ status: 'failed', job: null, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
   }, [])
 
   React.useEffect(() => () => {
-    cancelExport()
+    void cancelExport(false)
   }, [cancelExport])
 
   const openBoard = useCallback((board: BoardModel, fileName: string) => {
-    cancelExport()
-    const s = summarize(board, fileName)
-    setSummary(s)
-    setActOrder(presentationActOrder(s.acts))
+    void cancelExport(false)
+    setSummary(summarize(board, fileName))
     setKnobs(DEFAULT_KNOBS)
     setSeed(42)
     setDuration('auto')
@@ -76,13 +85,12 @@ export const StudioApp: React.FC = () => {
 
   const config: FilmConfig = useMemo(
     () => ({
-      actOrder,
       knobs,
       seed,
       duration,
       output: { width: 1080, height: 1350, fps: 15 }
     }),
-    [actOrder, knobs, seed, duration]
+    [knobs, seed, duration]
   )
 
   React.useEffect(() => {
@@ -92,11 +100,7 @@ export const StudioApp: React.FC = () => {
   const recompile = useCallback(() => {
     if (!summary) return
     try {
-      const timeline = compileTimeline(summary.board, config)
-      setFilm({
-        timeline,
-        warnings: timeline.warnings.map((w) => w.message)
-      })
+      setFilm(compileStudioFilm(summary.board, config))
       setCompileError(null)
       setCompileStale(false)
     } catch (err) {
@@ -115,13 +119,8 @@ export const StudioApp: React.FC = () => {
     debouncedRecompile()
   }, [screen, config, debouncedRecompile])
 
-  const palette = PALETTE_ACCENTS[knobs.palette ?? 'mono']
-  React.useEffect(() => {
-    document.documentElement.style.setProperty('--accent', palette.ink)
-  }, [palette.ink])
-
   const startExport = useCallback(async () => {
-    if (!summary || exportInFlightRef.current) return
+    if (!summary || !film || compileStale || exportInFlightRef.current) return
     const controller = new AbortController()
     exportControllerRef.current = controller
     exportInFlightRef.current = true
@@ -130,9 +129,10 @@ export const StudioApp: React.FC = () => {
     try {
       const jobId = await submitExport({
         boardJson: summary.board,
-        filmConfig: config
+        filmConfig: film.config
       }, controller.signal)
       if (exportControllerRef.current !== controller) return
+      exportJobIdRef.current = jobId
       currentJob = { jobId, status: 'pending', progress: 0, gatePassed: null, gateDetail: null, error: null }
       setExportState({ status: 'rendering', job: currentJob })
       const job = await pollJob(jobId, {
@@ -154,10 +154,11 @@ export const StudioApp: React.FC = () => {
     } finally {
       if (exportControllerRef.current === controller) {
         exportControllerRef.current = null
+        exportJobIdRef.current = null
         exportInFlightRef.current = false
       }
     }
-  }, [summary, config])
+  }, [summary, film, compileStale])
 
   if (screen === 'landing' || !summary) {
     return (
@@ -184,8 +185,6 @@ export const StudioApp: React.FC = () => {
       film={film}
       compileError={compileError}
       compileStale={compileStale}
-      actOrder={actOrder}
-      onActOrder={setActOrder}
       knobs={knobs}
       onKnobs={(patch) => {
         setKnobs((prev) => ({ ...prev, ...patch }))
@@ -195,15 +194,14 @@ export const StudioApp: React.FC = () => {
       duration={duration}
       onDuration={setDuration}
       onHome={() => {
-        cancelExport()
+        void cancelExport(false)
         setExportState(null)
         setScreen('landing')
       }}
       exportState={exportState}
       onExport={startExport}
       onCancelExport={() => {
-        cancelExport()
-        setExportState(null)
+        void cancelExport(true)
       }}
     />
   )
@@ -228,7 +226,7 @@ const Landing: React.FC<{
           <span className="landing-kicker">procedural pcb film studio</span>
           <h1 className="wordmark">silk reel</h1>
         </div>
-        <p className="tagline">Board geometry becomes a directed film. The source stays yours.</p>
+        <p className="tagline">Real board geometry, choreographed into looping glyph films. The source stays yours.</p>
         <div className="lab-status" aria-label="studio format">
           <span>1080 × 1350</span>
           <span>15 fps</span>
@@ -276,7 +274,7 @@ const Landing: React.FC<{
         </section>
         <aside className="format-note" aria-label="supported workflow">
           <span>ingest</span><strong>KiCad PCB</strong>
-          <span>direction</span><strong>9 shots</strong>
+          <span>film</span><strong>glyph loop</strong>
           <span>output</span><strong>MP4 + gate</strong>
           <p>Gerber sets join the pipeline in m4.</p>
         </aside>
@@ -318,8 +316,6 @@ interface WorkspaceProps {
   film: CompiledFilm | null
   compileError: string | null
   compileStale: boolean
-  actOrder: ActId[]
-  onActOrder: (order: ActId[]) => void
   knobs: StudioKnobs
   onKnobs: (patch: Partial<StudioKnobs>) => void
   seed: number | null
@@ -350,7 +346,7 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
           ) : film === null ? (
             <div className="pane-loading" role="status">compiling…</div>
           ) : (
-            <PlayerPane timeline={film.timeline} board={summary.board} stale={props.compileStale} />
+            <PlayerPane timeline={film.timeline} stale={props.compileStale} />
           )}
         </section>
         <aside className="controls-pane">
@@ -362,35 +358,46 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
               </ul>
             </details>
           )}
-          <BoardLedger summary={summary} castCount={film?.timeline.cast.length ?? 0} />
-          <ActList acts={summary.acts} order={props.actOrder} onChange={props.onActOrder} compiledIds={film?.timeline.cast.map((unit) => unit.sourceAct) ?? []} disabled={exportBusy} />
-          <KnobPanel knobs={props.knobs} onKnobs={props.onKnobs} seed={props.seed} onSeed={props.onSeed} duration={props.duration} onDuration={props.onDuration} disabled={exportBusy} />
+          <BoardLedger summary={summary} elementCount={film?.timeline.cast.length ?? 0} />
+          <KnobPanel
+            knobs={props.knobs}
+            onKnobs={props.onKnobs}
+            seed={props.seed}
+            onSeed={props.onSeed}
+            duration={props.duration}
+            onDuration={props.onDuration}
+            disabled={exportBusy}
+          />
         </aside>
       </div>
     </main>
   )
 }
 
-const BoardLedger: React.FC<{ summary: BoardSummary; castCount: number }> = ({ summary, castCount }) => (
+const BoardLedger: React.FC<{ summary: BoardSummary; elementCount: number }> = ({ summary, elementCount }) => (
   <section className="panel board-ledger" aria-labelledby="board-ledger-title">
     <div className="panel-heading">
       <h2 id="board-ledger-title">board inventory</h2>
-      <span>{castCount} cast units</span>
+      <span>{elementCount.toLocaleString()} film elements</span>
     </div>
     <dl className="ledger-grid">
       <div><dt>footprints</dt><dd>{summary.footprintCount}</dd></div>
       <div><dt>pads</dt><dd>{summary.padCount}</dd></div>
       <div><dt>traces</dt><dd>{summary.traceCount}</dd></div>
+      <div><dt>zones</dt><dd>{summary.zoneCount}</dd></div>
       <div><dt>silk marks</dt><dd>{summary.silkMarkCount}</dd></div>
       <div><dt>vias</dt><dd>{summary.viaCount}</dd></div>
       <div><dt>drills</dt><dd>{summary.drillCount}</dd></div>
+      <div><dt>nets</dt><dd>{summary.netCount}</dd></div>
     </dl>
     <p className="layer-ledger" title={summary.layerNames.join(', ')}>{summary.layerNames.join(' · ')}</p>
   </section>
 )
 
-const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel; stale: boolean }> = ({ timeline, board, stale }) => {
+const PlayerPane: React.FC<{ timeline: Timeline; stale: boolean }> = ({ timeline, stale }) => {
   const playerRef = React.useRef<PlayerRef>(null)
+  const posterChosen = React.useRef(false)
+  const currentFrameRef = React.useRef(0)
   const [currentFrame, setCurrentFrame] = React.useState(0)
   const [playing, setPlaying] = React.useState(false)
 
@@ -398,15 +405,41 @@ const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel; stale: boole
     const player = playerRef.current
     if (player === null) return
 
-    setPlaying(false)
+    setPlaying(player.isPlaying())
+    if (!posterChosen.current) {
+      const quad = timeline.formations.find((formation) => formation.id === 'quad') ?? timeline.formations[timeline.formations.length - 1]
+      const posterFrame = Math.floor(((quad?.startPhase ?? 0) + (quad?.endPhase ?? 1)) / 2 * timeline.totalFrames)
+      player.seekTo(posterFrame)
+      currentFrameRef.current = posterFrame
+      setCurrentFrame(posterFrame)
+      posterChosen.current = true
+    } else {
+      const clampedFrame = Math.min(currentFrameRef.current, timeline.totalFrames - 1)
+      if (clampedFrame !== currentFrameRef.current) {
+        player.seekTo(clampedFrame)
+        currentFrameRef.current = clampedFrame
+        setCurrentFrame(clampedFrame)
+      }
+    }
 
     const updateFrame = (event: { detail: { frame: number } }): void => {
+      currentFrameRef.current = event.detail.frame
       setCurrentFrame(event.detail.frame)
+    }
+    const onPlay = (): void => {
+      setPlaying(true)
+    }
+    const onPause = (): void => {
+      setPlaying(false)
     }
 
     player.addEventListener('frameupdate', updateFrame)
+    player.addEventListener('play', onPlay)
+    player.addEventListener('pause', onPause)
     return () => {
       player.removeEventListener('frameupdate', updateFrame)
+      player.removeEventListener('play', onPlay)
+      player.removeEventListener('pause', onPause)
     }
   }, [timeline])
 
@@ -416,7 +449,7 @@ const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel; stale: boole
       <Player
         ref={playerRef}
         component={Film}
-        inputProps={{ timeline, board }}
+        inputProps={{ timeline }}
         durationInFrames={timeline.totalFrames}
         fps={timeline.fps}
         compositionWidth={timeline.width}
@@ -434,41 +467,38 @@ const PlayerPane: React.FC<{ timeline: Timeline; board: BoardModel; stale: boole
           onClick={() => {
             const player = playerRef.current
             if (player === null) return
-            if (playing) player.pause()
+            if (player.isPlaying()) player.pause()
             else player.play()
-            setPlaying(!playing)
           }}
         >
           {playing ? 'pause' : 'play'}
         </button>
         <span className="frame-readout">frame {currentFrame + 1} / {timeline.totalFrames}</span>
       </div>
-      <ActRibbon timeline={timeline} playerRef={playerRef} currentFrame={currentFrame} />
+      <FormationRibbon timeline={timeline} playerRef={playerRef} currentFrame={currentFrame} />
     </div>
   )
 }
 
-const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<PlayerRef | null>; currentFrame: number }> = ({ timeline, playerRef, currentFrame }) => {
+const FORMATION_LABELS: Record<string, string> = {
+  marks: 'marks',
+  spine: 'spine',
+  totem: 'totem',
+  columns: 'columns',
+  ring: 'ring',
+  quad: 'quad'
+}
+
+const FormationRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<PlayerRef | null>; currentFrame: number }> = ({ timeline, playerRef, currentFrame }) => {
   const total = timeline.totalFrames
-  const beats = timeline.directedBeats
-  const shotLabels: Record<string, string> = {
-    'black-breath': 'breath',
-    'vertical-seed': 'seed',
-    'cross-collapse': 'cross',
-    'radial-gate': 'radial',
-    'bilateral-tower': 'tower',
-    'corner-bridge': 'bridge',
-    'horizontal-study': 'study',
-    'pad-coda': 'coda',
-    'black-cut': 'cut'
-  }
   const seekFromPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
     const bounds = event.currentTarget.getBoundingClientRect()
     const progress = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
     playerRef.current?.seekTo(Math.min(total - 1, Math.floor(progress * total)))
   }
-  const activeShot = timeline.shots.find((shot) => currentFrame >= shot.startFrame && currentFrame <= shot.endFrame)
-  const activeLabel = activeShot ? shotLabels[activeShot.id] ?? activeShot.id : 'film'
+  const p = currentFrame / total
+  const active = timeline.formations.find((formation) => p >= formation.startPhase && p <= formation.endPhase)
+  const activeLabel = active ? FORMATION_LABELS[active.id] ?? active.id : 'film'
   return (
     <div
       className="act-ribbon"
@@ -507,109 +537,25 @@ const ActRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<Playe
         playerRef.current?.seekTo(Math.max(0, Math.min(total - 1, currentFrame + step)))
       }}
     >
-      {timeline.shots.map((shot, i) => (
+      {timeline.formations.map((formation, i) => (
         <span
-          key={shot.id}
-          className={`act-block shot-${shot.id}${currentFrame >= shot.startFrame && currentFrame <= shot.endFrame ? ' act-block-active' : ''}`}
+          key={formation.beat}
+          className={`act-block${active?.beat === formation.beat ? ' act-block-active' : ''}`}
           style={{
-            width: `${((shot.endFrame - shot.startFrame + 1) / total) * 100}%`,
+            width: `${(formation.endPhase - formation.startPhase) * 100}%`,
             background: i % 2 === 0 ? '#2e2e2e' : '#383838',
             border: 'none',
             borderRadius: 0,
             padding: 0,
             cursor: 'ew-resize'
           }}
-          title={`${shot.id}: frames ${shot.startFrame}-${shot.endFrame}`}
+          title={`${formation.id}: ${(formation.startPhase * 100).toFixed(0)}%–${(formation.endPhase * 100).toFixed(0)}% of the loop`}
         >
-          {beats
-            .filter((b) => b.frame >= shot.startFrame && b.frame <= shot.endFrame)
-            .map((b) => (
-              <span
-                key={b.frame}
-                className="beat-mark"
-                aria-hidden="true"
-                style={{ left: `${((b.frame - shot.startFrame) / (shot.endFrame - shot.startFrame + 1)) * 100}%` }}
-              />
-            ))}
-          <span className="act-label">{shotLabels[shot.id] ?? shot.id}</span>
+          <span className="act-label">{FORMATION_LABELS[formation.id] ?? formation.id}</span>
         </span>
       ))}
-      <span className="shot-playhead" aria-hidden="true" style={{ left: `${((currentFrame + 0.5) / total) * 100}%` }} />
+      <span className="ribbon-playhead" aria-hidden="true" style={{ left: `${((currentFrame + 0.5) / total) * 100}%` }} />
     </div>
-  )
-}
-
-const ActList: React.FC<{ acts: ActId[]; order: ActId[]; onChange: (order: ActId[]) => void; compiledIds: string[]; disabled: boolean }> = ({ acts, order, onChange, compiledIds, disabled }) => {
-  const dragIndex = React.useRef<number | null>(null)
-  const move = (from: number, to: number): void => {
-    onChange(moveAct(order, from, to))
-  }
-  return (
-    <section className="panel">
-      <h2>acts</h2>
-      <ol className="act-list" aria-label="act order; use move controls or drag to reorder">
-        {order.map((act, i) => {
-          const compiled = compiledIds.includes(act)
-          return (
-            <li
-              key={act}
-              draggable={!disabled}
-              onDragStart={() => { dragIndex.current = i }}
-              onDragOver={(e) => {
-                e.preventDefault()
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                if (!disabled && dragIndex.current !== null && dragIndex.current !== i) move(dragIndex.current, i)
-                dragIndex.current = null
-              }}
-              className={`act-row${compiled ? '' : ' act-empty'}`}
-            >
-              <span className="act-grip" aria-hidden="true">⠿</span>
-              <span className="act-name">{act}</span>
-              {!compiled && <span className="act-flag" title="no elements land in this act">empty</span>}
-              <span className="act-actions">
-                <button
-                  type="button"
-                  className="act-move"
-                  aria-label={`move ${act} up`}
-                  title={`move ${act} up`}
-                  disabled={disabled || i === 0}
-                  onClick={() => {
-                    move(i, i - 1)
-                  }}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  className="act-move"
-                  aria-label={`move ${act} down`}
-                  title={`move ${act} down`}
-                  disabled={disabled || i === order.length - 1}
-                  onClick={() => {
-                    move(i, i + 1)
-                  }}
-                >
-                  ↓
-                </button>
-              </span>
-            </li>
-          )
-        })}
-      </ol>
-      {acts.some((a) => !order.includes(a)) && (
-        <button
-          className="ghost"
-          disabled={disabled}
-          onClick={() => {
-            onChange([...order, ...acts.filter((a) => !order.includes(a))])
-          }}
-        >
-          restore missing layers
-        </button>
-      )}
-    </section>
   )
 }
 
@@ -623,71 +569,13 @@ const KnobPanel: React.FC<{
   disabled: boolean
 }> = ({ knobs, onKnobs, seed, onSeed, duration, onDuration, disabled }) => {
   const rangeKnobs: Array<{ key: keyof typeof KNOB_RANGES; label: string }> = [
-    { key: 'rhythmDensity', label: 'rhythm density' },
-    { key: 'beatCount', label: 'beats' },
-    { key: 'beatIntensity', label: 'beat intensity' },
-    { key: 'seedPairs', label: 'seed pairs' },
-    { key: 'glow', label: 'glow' },
-    { key: 'flicker', label: 'flicker' },
-    { key: 'grain', label: 'grain' },
-    { key: 'exposure', label: 'exposure' }
+    { key: 'density', label: 'density' },
+    { key: 'texts', label: 'texts' }
   ]
   return (
     <section className="panel">
-      <h2>knobs</h2>
+      <h2>film</h2>
       <div className="knob-grid">
-        <div className="field">
-          <label htmlFor="knob-palette">palette</label>
-          <select
-            id="knob-palette"
-            value={knobs.palette ?? 'mono'}
-            disabled={disabled}
-            onChange={(e) => {
-              onKnobs({ palette: e.target.value as Exclude<StudioKnobs['palette'], undefined> })
-            }}
-          >
-            {PALETTE_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="knob-symmetry">symmetry</label>
-          <select
-            id="knob-symmetry"
-            value={knobs.symmetry ?? 'auto'}
-            disabled={disabled}
-            onChange={(e) => {
-              onKnobs({ symmetry: e.target.value as Exclude<StudioKnobs['symmetry'], undefined> })
-            }}
-          >
-            {SYMMETRY_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="knob-dissolve">dissolve</label>
-          <select
-            id="knob-dissolve"
-            value={knobs.dissolveStyle ?? 'center-out'}
-            disabled={disabled}
-            onChange={(e) => {
-              onKnobs({ dissolveStyle: e.target.value as Exclude<StudioKnobs['dissolveStyle'], undefined> })
-            }}
-          >
-            {DISSOLVE_OPTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="knob-easing">easing</label>
-          <select
-            id="knob-easing"
-            value={knobs.easing ?? 'expo-out'}
-            disabled={disabled}
-            onChange={(e) => {
-              onKnobs({ easing: e.target.value as Exclude<StudioKnobs['easing'], undefined> })
-            }}
-          >
-            {EASING_OPTIONS.map((e) => <option key={e} value={e}>{e}</option>)}
-          </select>
-        </div>
         {rangeKnobs.map(({ key, label }) => {
           const range = KNOB_RANGES[key]
           const value = knobs[key] ?? DEFAULT_KNOBS[key] ?? range.min
@@ -801,6 +689,14 @@ const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promi
       {state?.status === 'failed' && (
         <>
           <span className="export-error" role="alert">failed: {state.error}</span>
+          <button className="ghost" disabled={disabled} onClick={() => {
+            void onExport()
+          }}>again</button>
+        </>
+      )}
+      {state?.status === 'cancelled' && (
+        <>
+          <span className="export-status" role="status">cancelled</span>
           <button className="ghost" disabled={disabled} onClick={() => {
             void onExport()
           }}>again</button>

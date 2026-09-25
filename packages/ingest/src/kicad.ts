@@ -172,6 +172,15 @@ function propertyValue(fpNode: SExprNode[], propName: string): string | undefine
   return undefined
 }
 
+/** pre-v6 boards carry `(fp_text reference J1 …)` instead of a property node */
+function fpTextField(fpNode: SExprNode[], field: string): string | undefined {
+  for (const text of listsNamed(fpNode, 'fp_text')) {
+    const atoms = atomsAfterHead(text)
+    if ((atoms[0] ?? '') === field) return atoms[1]
+  }
+  return undefined
+}
+
 function hasAtom(node: SExprNode[], atom: string): boolean {
   for (const child of node) {
     if (isAtom(child) && child === atom) return true
@@ -316,13 +325,13 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     if (!ptsNode) continue
     const points = listsNamed(ptsNode, 'xy').map((xy) => parseXY(xy, fileName))
     if (points.length < 3) continue
-    const holes: Vec2[][] = []
+    const fills: Vec2[][] = []
     for (const filled of listsNamed(zoneNode, 'filled_polygon')) {
       const fpts = firstListNamed(filled, 'pts')
-      if (fpts) holes.push(listsNamed(fpts, 'xy').map((xy) => parseXY(xy, fileName)))
+      if (fpts) fills.push(listsNamed(fpts, 'xy').map((xy) => parseXY(xy, fileName)))
     }
     const eid = nextId(ids)
-    const zone: Zone = { id: `z:${eid}`, outline: points, holes, netId: bindNet(netAtomOf(zoneNode), 'zone', `z:${eid}`) }
+    const zone: Zone = { id: `z:${eid}`, outline: points, fills, netId: bindNet(netAtomOf(zoneNode), 'zone', `z:${eid}`) }
     const zoneLayers = listsNamed(zoneNode, 'layer')
     const layerId = zoneLayers.length > 0 ? (atomsAfterHead(zoneLayers[0] as SExprNode[])[0] ?? 'F.Cu') : 'F.Cu'
     ensureLayer(layerId)
@@ -497,10 +506,11 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const fpLayer = layerNode ? (atomsAfterHead(layerNode)[0] ?? 'F.Cu') : 'F.Cu'
     const ref =
       propertyValue(fpNode, 'Reference') ??
+      fpTextField(fpNode, 'reference') ??
       (libId !== undefined ? libId.replace(/^[^:]*:/, '').replace(/[^A-Za-z0-9_.-]/g, '_') : `fp${footprints.length + 1}`)
     const fp: Footprint = {
       ref,
-      value: propertyValue(fpNode, 'Value') ?? undefined,
+      value: propertyValue(fpNode, 'Value') ?? fpTextField(fpNode, 'value'),
       pos: fpOrigin,
       rot: fpRot,
       layer: fpLayer,

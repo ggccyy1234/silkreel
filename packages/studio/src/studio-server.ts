@@ -1,5 +1,7 @@
 import type { Connect, Plugin } from 'vite'
 import type { ServerResponse } from 'node:http'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { DEMO_IDS, isDemoId, loadDemoBoard, parseKicadText } from './board-server.js'
 
 const DEFAULT_RENDER_API_URL = 'http://127.0.0.1:3102'
@@ -30,13 +32,19 @@ interface ParseBody {
 }
 
 async function proxyToRenderApi(req: Connect.IncomingMessage, res: ServerResponse, targetPath: string, renderApiUrl: string): Promise<void> {
+  const controller = new AbortController()
+  const disconnect = (): void => {
+    controller.abort()
+  }
+  res.once('close', disconnect)
   try {
     const method = req.method ?? 'GET'
-    const body = ['POST', 'PUT'].includes(method) ? await readBody(req) : undefined
+    const requestBody = ['POST', 'PUT'].includes(method) ? await readBody(req) : undefined
+    const body = requestBody === '' ? undefined : requestBody
     const upstream = await fetch(`${renderApiUrl.replace(/\/$/, '')}${targetPath}`, {
       method,
-      headers: { 'content-type': 'application/json' },
-      ...(body !== undefined ? { body } : {})
+      signal: controller.signal,
+      ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body })
     })
     res.statusCode = upstream.status
     const contentType = upstream.headers.get('content-type') ?? 'application/json'
@@ -44,10 +52,17 @@ async function proxyToRenderApi(req: Connect.IncomingMessage, res: ServerRespons
     if (upstream.headers.get('content-disposition')) {
       res.setHeader('content-disposition', upstream.headers.get('content-disposition') ?? '')
     }
-    const buffer = Buffer.from(await upstream.arrayBuffer())
-    res.end(buffer)
+    if (upstream.body === null) res.end()
+    else await pipeline(Readable.from(upstream.body), res)
   } catch (err) {
+    if (res.destroyed) return
+    if (res.headersSent) {
+      res.destroy()
+      return
+    }
     json(res, 502, { error: `render-api unreachable: ${err instanceof Error ? err.message : String(err)}` })
+  } finally {
+    res.off('close', disconnect)
   }
 }
 

@@ -1,116 +1,91 @@
-import type { BBox, BoardModel } from '@silk-reel/ingest'
+import type { BoardModel, Vec2 } from '@silk-reel/ingest'
 
-export type ActId =
-  | 'outline'
-  | 'drill'
-  | `copper:${string}`
-  | `silk:${string}`
+export type GlyphKind = 'package' | 'text' | 'mark'
 
-export type SymmetryMode = 'auto' | 'mirror-x' | 'mirror-y' | 'quad' | 'rotational180' | 'none'
-
-export type DissolveStyle = 'center-out' | 'fade' | 'wipe' | 'scatter'
-
-export type EasingName = 'expo-out' | 'back-out' | 'linear' | 'sine'
-
-export type PaletteName = 'mono' | 'phosphor' | 'amber' | 'copper'
-
-export type ShotId =
-  | 'black-breath'
-  | 'vertical-seed'
-  | 'cross-collapse'
-  | 'radial-gate'
-  | 'bilateral-tower'
-  | 'corner-bridge'
-  | 'horizontal-study'
-  | 'pad-coda'
-  | 'black-cut'
-
-export type CastRole = 'hero-body' | 'detail' | 'anchor-pad' | 'text-accent' | 'trace-accent'
-
-export interface CastUnit {
-  id: string
-  role: CastRole
-  memberRefs: string[]
-  sourceFootprintRefs: string[]
-  bounds: BBox
-  sourceAct: ActId
-}
-
-export interface CopyTransform {
-  x: -1 | 1
-  y: -1 | 1
-}
-
-export interface CopyTopology {
-  mode: Exclude<SymmetryMode, 'auto'>
-  transforms: CopyTransform[]
-}
-
-export interface DirectedKeyframe {
-  frame: number
+/** text rendered inside a package glyph, in normalized glyph space */
+export interface GlyphLabel {
+  text: string
   x: number
   y: number
+  /** height as a fraction of the glyph's unit span */
+  size: number
+  /** rotation in glyph space, radians */
+  rot: number
+}
+
+/** a cast glyph: unit-normalized strokes centered at origin, or a text string */
+export interface Glyph {
+  id: string
+  kind: GlyphKind
+  /** polylines in normalized space, max dimension = 1 */
+  strokes: Vec2[][]
+  /** text glyphs draw this instead of strokes */
+  text?: string
+  /** package glyphs may carry silkscreen labels drawn inside the outline */
+  labels?: GlyphLabel[]
+}
+
+/** one rendered instance of a glyph (a primary slot or a symmetry copy) */
+export interface AtomState {
+  x: number
+  y: number
+  rot: number
   scale: number
-  rotation: number
-  opacity: number
-  glow: number
+  alpha: number
+  /** mirrored copies flip the glyph itself so asymmetric outlines/text render mirrored */
+  flipX?: boolean | undefined
+  flipY?: boolean | undefined
+  /** reveal rank 0..1 inside a transition — pops are a spatial script, not a blur */
+  order?: number | undefined
 }
 
-export interface UnitTrack {
-  castId: string
-  copies: CopyTopology
-  keyframes: DirectedKeyframe[]
+export interface TrackKnot {
+  /** cyclic position on the loop, [0,1) ascending */
+  phase: number
+  /** expanded copy instances sorted canonically (angle, then radius) */
+  atoms: AtomState[]
+  /** set when the bracket starting at this knot is a formation transition —
+   *  carries the global evac/dead/build split shared by all tracks */
+  transit?: { evacEnd: number; buildStart: number } | undefined
 }
 
-export interface FilmShot {
-  id: ShotId
-  startFrame: number
-  endFrame: number
-  tracks: UnitTrack[]
+export interface Track {
+  glyphId: string
+  /** glyph weight class — heroes settle longer than marks on arrival */
+  kind: GlyphKind
+  knots: TrackKnot[]
+}
+
+export type FormationId = 'marks' | 'spine' | 'totem' | 'columns' | 'ring' | 'quad'
+
+export interface FormationEvent {
+  id: FormationId
+  /** hold region on the loop; transitions happen between holds */
+  startPhase: number
+  endPhase: number
+  /** index into the beat sequence — formation ids repeat (marks interludes) */
+  beat: number
+}
+
+/** per-board cast curation: listed refs/texts are preferred as hero glyphs */
+export interface CastHints {
+  preferRefs?: string[]
+  preferTexts?: string[]
 }
 
 export interface Knobs {
-  symmetry?: SymmetryMode
-  rhythmDensity?: number
-  beatCount?: number
-  beatIntensity?: number
-  seedPairs?: number
-  dissolveStyle?: DissolveStyle
-  easing?: EasingName
-  glow?: number
-  flicker?: number
-  grain?: number
-  exposure?: number
-  palette?: PaletteName
+  /** scales cast size and per-formation crowding, 0.5-1.5 */
+  density?: number
+  /** silkscreen text glyphs on/off, 0 or 1 */
+  texts?: number
 }
 
 export interface FilmConfig {
-  actOrder: ActId[]
   knobs: Knobs
   seed: number | null
   duration: 'auto' | number
   output: { width: number; height: number; fps: number }
-}
-
-export interface Rgb {
-  r: number | null
-  g: number | null
-  b: number | null
-}
-
-export interface PaletteDef {
-  name: PaletteName
-  stroke: Rgb
-  glowHue: Rgb
-}
-
-export interface RenderParams {
-  glow: number
-  flicker: number
-  grain: number
-  exposure: number
-  easing: EasingName
-  symmetry: Exclude<SymmetryMode, 'auto'>
+  cast?: CastHints
 }
 
 export interface TimelineWarning {
@@ -125,11 +100,9 @@ export interface Timeline {
   width: number
   height: number
   output: { width: number; height: number; fps: number }
-  palette: PaletteDef
-  cast: CastUnit[]
-  shots: FilmShot[]
-  directedBeats: Array<{ frame: number; intensity: number }>
-  renderParams: RenderParams
+  cast: Glyph[]
+  tracks: Track[]
+  formations: FormationEvent[]
   warnings: TimelineWarning[]
   seedUsed: number
 }

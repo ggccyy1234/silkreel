@@ -5,3 +5,6 @@ coverage
 .DS_Store
 exports/*.mp4
 fixtures/canonical.mp4
+exports/
+review/
+.devin/goal/

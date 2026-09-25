@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { boardModel } from '../../choreo/test/helpers.js'
-import { moveAct, pollJob, summarize, toExportJob } from './api.js'
+import { cancelJob, pollJob, summarize, toExportJob } from './api.js'
 
 describe('studio board summary', () => {
-  it('reports board layers and render acts', () => {
+  it('reports board layers and element counts', () => {
     const board = boardModel('ecc83-pp.kicad_pcb')
     const summary = summarize(board, 'ecc83-pp.kicad_pcb')
 
@@ -15,7 +15,7 @@ describe('studio board summary', () => {
     expect(summary.padCount).toBeGreaterThan(0)
     expect(summary.traceCount).toBeGreaterThan(0)
     expect(summary.silkMarkCount).toBeGreaterThan(0)
-    expect(summary.acts).toEqual(expect.arrayContaining(['outline', 'drill', 'copper:F.Cu']))
+    expect(summary.netCount).toBe(board.nets.length)
   })
 })
 
@@ -26,7 +26,7 @@ describe('studio export response mapping', () => {
       progress: 100,
       metricsReport: {
         passed: false,
-        rules: [{ rule: 'symmetry-phase', passed: false, detail: 'best mirror ratio 0.2' }]
+        rules: [{ rule: 'coverage', passed: false, detail: 'peak lit 1.2% vs expected 3-70%' }]
       }
     })
 
@@ -35,17 +35,8 @@ describe('studio export response mapping', () => {
       status: 'done',
       progress: 100,
       gatePassed: false,
-      gateDetail: 'symmetry-phase: best mirror ratio 0.2'
+      gateDetail: 'coverage: peak lit 1.2% vs expected 3-70%'
     })
-  })
-})
-
-describe('studio act priority movement', () => {
-  it('moves an act to a new priority without mutating the current order', () => {
-    const order = ['outline', 'drill', 'copper:F.Cu'] as const
-
-    expect(moveAct([...order], 2, 0)).toEqual(['copper:F.Cu', 'outline', 'drill'])
-    expect(order).toEqual(['outline', 'drill', 'copper:F.Cu'])
   })
 })
 
@@ -91,5 +82,40 @@ describe('studio job polling', () => {
 
     await assertion
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('treats cancellation as a terminal job state', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ status: 'cancelled', progress: 24 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const polling = pollJob('job-1', { intervalMs: 10, maxAttempts: 2 })
+
+    await vi.advanceTimersByTimeAsync(10)
+
+    await expect(polling).resolves.toMatchObject({ jobId: 'job-1', status: 'cancelled', progress: 24 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('studio job cancellation', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('posts to the job cancellation endpoint and maps the terminal response', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ status: 'cancelled', progress: 32 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(cancelJob('job/1')).resolves.toMatchObject({ jobId: 'job/1', status: 'cancelled', progress: 32 })
+    expect(fetchMock).toHaveBeenCalledWith('/api/job/job%2F1/cancel', { method: 'POST' })
   })
 })

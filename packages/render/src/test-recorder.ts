@@ -65,10 +65,16 @@ export class RecordingCtx {
       'setTransform', 'fillRect', 'clearRect', 'save', 'restore',
       'translate', 'scale', 'rotate',
       'stroke', 'fill', 'fillText', 'strokeText',
-      'beginPath', 'closePath', 'moveTo', 'lineTo', 'quadraticCurveTo', 'arc', 'rect'
+      'beginPath', 'closePath', 'moveTo', 'lineTo', 'quadraticCurveTo', 'arc', 'rect',
+      'setLineDash', 'drawImage', 'clip'
     ]
     for (const m of methods) target[m] = this.forward(m)
-    const props = ['fillStyle', 'strokeStyle', 'shadowColor', 'shadowBlur', 'globalAlpha', 'lineWidth', 'lineCap', 'lineJoin', 'font', 'textAlign', 'textBaseline']
+    target.createRadialGradient = (): { addColorStop: (offset: number, color: string) => void } => ({
+      addColorStop: (offset: number, color: string) => {
+        this.calls.push({ method: 'gradient-stop', args: [offset, color] })
+      }
+    })
+    const props = ['fillStyle', 'strokeStyle', 'shadowColor', 'shadowBlur', 'globalAlpha', 'lineWidth', 'lineCap', 'lineJoin', 'font', 'textAlign', 'textBaseline', 'filter', 'globalCompositeOperation']
     for (const p of props) {
       Object.defineProperty(target, p, {
         get: () => this.props[p],

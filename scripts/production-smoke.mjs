@@ -17,6 +17,9 @@ function json(res, status, body) {
 
 function createFakeRenderApi() {
   const requests = []
+  let finishDownload
+  let disconnected
+  const downloadDisconnected = new Promise((resolve) => { disconnected = resolve })
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://render-api')
     const chunks = []
@@ -31,17 +34,27 @@ function createFakeRenderApi() {
       json(res, 200, { status: 'done', progress: 100 })
       return
     }
+    if (req.method === 'POST' && url.pathname === '/job/job-1/cancel') {
+      json(res, 200, { status: 'cancelled', progress: 0 })
+      return
+    }
     if (req.method === 'GET' && url.pathname === '/download/job-1') {
-      const content = Buffer.from('fake-mp4')
       res.statusCode = 200
       res.setHeader('content-type', 'video/mp4')
       res.setHeader('content-disposition', 'attachment; filename="job-1.mp4"')
-      res.end(content)
+      res.write('fake-')
+      finishDownload = () => res.end('mp4')
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/download/cancel-me') {
+      res.setHeader('content-type', 'video/mp4')
+      res.once('close', disconnected)
+      res.write('partial')
       return
     }
     json(res, 404, { error: 'not found' })
   })
-  return { server, requests }
+  return { server, requests, downloadDisconnected, finishDownload: () => finishDownload?.() }
 }
 
 function listen(server, port = 0) {
@@ -204,15 +217,47 @@ async function main() {
     const job = await request(studioUrl, '/api/job/job-1', {})
     assert.equal((await job.json()).status, 'done')
 
-    const download = await request(studioUrl, '/api/download/job-1', {})
-    assert.equal(await download.text(), 'fake-mp4')
+    const cancelled = await request(studioUrl, '/api/job/job-1/cancel', { method: 'POST' })
+    assert.equal((await cancelled.json()).status, 'cancelled')
+
+    const download = await request(studioUrl, '/api/download/job-1', { signal: AbortSignal.timeout(5000) })
+    const reader = download.body.getReader()
+    const firstChunk = await reader.read()
+    assert.equal(Buffer.from(firstChunk.value).toString(), 'fake-')
+    fake.finishDownload()
+    let downloaded = 'fake-'
+    for (;;) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      downloaded += Buffer.from(chunk.value).toString()
+    }
+    assert.equal(downloaded, 'fake-mp4')
     assert.equal(download.headers.get('content-type'), 'video/mp4')
     assert.match(download.headers.get('content-disposition') ?? '', /job-1\.mp4/)
 
-    assert.deepEqual(fake.requests.map(({ method, path: requestPath }) => `${method} ${requestPath}`), ['POST /render', 'GET /job/job-1', 'GET /download/job-1'])
+    const cancellation = new AbortController()
+    const partial = await request(studioUrl, '/api/download/cancel-me', { signal: AbortSignal.any([cancellation.signal, AbortSignal.timeout(5000)]) })
+    assert.equal(Buffer.from((await partial.body.getReader().read()).value).toString(), 'partial')
+    cancellation.abort()
+    let disconnectTimeout
+    try {
+      await Promise.race([
+        fake.downloadDisconnected,
+        new Promise((_, reject) => {
+          disconnectTimeout = setTimeout(() => reject(new Error('download cancellation did not close upstream')), 5000)
+        })
+      ])
+    } finally {
+      clearTimeout(disconnectTimeout)
+    }
+
+    assert.deepEqual(fake.requests.map(({ method, path: requestPath }) => `${method} ${requestPath}`), ['POST /render', 'GET /job/job-1', 'POST /job/job-1/cancel', 'GET /download/job-1', 'GET /download/cancel-me'])
+    assert.equal(fake.requests[2]?.body, '')
     console.log('production smoke passed')
   } finally {
+    fake.finishDownload()
     await stop(studio)
+    fake.server.closeAllConnections()
     await close(fake.server)
   }
 }

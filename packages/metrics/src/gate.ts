@@ -19,6 +19,7 @@ export interface GateReport {
     frameCount: number | undefined
     codec: string | undefined
     pixFmt: string | undefined
+    audioStreamCount: number
   }
   rules: GateRuleResult[]
 }
@@ -30,67 +31,99 @@ export interface GateExpectations {
   totalFrames: number
 }
 
-const BG_LIMIT = 8
+const BG_LIMIT = 15
+const FIELD_LIMIT = 25
 const LIT_THRESHOLD = 22
-const CODA_WINDOW_FRAMES = 12
-const CODA_MIN_LIT_PCT = 0.05
-const CODA_MIN_STABLE_FRAMES = 3
-const CODA_MAX_PEAK_RATIO = 0.6
-const CODA_MIN_MIRROR_RATIO = 0.9
-const CODA_MAX_QUADRANT_DEVIATION = 0.15
-const DENSITY_MIN_PEAK_PCT = 0.45
-const DENSITY_MAX_PEAK_PCT = 0.9
+const COVERAGE_MIN_PEAK = 0.5
+const COVERAGE_MAX_PEAK = 4
+const MIRROR_MIN_RATIO = 0.8
+const MIRROR_MIN_LIT = 0.15
+const BREATHING_MIN_MAXIMA = 2
+const BREATHING_END_RATIO = 0.3
+const LOOP_MEAN_DIFF_LIMIT = 2
+const MOTION_MIN_MEAN_DIFF = 0.15
 
 interface Envelope {
   stats: FrameStats[]
   peakLitPct: number
-  maximaCount: number
-  minLitPct: number
-  bestMirrorRatio: number
-  worstQuadDeviationAtHighMirror: number
   bgMeanMax: number
+  fieldMeanMax: number
+  maximaCount: number
+  headMeanLit: number
+  tailMeanLit: number
+  worstMirrorRatio: number
+  mirrorCheckedFrames: number
+  loopMeanDiff: number
+  motionMeanDiff: number
 }
 
 async function measureEnvelope(videoPath: string): Promise<{ facts: Awaited<ReturnType<typeof probeVideo>>; envelope: Envelope }> {
   const facts = await probeVideo(videoPath)
-  const stride = 1
   const stats: FrameStats[] = []
-  for await (const frame of decodeGrayFrames(videoPath, { width: facts.width, height: facts.height }, { everyNthFrame: stride })) {
+  let firstData: Uint8Array | undefined
+  let lastData: Uint8Array | undefined
+  let prevData: Uint8Array | undefined
+  let motionDiffSum = 0
+  for await (const frame of decodeGrayFrames(videoPath, { width: facts.width, height: facts.height })) {
+    if (firstData === undefined) firstData = frame.data
+    if (prevData !== undefined) {
+      let d = 0
+      for (let i = 0; i < frame.data.length; i++) d += Math.abs((frame.data[i] as number) - (prevData[i] as number))
+      motionDiffSum += d / frame.data.length
+    }
+    prevData = frame.data
+    lastData = frame.data
     stats.push(analyzeFrame(frame, { litThreshold: LIT_THRESHOLD }))
   }
-  if (stats.length === 0) {
+  if (stats.length === 0 || firstData === undefined || lastData === undefined) {
     throw new Error(`no frames decoded from ${videoPath}`)
   }
+  const motionMeanDiff = motionDiffSum / Math.max(1, stats.length - 1)
 
   const litSeries = stats.map((s) => s.litPct)
   const peakLitPct = Math.max(...litSeries)
-  const minLitPct = Math.min(...litSeries)
 
+  // prominent maxima on the smoothed series — each build/dissolve wave counts once
+  const smoothed = litSeries.map((_, i) => {
+    const lo = Math.max(0, i - 2)
+    const hi = Math.min(litSeries.length - 1, i + 2)
+    let sum = 0
+    for (let k = lo; k <= hi; k++) sum += litSeries[k] as number
+    return sum / (hi - lo + 1)
+  })
   let maximaCount = 0
-  for (let i = 1; i < litSeries.length - 1; i++) {
-    const prev = litSeries[i - 1] as number
-    const cur = litSeries[i] as number
-    const next = litSeries[i + 1] as number
-    if (cur > prev && cur >= next && cur > peakLitPct * 0.3) maximaCount += 1
+  for (let i = 1; i < smoothed.length - 1; i++) {
+    const v = smoothed[i] as number
+    if (v > (smoothed[i - 1] as number) && v >= (smoothed[i + 1] as number) && v >= peakLitPct * 0.25) maximaCount += 1
   }
 
-  const substantialFloor = peakLitPct * 0.25
-  const symmetricFrames = stats.filter((s) => s.litPct >= substantialFloor)
-  const bestMirrorRatio = symmetricFrames.length > 0 ? Math.max(...symmetricFrames.map((s) => s.mirrorRatio)) : 0
-  const balancedCandidates = symmetricFrames.filter((s) => s.mirrorRatio >= 0.95)
-  const worstQuadDeviationAtHighMirror =
-    balancedCandidates.length > 0 ? Math.max(...balancedCandidates.map((s) => s.quadrantDeviation)) : 1
+  const decile = Math.max(1, Math.floor(stats.length * 0.1))
+  const mean = (slice: FrameStats[]): number =>
+    slice.reduce((sum, s) => sum + s.litPct, 0) / Math.max(1, slice.length)
+  const headMeanLit = mean(stats.slice(0, decile))
+  const tailMeanLit = mean(stats.slice(stats.length - decile))
+
+  const mirrorChecked = stats.filter((s) => s.litPct > MIRROR_MIN_LIT)
+  const worstMirrorRatio = mirrorChecked.length > 0 ? Math.min(...mirrorChecked.map((s) => s.mirrorRatio)) : 1
+
+  let loopDiffSum = 0
+  for (let i = 0; i < firstData.length; i++) loopDiffSum += Math.abs((firstData[i] as number) - (lastData[i] as number))
+  const loopMeanDiff = loopDiffSum / firstData.length
 
   return {
     facts,
     envelope: {
       stats,
       peakLitPct,
+      bgMeanMax: Math.max(...stats.map((s) => s.bgMeanBrightness)),
+      fieldMeanMax: Math.max(...stats.map((s) => s.meanBrightness)),
       maximaCount,
-      minLitPct,
-      bestMirrorRatio,
-      worstQuadDeviationAtHighMirror,
-      bgMeanMax: Math.max(...stats.map((s) => s.bgMeanBrightness))
+      headMeanLit,
+      tailMeanLit,
+      worstMirrorRatio,
+      mirrorCheckedFrames: mirrorChecked.length,
+      loopMeanDiff,
+      motionMeanDiff
     }
   }
 }
@@ -107,7 +140,8 @@ function checkSpec(facts: Awaited<ReturnType<typeof probeVideo>>, expect: GateEx
     fpsOk &&
     durationOk &&
     facts.codec === 'h264' &&
-    facts.pixFmt === 'yuv420p'
+    facts.pixFmt === 'yuv420p' &&
+    facts.audioStreamCount === 0
   const parts: string[] = []
   if (facts.width !== expect.width || facts.height !== expect.height) {
     parts.push(`resolution ${facts.width}x${facts.height} != ${expect.width}x${expect.height}`)
@@ -117,74 +151,71 @@ function checkSpec(facts: Awaited<ReturnType<typeof probeVideo>>, expect: GateEx
   if (!durationOk) parts.push(`duration ${facts.durationSeconds.toFixed(3)}s != ${expectedDuration.toFixed(3)}s`)
   if (facts.codec !== 'h264') parts.push(`codec ${String(facts.codec)} != h264`)
   if (facts.pixFmt !== 'yuv420p') parts.push(`pix_fmt ${String(facts.pixFmt)} != yuv420p`)
+  if (facts.audioStreamCount !== 0) parts.push(`audio streams ${facts.audioStreamCount} != 0`)
   return {
     rule: 'spec-exact',
     passed: specOk,
     detail: specOk
-      ? `${facts.width}x${facts.height}@${facts.fps.toFixed(2)}, ${facts.codec}/${facts.pixFmt}, ${facts.durationSeconds.toFixed(3)}s`
+      ? `${facts.width}x${facts.height}@${facts.fps.toFixed(2)}, ${facts.codec}/${facts.pixFmt}, video only, ${facts.durationSeconds.toFixed(3)}s`
       : parts.join('; ')
   }
 }
 
 function checkBackground(envelope: Envelope): GateRuleResult {
-  const passed = envelope.bgMeanMax <= BG_LIMIT
+  const passed = envelope.bgMeanMax <= BG_LIMIT && envelope.fieldMeanMax <= FIELD_LIMIT
   return {
-    rule: 'background-dark',
+    rule: 'dark-ground',
     passed,
-    detail: `max background mean ${envelope.bgMeanMax.toFixed(2)}/255 vs limit ${BG_LIMIT}`
+    detail: `max background mean ${envelope.bgMeanMax.toFixed(2)}/255 vs limit ${BG_LIMIT}; max field mean ${envelope.fieldMeanMax.toFixed(2)}/255 vs limit ${FIELD_LIMIT}`
   }
 }
 
-function checkEnvelopeShape(envelope: Envelope): GateRuleResult {
-  const hasStructure = envelope.maximaCount >= 2
-  const hasReset = envelope.minLitPct < Math.max(0.3, envelope.peakLitPct * 0.05)
-  const peakInRange = envelope.peakLitPct >= DENSITY_MIN_PEAK_PCT && envelope.peakLitPct <= DENSITY_MAX_PEAK_PCT
-  const passed = hasStructure && hasReset && peakInRange
+function checkCoverage(envelope: Envelope): GateRuleResult {
+  const passed = envelope.peakLitPct >= COVERAGE_MIN_PEAK && envelope.peakLitPct <= COVERAGE_MAX_PEAK
   return {
-    rule: 'density-envelope',
+    rule: 'coverage',
     passed,
-    detail: `local maxima=${envelope.maximaCount}, min lit%=${envelope.minLitPct.toFixed(3)}, peak=${envelope.peakLitPct.toFixed(3)} within ${DENSITY_MIN_PEAK_PCT.toFixed(2)}-${DENSITY_MAX_PEAK_PCT.toFixed(2)}`
-  }
-}
-
-function checkCoda(envelope: Envelope): GateRuleResult {
-  const final = envelope.stats.at(-1)
-  const tail = envelope.stats.slice(-CODA_WINDOW_FRAMES, -1)
-  const nonBlackTail = tail.filter((stat) => stat.litPct > CODA_MIN_LIT_PCT)
-  const tailPeak = Math.max(...nonBlackTail.map((stat) => stat.litPct), 0)
-  const stableFrames = nonBlackTail.filter(
-    (stat) => stat.mirrorRatio >= CODA_MIN_MIRROR_RATIO && stat.quadrantDeviation <= CODA_MAX_QUADRANT_DEVIATION
-  )
-  const allNonBlackFramesAreStable = stableFrames.length === nonBlackTail.length
-  const blackCut = (final?.litPct ?? 0) <= 0.005 && (final?.bgMeanBrightness ?? 0) <= BG_LIMIT
-  const sparseTail =
-    tailPeak > CODA_MIN_LIT_PCT &&
-    nonBlackTail.length >= CODA_MIN_STABLE_FRAMES &&
-    allNonBlackFramesAreStable &&
-    tailPeak < envelope.peakLitPct * CODA_MAX_PEAK_RATIO
-  const passed = blackCut && sparseTail
-  return {
-    rule: 'sparse-four-pad-tail-black-cut',
-    passed,
-    detail: `tail peak=${tailPeak.toFixed(3)}, stable tail frames=${stableFrames.length}/${nonBlackTail.length}, final lit%=${(final?.litPct ?? 0).toFixed(3)}, black cut=${blackCut}`
+    detail: `peak lit ${envelope.peakLitPct.toFixed(2)}% vs expected ${COVERAGE_MIN_PEAK}-${COVERAGE_MAX_PEAK}%`
   }
 }
 
 function checkSymmetry(envelope: Envelope): GateRuleResult {
-  const passed = envelope.bestMirrorRatio >= 0.95
+  const passed = envelope.mirrorCheckedFrames > 0 && envelope.worstMirrorRatio >= MIRROR_MIN_RATIO
   return {
-    rule: 'symmetry-phase',
+    rule: 'symmetry-always',
     passed,
-    detail: `best mirrorRatio during dense phases=${envelope.bestMirrorRatio.toFixed(3)}`
+    detail: `worst mirror ratio ${envelope.worstMirrorRatio.toFixed(3)} over ${envelope.mirrorCheckedFrames} frames with lit > ${MIRROR_MIN_LIT}% (min ${MIRROR_MIN_RATIO})`
   }
 }
 
-function checkQuadrants(envelope: Envelope): GateRuleResult {
-  const passed = envelope.worstQuadDeviationAtHighMirror <= 0.15
+function checkBreathing(envelope: Envelope): GateRuleResult {
+  const floor = envelope.peakLitPct * BREATHING_END_RATIO
+  const passed =
+    envelope.maximaCount >= BREATHING_MIN_MAXIMA &&
+    envelope.headMeanLit < floor &&
+    envelope.tailMeanLit < floor
   return {
-    rule: 'quadrant-balance',
+    rule: 'breathing',
     passed,
-    detail: `worst quadrant deviation at mirror>=0.95=${(envelope.worstQuadDeviationAtHighMirror * 100).toFixed(1)}%`
+    detail: `${envelope.maximaCount} density maxima (min ${BREATHING_MIN_MAXIMA}); head ${envelope.headMeanLit.toFixed(2)}% / tail ${envelope.tailMeanLit.toFixed(2)}% vs ${(floor).toFixed(2)}% floor from peak ${envelope.peakLitPct.toFixed(2)}%`
+  }
+}
+
+function checkLoop(envelope: Envelope): GateRuleResult {
+  const passed = envelope.loopMeanDiff <= LOOP_MEAN_DIFF_LIMIT
+  return {
+    rule: 'loop-closure',
+    passed,
+    detail: `first<->last frame mean abs diff ${envelope.loopMeanDiff.toFixed(3)}/255 vs limit ${LOOP_MEAN_DIFF_LIMIT}`
+  }
+}
+
+function checkMotion(envelope: Envelope): GateRuleResult {
+  const passed = envelope.motionMeanDiff >= MOTION_MIN_MEAN_DIFF
+  return {
+    rule: 'motion-present',
+    passed,
+    detail: `mean consecutive-frame abs diff ${envelope.motionMeanDiff.toFixed(3)}/255 vs min ${MOTION_MIN_MEAN_DIFF}`
   }
 }
 
@@ -193,10 +224,11 @@ export async function runGate(videoPath: string, expectations: GateExpectations)
   const rules: GateRuleResult[] = [
     checkSpec(facts, expectations),
     checkBackground(envelope),
-    checkEnvelopeShape(envelope),
-    checkCoda(envelope),
+    checkCoverage(envelope),
     checkSymmetry(envelope),
-    checkQuadrants(envelope)
+    checkBreathing(envelope),
+    checkLoop(envelope),
+    checkMotion(envelope)
   ]
   return {
     file: videoPath,
@@ -208,7 +240,8 @@ export async function runGate(videoPath: string, expectations: GateExpectations)
       durationSeconds: facts.durationSeconds,
       frameCount: facts.frameCount,
       codec: facts.codec,
-      pixFmt: facts.pixFmt
+      pixFmt: facts.pixFmt,
+      audioStreamCount: facts.audioStreamCount
     },
     rules
   }

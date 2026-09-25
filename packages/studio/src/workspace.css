@@ -522,7 +522,7 @@
   background: linear-gradient(180deg, var(--warn), transparent);
 }
 
-.shot-playhead {
+.ribbon-playhead {
   position: absolute;
   z-index: 2;
   top: 0;
