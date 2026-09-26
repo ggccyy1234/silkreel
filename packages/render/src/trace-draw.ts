@@ -1,6 +1,5 @@
 import type { FlatPath, TraceTimeline } from '@silk-reel/choreo'
-
-const MONO_FONT = 'Menlo, Consolas, "Liberation Mono", monospace'
+import { FONT } from './font'
 
 const ease = (x: number): number => {
   const t = Math.min(1, Math.max(0, x))
@@ -270,7 +269,7 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     ctx.save()
     ctx.translate(text.x, text.y)
     ctx.rotate(text.rot)
-    ctx.font = `${text.size}px ${MONO_FONT}`
+    ctx.font = `${text.size}px ${FONT}`
     ctx.globalAlpha = fade * 0.9
     ctx.fillText(shown, 0, 0)
     ctx.restore()

@@ -5,6 +5,7 @@ import { drawFrame, buildScene } from './film'
 import type { Scene } from './film'
 import { createPost } from './post'
 import type { Post } from './post'
+import { useFont } from './font'
 
 export interface FilmProps {
   timeline: Timeline
@@ -12,6 +13,7 @@ export interface FilmProps {
 }
 
 export const FilmCanvas: React.FC<FilmProps> = ({ timeline, children }) => {
+  useFont()
   const frame = useCurrentFrame()
   const { width, height } = useVideoConfig()
   const canvasRef = React.useRef<HTMLCanvasElement>(null)

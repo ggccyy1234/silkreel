@@ -1,13 +1,13 @@
 import { sampleTrack } from '@silk-reel/choreo'
 import type { AtomState, GlyphLabel, GlyphTimeline, Timeline } from '@silk-reel/choreo'
 import { drawTraceFrame } from './trace-draw'
+import { FONT } from './font'
 /** hairline stroke width in output pixels (constant regardless of glyph scale) */
 const INK_PX = 1.3
 /** stage [-1,1] maps to ±33% of frame height around the center */
 const STAGE = 0.33
 /** fade-to-black window at both loop edges, as a fraction of the loop */
 const BREATH = 0.02
-const TEXT_FONT = 'Menlo, Consolas, "Liberation Mono", monospace'
 
 export interface GlyphRender {
   path: Path2D | undefined
@@ -59,7 +59,7 @@ function drawAtom(
   const fy = atom.flipY === true ? -1 : 1
   ctx.scale(sizePx * fx, sizePx * fy)
   if (glyph.text !== undefined) {
-    ctx.font = `1px ${TEXT_FONT}`
+    ctx.font = `1px ${FONT}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(glyph.text, 0, 0)
@@ -73,7 +73,7 @@ function drawAtom(
       ctx.save()
       ctx.translate(label.x, label.y)
       ctx.rotate(label.rot)
-      ctx.font = `${label.size}px ${TEXT_FONT}`
+      ctx.font = `${label.size}px ${FONT}`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(label.text, 0, 0)
