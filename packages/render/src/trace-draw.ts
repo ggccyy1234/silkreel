@@ -97,12 +97,12 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
   ctx.lineJoin = 'round'
   let drawn = 0
 
-  // 1 outline — dash reveal over the outline beat
-  const outlineFrac = within(p, s.beats.outline)
+  // 1 outline — dash reveal completing by p=0.07 so the hook lands fast
+  const outlineFrac = within(p, [s.beats.outline[0], s.beats.outline[0] + 0.07])
   if (outlineFrac > 0) {
     ctx.strokeStyle = pal.silk
-    ctx.lineWidth = Math.max(1.2, W * 0.0013)
-    ctx.globalAlpha = fade * 0.9
+    ctx.lineWidth = 1.5
+    ctx.globalAlpha = fade * 0.7
     for (const path of s.outline) {
       strokeReveal(ctx, path, outlineFrac)
       drawn += 1
