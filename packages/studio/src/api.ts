@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { FilmConfig } from '@silk-reel/choreo'
 import type { BoardModel } from '@silk-reel/ingest'
+import type { ExportFormat } from './film-config'
 
 export interface BoardSummary {
   board: BoardModel
@@ -168,7 +170,13 @@ export function toExportJob(jobId: string, response: RenderJobResponse): ExportJ
   }
 }
 
-export async function submitExport(payload: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
+export interface ExportPayload {
+  boardJson: BoardModel
+  filmConfig: FilmConfig
+  format: ExportFormat
+}
+
+export async function submitExport(payload: ExportPayload, signal?: AbortSignal): Promise<string> {
   const res = await fetch(`${API}/api/export`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

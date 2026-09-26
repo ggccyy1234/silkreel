@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { boardModel } from '../../choreo/test/helpers.js'
-import { cancelJob, pollJob, summarize, toExportJob } from './api.js'
+import { cancelJob, pollJob, submitExport, summarize, toExportJob } from './api.js'
 
 describe('studio board summary', () => {
   it('reports board layers and element counts', () => {
@@ -98,6 +98,28 @@ describe('studio job polling', () => {
 
     await expect(polling).resolves.toMatchObject({ jobId: 'job-1', status: 'cancelled', progress: 24 })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('studio export submission', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('posts the board, the full style-engine config and the format', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ jobId: 'job-9' }), { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const board = boardModel('ecc83-pp.kicad_pcb')
+    const filmConfig = {
+      style: 'trace' as const, aspect: '9:16' as const, palette: 'phosphor' as const, accent: '#ff00aa', title: { name: 'ECC83', version: 'v2' },
+      knobs: { density: 1, tempo: 1.2 }, seed: 7, duration: 'auto' as const, output: { width: 1080, height: 1920, fps: 30 }
+    }
+    await expect(submitExport({ boardJson: board, filmConfig, format: 'webm-alpha' })).resolves.toBe('job-9')
+    const [url, init] = fetchMock.mock.calls[0] ?? []
+    expect(url).toBe('/api/export')
+    const body = JSON.parse(init?.body as string) as { filmConfig: unknown; format: string }
+    expect(body.format).toBe('webm-alpha')
+    expect(body.filmConfig).toEqual(filmConfig)
   })
 })
 

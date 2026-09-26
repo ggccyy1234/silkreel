@@ -1,9 +1,11 @@
-import { compileTimeline } from '@silk-reel/choreo'
-import type { FilmConfig, Knobs } from '@silk-reel/choreo'
+import { ASPECT_SIZE, compileTimeline, DEMO_CAST_HINTS, PALETTES } from '@silk-reel/choreo'
+import type { Aspect, FilmConfig, Knobs, Palette, PaletteId, StyleId } from '@silk-reel/choreo'
 import type { BoardModel } from '@silk-reel/ingest'
 
+/** fixture boards pick up the same curated cast hints the CLI and render-api use */
 export function compileStudioFilm(board: BoardModel, config: FilmConfig) {
-  const resolved: FilmConfig = { ...config, style: 'glyph' }
+  const cast = config.cast ?? DEMO_CAST_HINTS[board.source.boardName]
+  const resolved: FilmConfig = { ...config, ...(cast !== undefined ? { cast } : {}) }
   const timeline = compileTimeline(board, resolved)
   return {
     timeline,
@@ -14,10 +16,29 @@ export function compileStudioFilm(board: BoardModel, config: FilmConfig) {
 
 export const KNOB_RANGES = {
   density: { min: 0.5, max: 1.5, step: 0.05 },
+  tempo: { min: 0.75, max: 1.5, step: 0.05 },
   texts: { min: 0, max: 1, step: 1 }
 } as const
 
+export const STYLES: ReadonlyArray<{ id: StyleId; label: string }> = [
+  { id: 'trace', label: 'Trace Growth' },
+  { id: 'glyph', label: 'Glyph Loop' }
+]
+export const ASPECTS = Object.keys(ASPECT_SIZE) as Aspect[]
+export const PALETTE_LIST: readonly Palette[] = Object.values(PALETTES)
+
+export type ExportFormat = 'mp4' | 'gif' | 'webm-alpha' | 'prores-alpha'
+export const FORMATS: ReadonlyArray<{ id: ExportFormat; label: string }> = [
+  { id: 'mp4', label: 'MP4' },
+  { id: 'gif', label: 'GIF' },
+  { id: 'webm-alpha', label: 'WebM alpha' },
+  { id: 'prores-alpha', label: 'ProRes alpha' }
+]
+
 export const DEMO_BOARDS = [
+  { id: 'icebreaker', label: 'iCEBreaker', detail: 'iCE40 FPGA dev board, 4 layers' },
+  { id: 'glasgow', label: 'Glasgow', detail: 'digital interface explorer, 4 layers' },
+  { id: 'StickHub', label: 'StickHub', detail: 'compact USB hub stick' },
   { id: 'ecc83-pp', label: 'ECC83 preamp', detail: '159 KB, through-hole valve preamp' },
   { id: 'kit-dev-coldfire-xilinx_5213', label: 'ColdFire dev kit', detail: '2.8 MB, through-hole + FPGA' },
   { id: 'video', label: 'Video board', detail: '5.8 MB, 4 copper layers, the stress test' }
@@ -26,10 +47,11 @@ export const DEMO_BOARDS = [
 export type StudioKnobs = Knobs
 
 export interface StudioState {
-  source:
-    | { kind: 'demo'; demoId: string }
-    | { kind: 'file'; fileName: string; boardText: string }
-    | null
+  style: StyleId
+  aspect: Aspect
+  palette: PaletteId | undefined
+  accent: string | undefined
+  title: { name: string; version: string }
   knobs: StudioKnobs
   seed: number | null
   duration: 'auto' | number
@@ -37,5 +59,25 @@ export interface StudioState {
 
 export const DEFAULT_KNOBS: StudioKnobs = {
   density: 1,
+  tempo: 1,
   texts: 1
+}
+
+export const STUDIO_FPS = 30
+
+/** studio controls → FilmConfig; an empty title name means no card, palette undefined means the style's default */
+export function studioFilmConfig(s: StudioState): FilmConfig {
+  const name = s.title.name.trim()
+  const version = s.title.version.trim()
+  return {
+    style: s.style,
+    aspect: s.aspect,
+    knobs: s.knobs,
+    seed: s.seed,
+    duration: s.duration,
+    output: { ...ASPECT_SIZE[s.aspect], fps: STUDIO_FPS },
+    ...(s.palette !== undefined ? { palette: s.palette } : {}),
+    ...(s.accent !== undefined ? { accent: s.accent } : {}),
+    ...(name !== '' ? { title: { name, ...(version !== '' ? { version } : {}) } } : {})
+  }
 }

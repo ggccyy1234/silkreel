@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { parseKicadPcb } from '@silk-reel/ingest'
 import type { BoardModel } from '@silk-reel/ingest'
-import { compileTimeline } from '@silk-reel/choreo'
-import type { CastHints, FilmConfig, Timeline } from '@silk-reel/choreo'
+import { compileTimeline, DEMO_CAST_HINTS } from '@silk-reel/choreo'
+import type { FilmConfig, Timeline } from '@silk-reel/choreo'
 import type { FilmInputProps } from '@silk-reel/render'
 
 export const DEMO_BOARDS = [
@@ -15,18 +15,6 @@ export const DEMO_BOARDS = [
   'glasgow'
 ] as const
 export type DemoBoardId = (typeof DEMO_BOARDS)[number]
-
-/** per-board cast curation — the art director's pick of hero footprints/labels */
-const HERO_HINTS: Partial<Record<DemoBoardId, CastHints>> = {
-  icebreaker: {
-    preferRefs: ['P1', 'SW1', 'SW2', 'SW3', 'SW4', 'J31', 'J33', 'J34', 'U4', 'U5', 'U6'],
-    preferTexts: ['iCEBreaker', 'V1.0e', 'FPGA', 'FLASH', 'PMOD1A', 'PMOD1B', 'RGBLED', 'WS2812']
-  },
-  glasgow: {
-    preferRefs: ['J4', 'J2', 'J3', 'J1', 'J5', 'J10', 'U1', 'SW1'],
-    preferTexts: ['ADC A', 'ADC B', 'AUX', 'ACT', '5V', '3V3', '1V2', 'LVDS']
-  }
-}
 
 export function isDemoBoardId(value: string): value is DemoBoardId {
   return (DEMO_BOARDS as readonly string[]).includes(value)
@@ -70,7 +58,7 @@ export function compileFilm(board: BoardModel, config: FilmConfig): { timeline: 
 }
 
 export function defaultFilmConfig(demoId?: string): FilmConfig {
-  const cast = isDemoBoardId(demoId ?? '') ? HERO_HINTS[demoId as DemoBoardId] : undefined
+  const cast = demoId === undefined ? undefined : DEMO_CAST_HINTS[demoId]
   return {
     style: 'trace',
     aspect: '4:5',

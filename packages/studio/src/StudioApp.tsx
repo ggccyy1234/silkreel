@@ -1,12 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react'
-import type { FilmConfig, Timeline } from '@silk-reel/choreo'
+import type { Aspect, FilmConfig, PaletteId, StyleId, Timeline } from '@silk-reel/choreo'
 import { Film } from '@silk-reel/render'
 import { Player } from '@remotion/player'
 import type { PlayerRef } from '@remotion/player'
 import type { BoardModel } from '@silk-reel/ingest'
 import './workspace.css'
-import { compileStudioFilm, DEFAULT_KNOBS, KNOB_RANGES, DEMO_BOARDS } from './film-config'
-import type { StudioKnobs } from './film-config'
+import { ASPECTS, compileStudioFilm, DEFAULT_KNOBS, DEMO_BOARDS, FORMATS, KNOB_RANGES, PALETTE_LIST, STYLES, studioFilmConfig } from './film-config'
+import type { ExportFormat, StudioKnobs } from './film-config'
 import { cancelJob, downloadUrl, pollJob, submitExport, summarize, useBoardSources, useDebouncedCallback } from './api'
 import type { BoardSummary, ExportJob } from './api'
 
@@ -38,6 +38,8 @@ export const StudioApp: React.FC = () => {
   const [knobs, setKnobs] = useState<StudioKnobs>(DEFAULT_KNOBS)
   const [seed, setSeed] = useState<number | null>(42)
   const [duration, setDuration] = useState<'auto' | number>('auto')
+  const [look, setLook] = useState<Look>(DEFAULT_LOOK)
+  const [format, setFormat] = useState<ExportFormat>('mp4')
   const [film, setFilm] = useState<CompiledFilm | null>(null)
   const [compileError, setCompileError] = useState<string | null>(null)
   const [compileStale, setCompileStale] = useState(false)
@@ -76,6 +78,7 @@ export const StudioApp: React.FC = () => {
     setKnobs(DEFAULT_KNOBS)
     setSeed(42)
     setDuration('auto')
+    setLook(DEFAULT_LOOK)
     setFilm(null)
     setCompileError(null)
     setCompileStale(true)
@@ -84,18 +87,13 @@ export const StudioApp: React.FC = () => {
   }, [cancelExport])
 
   const config: FilmConfig = useMemo(
-    () => ({
-      knobs,
-      seed,
-      duration,
-      output: { width: 1080, height: 1350, fps: 15 }
-    }),
-    [knobs, seed, duration]
+    () => studioFilmConfig({ ...look, knobs, seed, duration }),
+    [look, knobs, seed, duration]
   )
 
   React.useEffect(() => {
     if (!exportInFlightRef.current) setExportState(null)
-  }, [config])
+  }, [config, format])
 
   const recompile = useCallback(() => {
     if (!summary) return
@@ -129,7 +127,8 @@ export const StudioApp: React.FC = () => {
     try {
       const jobId = await submitExport({
         boardJson: summary.board,
-        filmConfig: film.config
+        filmConfig: film.config,
+        format
       }, controller.signal)
       if (exportControllerRef.current !== controller) return
       exportJobIdRef.current = jobId
@@ -158,7 +157,7 @@ export const StudioApp: React.FC = () => {
         exportInFlightRef.current = false
       }
     }
-  }, [summary, film, compileStale])
+  }, [summary, film, compileStale, format])
 
   if (screen === 'landing' || !summary) {
     return (
@@ -193,6 +192,12 @@ export const StudioApp: React.FC = () => {
       onSeed={setSeed}
       duration={duration}
       onDuration={setDuration}
+      look={look}
+      onLook={(patch) => {
+        setLook((prev) => ({ ...prev, ...patch }))
+      }}
+      format={format}
+      onFormat={setFormat}
       onHome={() => {
         void cancelExport(false)
         setExportState(null)
@@ -226,11 +231,11 @@ const Landing: React.FC<{
           <span className="landing-kicker">procedural pcb film studio</span>
           <h1 className="wordmark">silk reel</h1>
         </div>
-        <p className="tagline">Real board geometry, choreographed into looping glyph films. The source stays yours.</p>
+        <p className="tagline">Real board geometry, grown into post-ready release films. The source stays yours.</p>
         <div className="lab-status" aria-label="studio format">
-          <span>1080 × 1350</span>
-          <span>15 fps</span>
-          <span>h.264</span>
+          <span>4:5 · 1:1 · 9:16 · 16:9</span>
+          <span>30 fps</span>
+          <span>mp4 · gif · alpha</span>
         </div>
       </header>
       <div className="intake-grid">
@@ -274,8 +279,8 @@ const Landing: React.FC<{
         </section>
         <aside className="format-note" aria-label="supported workflow">
           <span>ingest</span><strong>KiCad PCB</strong>
-          <span>film</span><strong>glyph loop</strong>
-          <span>output</span><strong>MP4 + gate</strong>
+          <span>film</span><strong>trace growth · glyph loop</strong>
+          <span>output</span><strong>MP4 · GIF · WebM/ProRes alpha</strong>
           <p>Gerber sets join the pipeline in m4.</p>
         </aside>
       </div>
@@ -322,6 +327,10 @@ interface WorkspaceProps {
   onSeed: (seed: number | null) => void
   duration: 'auto' | number
   onDuration: (duration: 'auto' | number) => void
+  look: Look
+  onLook: (patch: Partial<Look>) => void
+  format: ExportFormat
+  onFormat: (format: ExportFormat) => void
   onHome: () => void
   exportState: ExportState | null
   onExport: () => Promise<void>
@@ -337,6 +346,18 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
         <button className="ghost" onClick={props.onHome}>← boards</button>
         <h1 className="board-name">{summary.fileName}</h1>
         <span className="board-meta">{summary.layerCount} source layers · {summary.elementCount.toLocaleString()} primitives</span>
+        <label className="format-select">
+          <span className="visually-hidden">export format</span>
+          <select
+            value={props.format}
+            disabled={exportBusy}
+            onChange={(e) => {
+              props.onFormat(e.target.value as ExportFormat)
+            }}
+          >
+            {FORMATS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+        </label>
         <ExportControl state={props.exportState} onExport={props.onExport} onCancel={props.onCancelExport} disabled={props.compileStale || film === null} />
       </header>
       <div className="workspace-body">
@@ -358,8 +379,9 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
               </ul>
             </details>
           )}
-          <BoardLedger summary={summary} elementCount={film !== null && film.timeline.style === 'glyph' ? film.timeline.cast.length : 0} />
+          <LookPanel look={props.look} onLook={props.onLook} disabled={exportBusy} />
           <KnobPanel
+            style={props.look.style}
             knobs={props.knobs}
             onKnobs={props.onKnobs}
             seed={props.seed}
@@ -368,6 +390,7 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
             onDuration={props.onDuration}
             disabled={exportBusy}
           />
+          <BoardLedger summary={summary} elementCount={film !== null && film.timeline.style === 'glyph' ? film.timeline.cast.length : 0} />
         </aside>
       </div>
     </main>
@@ -407,9 +430,9 @@ const PlayerPane: React.FC<{ timeline: Timeline; stale: boolean }> = ({ timeline
 
     setPlaying(player.isPlaying())
     if (!posterChosen.current) {
-      const formations = timeline.style === 'glyph' ? timeline.formations : []
-      const quad = formations.find((formation) => formation.id === 'quad') ?? formations[formations.length - 1]
-      const posterFrame = Math.floor(((quad?.startPhase ?? 0) + (quad?.endPhase ?? 1)) / 2 * timeline.totalFrames)
+      const segments = filmSegments(timeline)
+      const poster = segments.find((segment) => segment.id === 'quad' || segment.id === 'hold') ?? segments[segments.length - 1]
+      const posterFrame = Math.floor(((poster?.startPhase ?? 0) + (poster?.endPhase ?? 1)) / 2 * timeline.totalFrames)
       player.seekTo(posterFrame)
       currentFrameRef.current = posterFrame
       setCurrentFrame(posterFrame)
@@ -490,9 +513,19 @@ const FORMATION_LABELS: Record<string, string> = {
   quad: 'quad'
 }
 
+interface FilmSegment { id: string; beat: number; startPhase: number; endPhase: number }
+
+/** ribbon blocks: glyph formations, or the trace beats laid end to end */
+function filmSegments(timeline: Timeline): FilmSegment[] {
+  if (timeline.style === 'glyph') return timeline.formations
+  const b = timeline.scene.beats
+  const cuts: Array<[string, number]> = [['build', 0], ['growth', b.growth[0]], ['finish', b.growth[1]], ['hold', b.hold[0]], ['fade', b.fade[0]]]
+  return cuts.map(([id, start], i) => ({ id, beat: i, startPhase: start, endPhase: cuts[i + 1]?.[1] ?? 1 }))
+}
+
 const FormationRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject<PlayerRef | null>; currentFrame: number }> = ({ timeline, playerRef, currentFrame }) => {
   const total = timeline.totalFrames
-  const formations = timeline.style === 'glyph' ? timeline.formations : []
+  const formations = filmSegments(timeline)
   const seekFromPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
     const bounds = event.currentTarget.getBoundingClientRect()
     const progress = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
@@ -561,7 +594,124 @@ const FormationRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject
   )
 }
 
+interface Look {
+  style: StyleId
+  aspect: Aspect
+  palette: PaletteId | undefined
+  accent: string | undefined
+  title: { name: string; version: string }
+}
+
+const DEFAULT_LOOK: Look = { style: 'trace', aspect: '4:5', palette: undefined, accent: undefined, title: { name: '', version: '' } }
+
+const ASPECT_BOX: Record<Aspect, [number, number]> = { '4:5': [12, 15], '1:1': [14, 14], '9:16': [9, 16], '16:9': [16, 9] }
+
+const LookPanel: React.FC<{ look: Look; onLook: (patch: Partial<Look>) => void; disabled: boolean }> = ({ look, onLook, disabled }) => {
+  const defaultPalette = look.style === 'glyph' ? 'mono' : 'copper'
+  const activePalette = look.palette ?? defaultPalette
+  const activeHead = PALETTE_LIST.find((p) => p.id === activePalette)?.head ?? '#ffffff'
+  return (
+    <section className="panel look-panel">
+      <h2>look</h2>
+      <div className="segmented" role="radiogroup" aria-label="style">
+        {STYLES.map((st) => (
+          <button
+            key={st.id}
+            role="radio"
+            aria-checked={look.style === st.id}
+            className={look.style === st.id ? 'seg seg-on' : 'seg'}
+            disabled={disabled}
+            onClick={() => {
+              onLook({ style: st.id })
+            }}
+          >{st.label}</button>
+        ))}
+      </div>
+      <div className="chip-row" role="radiogroup" aria-label="aspect">
+        {ASPECTS.map((a) => {
+          const [w, h] = ASPECT_BOX[a]
+          return (
+            <button
+              key={a}
+              role="radio"
+              aria-checked={look.aspect === a}
+              className={look.aspect === a ? 'chip chip-on' : 'chip'}
+              disabled={disabled}
+              onClick={() => {
+                onLook({ aspect: a })
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <rect x={(16 - w) / 2 + 0.5} y={(16 - h) / 2 + 0.5} width={w - 1} height={h - 1} fill="none" stroke="currentColor" />
+              </svg>
+              {a}
+            </button>
+          )
+        })}
+      </div>
+      <div className="swatch-row" role="radiogroup" aria-label="palette">
+        {PALETTE_LIST.map((pal) => (
+          <button
+            key={pal.id}
+            role="radio"
+            aria-checked={activePalette === pal.id}
+            aria-label={pal.id}
+            title={pal.id}
+            className={activePalette === pal.id ? 'swatch swatch-on' : 'swatch'}
+            style={{ background: `linear-gradient(90deg, ${pal.bg} 0 34%, ${pal.copper} 34% 67%, ${pal.head} 67%)` }}
+            disabled={disabled}
+            onClick={() => {
+              onLook({ palette: pal.id === defaultPalette ? undefined : pal.id as PaletteId })
+            }}
+          />
+        ))}
+        <label className="accent-field" title="accent colour (growth heads, hero)">
+          <input
+            type="color"
+            aria-label="accent colour"
+            value={look.accent ?? activeHead}
+            disabled={disabled}
+            onChange={(e) => {
+              onLook({ accent: e.target.value })
+            }}
+          />
+          {look.accent !== undefined && (
+            <button className="ghost" aria-label="clear accent" disabled={disabled} onClick={() => {
+              onLook({ accent: undefined })
+            }}>✕</button>
+          )}
+        </label>
+      </div>
+      <div className="title-fields">
+        <input
+          type="text"
+          aria-label="title card name"
+          placeholder="board name (empty: no card)"
+          maxLength={40}
+          value={look.title.name}
+          disabled={disabled}
+          onChange={(e) => {
+            onLook({ title: { ...look.title, name: e.target.value } })
+          }}
+        />
+        <input
+          type="text"
+          aria-label="title card version"
+          placeholder="v1.0"
+          maxLength={24}
+          value={look.title.version}
+          disabled={disabled || look.title.name.trim() === ''}
+          onChange={(e) => {
+            onLook({ title: { ...look.title, version: e.target.value } })
+          }}
+        />
+      </div>
+    </section>
+  )
+}
+
 const KnobPanel: React.FC<{
+  style: StyleId
   knobs: StudioKnobs
   onKnobs: (patch: Partial<StudioKnobs>) => void
   seed: number | null
@@ -569,10 +719,11 @@ const KnobPanel: React.FC<{
   duration: 'auto' | number
   onDuration: (duration: 'auto' | number) => void
   disabled: boolean
-}> = ({ knobs, onKnobs, seed, onSeed, duration, onDuration, disabled }) => {
+}> = ({ style, knobs, onKnobs, seed, onSeed, duration, onDuration, disabled }) => {
   const rangeKnobs: Array<{ key: keyof typeof KNOB_RANGES; label: string }> = [
     { key: 'density', label: 'density' },
-    { key: 'texts', label: 'texts' }
+    { key: 'tempo', label: 'tempo' },
+    ...(style === 'glyph' ? [{ key: 'texts' as const, label: 'texts' }] : [])
   ]
   return (
     <section className="panel">

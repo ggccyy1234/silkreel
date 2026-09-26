@@ -3,7 +3,7 @@ import path from 'node:path'
 import { parseKicadPcb, UnsupportedFormatError } from '@silk-reel/ingest'
 import type { BoardModel } from '@silk-reel/ingest'
 
-const DEMO_IDS = ['ecc83-pp', 'kit-dev-coldfire-xilinx_5213', 'video'] as const
+const DEMO_IDS = ['ecc83-pp', 'kit-dev-coldfire-xilinx_5213', 'video', 'StickHub', 'icebreaker', 'glasgow'] as const
 export type DemoId = (typeof DEMO_IDS)[number]
 
 export function isDemoId(value: string): value is DemoId {
