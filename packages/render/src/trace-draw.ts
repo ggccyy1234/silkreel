@@ -244,9 +244,18 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     ctx.rotate(pad.rot)
     ctx.scale(scale, scale)
     padPath(ctx, pad.w, pad.h, pad.shape)
-    ctx.fillStyle = pad.side === 'B' ? pal.copperDim : pal.copper
-    ctx.globalAlpha = fade * (pad.side === 'B' ? 0.55 : 0.85)
-    ctx.fill()
+    if (pad.ring === true) {
+      // mounting holes and big pads are rings — a filled blob would dominate
+      // the frame and ride over the bloom threshold
+      ctx.strokeStyle = pad.side === 'B' ? pal.copperDim : pal.copper
+      ctx.lineWidth = 1.5
+      ctx.globalAlpha = fade * (pad.side === 'B' ? 0.55 : 0.85)
+      ctx.stroke()
+    } else {
+      ctx.fillStyle = pad.side === 'B' ? pal.copperDim : pal.copper
+      ctx.globalAlpha = fade * (pad.side === 'B' ? 0.55 : 0.85)
+      ctx.fill()
+    }
     if (k < 1) {
       ctx.strokeStyle = pal.head
       ctx.lineWidth = 1

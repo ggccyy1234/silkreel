@@ -163,6 +163,12 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
     }
     return best
   }
+  // mounting holes sit in copper layers but are really drills — plated:false
+  // marks them; oversized pads draw as rings either way so they never blob
+  const npth = board.drill.filter((d) => d.plated === false)
+  const drillOnly = (pad: Pad): boolean =>
+    npth.some((d) => Math.hypot(d.pos.x - pad.pos.x, d.pos.y - pad.pos.y) < 0.05)
+  const pxMin = Math.min(resolved.width, resolved.height)
   for (const { pad, sides } of padLayerSets.values()) {
     const d = Math.hypot(pad.pos.x - originMm.x, pad.pos.y - originMm.y)
     const isHero = hero !== undefined && pad.footprintRef === hero.ref
@@ -181,7 +187,10 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
       rot: pad.rot * DEG + (fit.rotated ? Math.PI / 2 : 0),
       shape: padShape(pad),
       t,
-      side: sides.size > 1 ? 'both' : ([...sides][0] === 'F' ? 'F' : 'B')
+      side: sides.size > 1 ? 'both' : ([...sides][0] === 'F' ? 'F' : 'B'),
+      ring:
+        Math.min(pad.size.x, pad.size.y) * fit.scale > 0.03 * pxMin ||
+        drillOnly(pad)
     })
   }
   pads.sort((a, b) => a.t - b.t)

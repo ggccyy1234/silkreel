@@ -175,6 +175,8 @@ export interface TracePad {
   /** pop-in time */
   t: number
   side: 'F' | 'B' | 'both'
+  /** mounting holes and oversized pads draw as rings, never filled blobs */
+  ring?: boolean | undefined
 }
 export interface TraceVia { x: number; y: number; r: number; t: number }
 export interface TraceZone { fill: FlatPath; side: 'F' | 'B' | 'inner'; t0: number; t1: number }
