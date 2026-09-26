@@ -64,6 +64,14 @@ const padPath = (ctx: CanvasRenderingContext2D, w: number, h: number, shape: 're
   ctx.rect(-w / 2, -h / 2, w, h)
 }
 
+/** #rrggbb → rgba() string, for gradient stops */
+const withAlpha = (hex: string, a: number): string => {
+  const r = Number.parseInt(hex.slice(1, 3), 16)
+  const g = Number.parseInt(hex.slice(3, 5), 16)
+  const b = Number.parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${a})`
+}
+
 /** first seg index (stride 7) with t0 > p — segs are sorted by t0 */
 const liveSegs = (segs: number[], p: number): number => {
   let lo = 0
@@ -155,7 +163,7 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
   }
   segLens.sort((a, b) => a - b)
   const headMinLen = segLens[Math.floor(segLens.length * 0.6)] ?? 0
-  const heads: Array<{ x: number; y: number; w: number }> = []
+  const heads: Array<{ x: number; y: number; w: number; tx: number; ty: number; len: number }> = []
   for (const layer of s.layers) {
     const front = layer.side === topSide
     ctx.strokeStyle = front ? pal.copper : pal.copperDim
@@ -192,7 +200,12 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
       ctx.moveTo(x0, y0)
       ctx.lineTo(hx, hy)
       ctx.stroke()
-      if (Math.hypot(x1 - x0, y1 - y0) >= headMinLen) heads.push({ x: hx, y: hy, w })
+      const segLenPx = Math.hypot(x1 - x0, y1 - y0)
+      if (segLenPx >= headMinLen) {
+        // a streak reads as motion: the last 30% of the seg trails the head
+        const tf = Math.max(0, frac - 0.3)
+        heads.push({ x: hx, y: hy, w, tx: x0 + (x1 - x0) * tf, ty: y0 + (y1 - y0) * tf, len: segLenPx })
+      }
       drawn += 1
     }
     ctx.globalAlpha = fade * (front ? 1 : 0.45)
@@ -202,11 +215,26 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     }
   }
 
-  // 4 growth heads — bright dots the post pass will bloom
+  // 4 growth heads — bright dots the post pass will bloom, capped so dense
+  // boards read as a wavefront, not confetti; each head drags a fading tail
   if (heads.length > 0) {
+    heads.sort((a, b) => b.len - a.len)
+    for (const head of heads.slice(0, 80)) {
+      const grad = ctx.createLinearGradient(head.tx, head.ty, head.x, head.y)
+      grad.addColorStop(0, withAlpha(pal.head, 0))
+      grad.addColorStop(1, withAlpha(pal.head, 0.9))
+      ctx.strokeStyle = grad
+      ctx.lineWidth = head.w * 2
+      ctx.globalAlpha = fade
+      ctx.beginPath()
+      ctx.moveTo(head.tx, head.ty)
+      ctx.lineTo(head.x, head.y)
+      ctx.stroke()
+      drawn += 1
+    }
     ctx.fillStyle = pal.head
     ctx.globalAlpha = fade
-    for (const head of heads) {
+    for (const head of heads.slice(0, 80)) {
       ctx.beginPath()
       ctx.arc(head.x, head.y, Math.max(2, head.w * 1.3), 0, Math.PI * 2)
       ctx.fill()
