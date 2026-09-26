@@ -22,6 +22,46 @@ export interface Slot {
 const SCALE_FLOOR: Record<GlyphKind, number> = { package: 0.12, text: 0.05, mark: 0.035 }
 const floorScale = (v: number, kind: GlyphKind): number => Math.max(v, SCALE_FLOOR[kind])
 
+/** JetBrains Mono advance, in em — the renderer draws text at font-size = slot scale */
+export const MONO_ADVANCE = 0.6
+
+/** half-extents of one copy's drawn box: text measures its label (rotated
+ *  AABB); packages and marks are unit-normalized, so scale/2 on both axes */
+export function halfExtents(slot: Slot, glyph: Glyph): { hw: number; hh: number } {
+  if (glyph.kind === 'text') {
+    const w = (glyph.text?.length ?? 0) * MONO_ADVANCE * slot.scale
+    const h = slot.scale
+    const c = Math.abs(Math.cos(slot.rot))
+    const s = Math.abs(Math.sin(slot.rot))
+    return { hw: (c * w + s * h) / 2, hh: (s * w + c * h) / 2 }
+  }
+  return { hw: slot.scale / 2, hh: slot.scale / 2 }
+}
+
+export interface Vec {
+  x: number
+  y: number
+}
+
+/** absolute centre of each drawn copy; coincident copies on an axis collapse to one */
+export function copyPositions(slot: Slot): Vec[] {
+  const xs = slot.copies.mode === 'single' || slot.x === 0 ? [slot.x] : [slot.x, -slot.x]
+  const ys = slot.copies.mode !== 'quad' || slot.y === 0 ? [slot.y] : [slot.y, -slot.y]
+  const out: Vec[] = []
+  for (const x of xs) for (const y of ys) out.push({ x, y })
+  return out
+}
+
+interface SlotBox {
+  x: number
+  y: number
+  hw: number
+  hh: number
+}
+
+const boxesOverlap = (a: SlotBox, b: SlotBox): boolean =>
+  Math.abs(a.x - b.x) < a.hw + b.hw && Math.abs(a.y - b.y) < a.hh + b.hh
+
 export interface GlyphGroups {
   packages: Glyph[]
   texts: Glyph[]
@@ -525,23 +565,83 @@ export function buildBeatMaps(
     maps.set(i, buildOne(id, `${id}:${i}`))
   }
   // each formation crowns one hero — the largest package slot it holds
-  const kindOf = new Map<string, GlyphKind>()
-  for (const g of [...groups.packages, ...groups.texts, ...groups.marks]) kindOf.set(g.id, g.kind)
+  const glyphById = new Map<string, Glyph>()
+  for (const g of [...groups.packages, ...groups.texts, ...groups.marks]) glyphById.set(g.id, g)
   for (const map of new Set(maps.values())) {
     let best: Slot | undefined
     for (const [gid, slots] of map) {
-      if (kindOf.get(gid) !== 'package') continue
+      if (glyphById.get(gid)?.kind !== 'package') continue
       for (const s of slots) if (best === undefined || s.scale > best.scale) best = s
     }
     if (best !== undefined) best.hero = true
+  }
+  // text slots are authored blind to label width — a long string overruns its
+  // box and paints over neighbours. Shrink each label until it clears every
+  // package/mark box, every already-placed label, and its own symmetry twins;
+  // a label still colliding at the floor is noise — drop the slot. Runs before
+  // fill growth: growth is uniform so it can't create an overlap, and the
+  // aspect stretch only spreads things apart
+  const TEXT_GAP = 0.01
+  for (const map of new Set(maps.values())) {
+    const obstacles: SlotBox[] = []
+    const labels: Array<{ glyph: Glyph; slot: Slot }> = []
+    for (const [gid, slots] of map) {
+      const glyph = glyphById.get(gid)
+      if (glyph === undefined) continue
+      for (const s of slots) {
+        if (glyph.kind === 'text') {
+          labels.push({ glyph, slot: s })
+        } else {
+          const { hw, hh } = halfExtents(s, glyph)
+          for (const p of copyPositions(s)) {
+            obstacles.push({ x: p.x, y: p.y, hw: hw + TEXT_GAP, hh: hh + TEXT_GAP })
+          }
+        }
+      }
+    }
+    labels.sort((a, b) => a.slot.order - b.slot.order)
+    for (const { glyph, slot } of labels) {
+      let boxes: SlotBox[] = []
+      for (;;) {
+        const { hw, hh } = halfExtents(slot, glyph)
+        boxes = copyPositions(slot).map((p) => ({ x: p.x, y: p.y, hw: hw + TEXT_GAP, hh: hh + TEXT_GAP }))
+        const clear = boxes.every(
+          (b, i) =>
+            obstacles.every((o) => !boxesOverlap(b, o)) && boxes.slice(0, i).every((o) => !boxesOverlap(b, o))
+        )
+        if (clear) break
+        if (slot.scale <= SCALE_FLOOR.text + 1e-9) {
+          boxes = []
+          break
+        }
+        slot.scale = Math.max(SCALE_FLOOR.text, slot.scale * 0.9)
+      }
+      if (boxes.length > 0) {
+        obstacles.push(...boxes)
+      } else {
+        const list = map.get(glyph.id)
+        if (list !== undefined) {
+          const rest = list.filter((s) => s !== slot)
+          if (rest.length === 0) map.delete(glyph.id)
+          else map.set(glyph.id, rest)
+        }
+      }
+    }
   }
   // formations were authored at mixed sizes (quad reached 53% of the safe
   // area, columns 82%); grow each one toward a common fill so every beat
   // holds the frame. Never shrinks, and caps growth so sparse residue stays sparse
   for (const map of new Set(maps.values())) {
     let extent = 0
-    for (const slots of map.values()) {
-      for (const s of slots) extent = Math.max(extent, Math.abs(s.x) + s.scale / 2, Math.abs(s.y) + s.scale / 2)
+    for (const [gid, slots] of map) {
+      const glyph = glyphById.get(gid)
+      if (glyph === undefined) continue
+      for (const s of slots) {
+        const { hw, hh } = halfExtents(s, glyph)
+        for (const p of copyPositions(s)) {
+          extent = Math.max(extent, Math.abs(p.x) + hw, Math.abs(p.y) + hh)
+        }
+      }
     }
     const k = extent > 0 ? Math.min(FILL_GROWTH_MAX, Math.max(1, FILL_TARGET / extent)) : 1
     if (k === 1) continue
