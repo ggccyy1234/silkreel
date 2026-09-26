@@ -166,16 +166,31 @@ function packageCandidates(board: BoardModel): PackageCandidate[] {
   return out
 }
 
-function textCandidates(board: BoardModel): string[] {
+/** refdes ("R12"), raw values ("4.7uF") and single glyphs are noise — the
+ *  legible cast is real words: logos, names, warnings */
+const REFDES = /^[A-Z]{1,3}\d+$/
+const VALUE = /^\d+(\.\d+)?[pnuµmkKM]?[FHΩR]?$/
+/** texts smaller than this on the front layer never survive the stage scale */
+const FRONT_TEXT_MM = 0.8
+
+interface TextCandidate {
+  value: string
+  /** on F.SilkS and tall enough to read at formation scale */
+  front: boolean
+}
+
+function textCandidates(board: BoardModel): TextCandidate[] {
   const seen = new Set<string>()
-  const out: string[] = []
-  for (const layer of Object.values(board.silkscreen)) {
+  const out: TextCandidate[] = []
+  for (const [layerId, layer] of Object.entries(board.silkscreen)) {
+    const front = layerId.startsWith('F.')
     for (const t of layer.texts) {
       const v = t.value.trim().replace(/\s*\n\s*/g, ' ')
       if (v.length < 2 || v.length > 16 || seen.has(v)) continue
       if (!/[A-Za-z0-9]/.test(v)) continue
+      if (REFDES.test(v) || VALUE.test(v)) continue
       seen.add(v)
-      out.push(v)
+      out.push({ value: v, front: front && t.height >= FRONT_TEXT_MM })
     }
   }
   return out
@@ -311,16 +326,22 @@ export function buildCast(
   if (textsEnabled) {
     const all = textCandidates(board)
     const wanted = new Set(hints?.preferTexts ?? [])
-    const hinted = all.filter((v) => wanted.has(v))
+    const hinted = all.filter((c) => wanted.has(c.value))
     for (const v of wanted) {
-      if (!hinted.includes(v)) {
+      if (!hinted.some((c) => c.value === v)) {
         warnings.push({ code: 'cast-hint-miss', message: `cast.preferTexts: no silkscreen text ${JSON.stringify(v)}` })
       }
     }
     const textCount = Math.min(MAX_TEXT_GLYPHS, Math.max(2, Math.round(6 * density)))
-    const picked = [...hinted, ...rng.shuffle(all.filter((v) => !wanted.has(v)))].slice(0, textCount)
-    for (const [i, v] of picked.entries()) {
-      cast.push({ id: `txt:${i}:${v}`, kind: 'text', strokes: [], text: v })
+    // hinted lead, then front-silk text tall enough to read, then the rest
+    const rest = rng.shuffle(all.filter((c) => !wanted.has(c.value)))
+    const picked = [
+      ...hinted,
+      ...rest.filter((c) => c.front),
+      ...rest.filter((c) => !c.front)
+    ].slice(0, textCount)
+    for (const [i, c] of picked.entries()) {
+      cast.push({ id: `txt:${i}:${c.value}`, kind: 'text', strokes: [], text: c.value })
     }
   }
 

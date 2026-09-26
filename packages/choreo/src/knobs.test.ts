@@ -15,7 +15,8 @@ function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   }
 }
 
-const board = () => boardModel('ecc83-pp.kicad_pcb')
+// icebreaker: real silk words survive text hygiene (ecc83-pp is all refdes)
+const board = () => boardModel('icebreaker.kicad_pcb')
 
 function compile(board: BoardModel, overrides: Partial<FilmConfig> = {}): GlyphTimeline {
   const tl = compileTimeline(board, cfg(overrides))

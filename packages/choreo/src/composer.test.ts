@@ -47,7 +47,9 @@ function assertMirrorBalanced(atoms: AtomState[], context: string): void {
 
 describe('composeFilm cast', () => {
   it('extracts package, text and mark glyphs from a real board', () => {
-    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
+    // icebreaker carries real silk words (PMOD, FLASH, RGBLED) — ecc83-pp's
+    // texts are all refdes, which text hygiene rejects
+    const tl = compile(boardModel('icebreaker.kicad_pcb'))
     const kinds = new Set(tl.cast.map((g) => g.kind))
     expect(kinds.has('package')).toBe(true)
     expect(kinds.has('text')).toBe(true)

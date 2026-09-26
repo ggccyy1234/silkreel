@@ -67,8 +67,10 @@ function drawAtom(
       ctx.lineWidth = INK_PX / sizePx
       ctx.stroke(glyph.path)
     }
-    // silkscreen labels ride inside the outline; mirroring them is the style
+    // silkscreen labels ride inside the outline; mirroring them is the style.
+    // below 9px they smear into noise — drop them instead
     for (const label of glyph.labels) {
+      if (label.size * sizePx < 9) continue
       ctx.save()
       ctx.translate(label.x, label.y)
       ctx.rotate(label.rot)
