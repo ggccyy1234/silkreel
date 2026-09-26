@@ -458,6 +458,9 @@ export function planBeats(groups: GlyphGroups, rng: Rng): BeatDef[] {
   const n = seq.length
   const base = HOLD_TOTAL / (n + 0.4)
   return seq.map((id, i) => {
+    // the opening marks holds whole from frame 0 (not centred on the seam),
+    // so the first half-second is a formation, not a flash then black
+    if (i === 0) return { id, h0: 0, h1: base * 1.3 }
     const h = i === n - 2 ? base * 1.4 : base
     const c = i / (n - 1)
     return { id, h0: Math.max(0, c - h / 2), h1: Math.min(0.999, c + h / 2) }
