@@ -266,13 +266,14 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     drawn += 1
   }
 
-  // 7 silkscreen strokes — quick dash reveal, top to bottom
+  // 7 silkscreen strokes — quick dash reveal, top to bottom; kept dim and
+  // thin so the hold reads as copper, not whiteout
   ctx.strokeStyle = pal.silk
-  ctx.lineWidth = Math.max(1, W * 0.001)
+  ctx.lineWidth = 1
   for (const stroke of s.silkStrokes) {
     const frac = ease((p - stroke.t) / 0.03)
     if (frac <= 0) continue
-    ctx.globalAlpha = fade * 0.8
+    ctx.globalAlpha = fade * 0.5
     strokeReveal(ctx, stroke.path, frac)
     drawn += 1
   }
@@ -296,11 +297,12 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     drawn += 1
   }
 
-  // 9 glint — a light band sweeps corner to corner during the hold,
-  // clipped to the copper by stroking the complete F segments with it
+  // 9 glint — a light band sweeps corner to corner once, early in the hold
+  // (~1.2s), clipped to the copper by stroking the complete F segments
   const [h0, h1] = s.beats.hold
-  if (p >= h0 && p <= h1) {
-    const g = (p - h0) / (h1 - h0)
+  const glintSpan = Math.min(h1 - h0, 1.2 / tl.durationSeconds)
+  if (p >= h0 && p <= h0 + glintSpan + 0.02) {
+    const g = Math.min(1, (p - h0) / glintSpan)
     const diag = Math.hypot(W, H)
     const ux = W / diag
     const uy = H / diag
@@ -314,7 +316,7 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     gradient.addColorStop(1, 'rgba(0,0,0,0)')
     ctx.save()
     ctx.globalCompositeOperation = 'lighter'
-    ctx.globalAlpha = fade * 0.3
+    ctx.globalAlpha = fade * 0.25
     ctx.strokeStyle = gradient
     for (const layer of s.layers) {
       if (layer.side !== topSide) continue
