@@ -24,7 +24,7 @@ void main(){ vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2); uv = p; gl_Positi
 const BRIGHT = `#version 300 es
 precision highp float; in vec2 uv; out vec4 o; uniform sampler2D t;
 void main(){ vec3 c = texture(t, uv).rgb; float l = dot(c, vec3(.2126,.7152,.0722));
-  float k = clamp((l - 0.45) / 0.35, 0., 1.); o = vec4(c * k * k, 1.); }
+  float k = clamp((l - 0.65) / 0.30, 0., 1.); o = vec4(c * k * k, 1.); }
 `
 
 const DOWN = `#version 300 es
