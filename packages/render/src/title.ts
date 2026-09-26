@@ -32,17 +32,18 @@ export function drawTitle(ctx: CanvasRenderingContext2D, tl: Timeline, p: number
 
   const a = safeArea(tl.width, tl.height, true)
   const bandTop = a.y + a.h
-  const nameSize = 0.034 * Math.min(tl.width, tl.height)
+  const nameSize = 0.048 * Math.min(tl.width, tl.height)
   const typeK = ease((p - t0) / 0.03)
 
   ctx.save()
   ctx.textAlign = 'left'
   ctx.textBaseline = 'alphabetic'
   try {
-    ctx.letterSpacing = '0.2em'
+    ctx.letterSpacing = '0.08em'
   } catch { /* older canvas impls */ }
 
-  const name = card.name.toUpperCase()
+  // keep the maker's casing — iCEBreaker is not ICEBREAKER
+  const name = card.name
   const shown = name.substring(0, Math.ceil(name.length * typeK))
   const nameY = bandTop + 0.045 * tl.height
   ctx.font = `${nameSize}px ${FONT}`
@@ -60,8 +61,8 @@ export function drawTitle(ctx: CanvasRenderingContext2D, tl: Timeline, p: number
     ctx.lineTo(a.x + 0.12 * tl.width * typeK, ruleY)
     ctx.stroke()
     const shownV = card.version.substring(0, Math.ceil(card.version.length * ease((p - t0 - 0.015) / 0.03)))
-    ctx.font = `${nameSize * 0.6}px ${FONT}`
-    ctx.globalAlpha = alpha * 0.6
+    ctx.font = `${nameSize * 0.55}px ${FONT}`
+    ctx.globalAlpha = alpha * 0.75
     if (shownV.length > 0) ctx.fillText(shownV, a.x, ruleY + 0.032 * tl.height)
   }
   ctx.restore()

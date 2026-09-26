@@ -87,15 +87,15 @@ describe('drawTraceFrame', () => {
   })
 
   it('types the title card on during the hold and stays away before it', () => {
-    const timeline = traceTimeline('glasgow.kicad_pcb', { title: { name: 'Glasgow', version: 'revC3' } })
+    const timeline = traceTimeline('glasgow.kicad_pcb', { title: { name: 'Qzx Glasgow', version: 'revC3' } })
     const rec = currentRecorder()
     drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.3))
     const early = callsOf('fillText').map((c) => c.args[0] as string)
-    expect(early.some((t) => 'GLASGOW'.startsWith(t) && t.length > 0)).toBe(false)
+    expect(early.some((t) => 'Qzx Glasgow'.startsWith(t) && t.length > 0)).toBe(false)
     rec.reset()
     drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.9))
     const texts = callsOf('fillText').map((c) => c.args[0] as string)
-    expect(texts.some((t) => 'GLASGOW'.startsWith(t) && t.length > 0)).toBe(true)
+    expect(texts.some((t) => 'Qzx Glasgow'.startsWith(t) && t.length > 0)).toBe(true)
   })
 
   it('clears instead of filling on a transparent timeline', () => {
