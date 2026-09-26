@@ -152,7 +152,7 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
       for (const path of [...s.outline].sort((a, b) => pathLength(b) - pathLength(a)).slice(0, OUTLINE_HEADS)) {
         const [x, y] = pointAt(path, outlineFrac)
         ctx.beginPath()
-        ctx.arc(x, y, 3, 0, Math.PI * 2)
+        ctx.arc(x, y, 4.5, 0, Math.PI * 2)
         ctx.fill()
         drawn += 1
       }

@@ -8,8 +8,8 @@ import { pickHero } from './hero'
 
 export const TRACE_BEATS: TraceBeats = {
   outline: [0, 0.1],
-  pads: [0.04, 0.24],
-  growth: [0.07, 0.72],
+  pads: [0.02, 0.24],
+  growth: [0.05, 0.72],
   zones: [0.6, 0.76],
   silk: [0.68, 0.84],
   hold: [0.82, 0.96],

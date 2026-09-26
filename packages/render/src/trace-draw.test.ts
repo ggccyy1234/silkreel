@@ -61,9 +61,9 @@ describe('drawTraceFrame', () => {
   it('fades the drill constellation in during the outline beat', () => {
     const timeline = traceTimeline('glasgow.kicad_pcb')
     const rec = currentRecorder()
-    // p=0.03: outline drawing, pads/zones/copper not started — only drills and
+    // p=0.015: outline drawing, pads/zones/copper not started — only drills and
     // a head on each of the longest outline strokes fill
-    drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.03))
+    drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.015))
     const fills = callsOf('fill').length
     const arcs = callsOf('arc').length
     expect(fills).toBe(timeline.scene.drills.length + Math.min(OUTLINE_HEADS, timeline.scene.outline.length))
