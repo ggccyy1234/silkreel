@@ -22,6 +22,21 @@ const tracePath = (ctx: CanvasRenderingContext2D, path: FlatPath): void => {
   for (let i = 2; i + 1 < path.length; i += 2) ctx.lineTo(path[i] as number, path[i + 1] as number)
 }
 
+export const OUTLINE_HEADS = 8
+
+/** the point `frac` of the way along a polyline */
+const pointAt = (path: FlatPath, frac: number): [number, number] => {
+  let rest = Math.max(0, frac) * pathLength(path)
+  for (let i = 2; i + 1 < path.length; i += 2) {
+    const x0 = path[i - 2] as number
+    const y0 = path[i - 1] as number
+    const d = Math.hypot((path[i] as number) - x0, (path[i + 1] as number) - y0)
+    if (rest <= d && d > 0) return [x0 + ((path[i] as number) - x0) * (rest / d), y0 + ((path[i + 1] as number) - y0) * (rest / d)]
+    rest -= d
+  }
+  return [path[path.length - 2] as number, path[path.length - 1] as number]
+}
+
 /** progressive draw: shows the first `frac` of the polyline's length */
 const strokeReveal = (ctx: CanvasRenderingContext2D, path: FlatPath, frac: number): void => {
   const len = Math.max(1, pathLength(path))
@@ -128,6 +143,19 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     for (const path of s.outline) {
       strokeReveal(ctx, path, outlineFrac)
       drawn += 1
+    }
+    // a head rides the tips of the longest strokes so the first half-second has
+    // a focal point; cutouts and short edges would turn it into confetti
+    if (outlineFrac < 1) {
+      ctx.fillStyle = pal.head
+      ctx.globalAlpha = fade
+      for (const path of [...s.outline].sort((a, b) => pathLength(b) - pathLength(a)).slice(0, OUTLINE_HEADS)) {
+        const [x, y] = pointAt(path, outlineFrac)
+        ctx.beginPath()
+        ctx.arc(x, y, 3, 0, Math.PI * 2)
+        ctx.fill()
+        drawn += 1
+      }
     }
   }
 
@@ -316,15 +344,24 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
 
   // 7 silkscreen strokes — quick dash reveal, top to bottom; kept dim and
   // thin so the hold reads as copper, not whiteout
+  // finished strokes share one path: hatched fills (polarity marks) stack
+  // dozens of overlapping lines that would otherwise add up to solid white
   ctx.strokeStyle = pal.silk
   ctx.lineWidth = 1
+  ctx.globalAlpha = fade * 0.45
+  const silkDone = new Path2D()
+  let silkDoneCount = 0
   for (const stroke of s.silkStrokes) {
     const frac = ease((p - stroke.t) / 0.03)
     if (frac <= 0) continue
-    ctx.globalAlpha = fade * 0.45
-    strokeReveal(ctx, stroke.path, frac)
+    if (frac >= 1) {
+      silkDoneCount += 1
+      silkDone.moveTo(stroke.path[0] as number, stroke.path[1] as number)
+      for (let i = 2; i + 1 < stroke.path.length; i += 2) silkDone.lineTo(stroke.path[i] as number, stroke.path[i + 1] as number)
+    } else strokeReveal(ctx, stroke.path, frac)
     drawn += 1
   }
+  if (silkDoneCount > 0) ctx.stroke(silkDone)
 
   // 8 labels — type on inside the silk beat
   ctx.fillStyle = pal.silk
