@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { compileTimeline } from '@silk-reel/choreo'
 import type { FilmConfig, GlyphTimeline, TraceTimeline } from '@silk-reel/choreo'
 import type { BoardModel } from '@silk-reel/ingest'
-import { buildScene, drawFrame } from './film.js'
+import { buildScene, drawFrame, readableText } from './film.js'
 import { asCtx, currentRecorder, RecordingCtx } from './test-recorder.js'
 import { boardModel } from '../../choreo/test/helpers.js'
 
@@ -144,5 +144,17 @@ describe('drawFrame', () => {
     expect(bgSet).toContain(timeline.palette.bg)
     expect(callsOf('stroke').length).toBe(0)
     expect(callsOf('fillText').length).toBe(0)
+  })
+})
+
+describe('readableText', () => {
+  const base = { x: 0.5, y: 0.3, rot: 0, scale: 0.05, alpha: 1 }
+  it('never mirrors words, and keeps twins that sit clear of each other', () => {
+    expect(readableText({ ...base, x: -0.5, flipX: true, flipY: true }, 'VCC')).toMatchObject({ x: -0.5, flipX: false, flipY: false })
+  })
+  it('drops an overlapping twin and centers the survivor on that axis', () => {
+    // 10 chars * 0.6em * 0.05 = 0.3 wide: a twin at x=±0.1 would collide
+    expect(readableText({ ...base, x: -0.1, flipX: true }, 'UARTCAN201')).toBeUndefined()
+    expect(readableText({ ...base, x: 0.1 }, 'UARTCAN201')).toMatchObject({ x: 0, y: 0.3 })
   })
 })

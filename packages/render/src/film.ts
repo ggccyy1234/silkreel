@@ -67,13 +67,15 @@ function drawAtom(
       ctx.lineWidth = INK_PX / sizePx
       ctx.stroke(glyph.path)
     }
-    // silkscreen labels ride inside the outline; mirroring them is the style.
-    // below 9px they smear into noise — drop them instead
+    // silkscreen labels ride inside the outline at their mirrored spot but
+    // counter-flip so the word still reads. below 9px they smear into noise —
+    // drop them instead
     for (const label of glyph.labels) {
       if (label.size * sizePx < 9) continue
       ctx.save()
       ctx.translate(label.x, label.y)
-      ctx.rotate(label.rot)
+      ctx.scale(fx, fy)
+      ctx.rotate(label.rot * fx * fy)
       ctx.font = `${label.size}px ${FONT}`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -95,6 +97,33 @@ export function drawFrame(
   ctx.fillStyle = timeline.palette.bg
   ctx.fillRect(0, 0, timeline.width, timeline.height)
   return drawGlyphFrame(ctx, timeline, scene, frame)
+}
+
+/** JetBrains Mono advance, in em */
+const MONO_ADVANCE = 0.6
+
+/**
+ * Symmetry copies mirror shapes, but mirrored or upside-down words read as a
+ * glitch: text always renders unflipped. A twin whose label would overlap its
+ * partner across the axis is dropped and the survivor centered on that axis.
+ */
+export function readableText(atom: AtomState, text: string): AtomState | undefined {
+  const w = text.length * MONO_ADVANCE * atom.scale
+  const h = atom.scale
+  const c = Math.abs(Math.cos(atom.rot))
+  const s = Math.abs(Math.sin(atom.rot))
+  const halfX = (c * w + s * h) / 2
+  const halfY = (s * w + c * h) / 2
+  let { x, y } = atom
+  if (Math.abs(x) < halfX) {
+    if (atom.flipX === true) return undefined
+    x = 0
+  }
+  if (Math.abs(y) < halfY) {
+    if (atom.flipY === true) return undefined
+    y = 0
+  }
+  return { ...atom, x, y, flipX: false, flipY: false }
 }
 
 export function drawGlyphFrame(
@@ -122,7 +151,9 @@ export function drawGlyphFrame(
   for (const track of timeline.tracks) {
     const glyph = scene.glyphs.get(track.glyphId)
     if (glyph === undefined) continue
-    for (const atom of sampleTrack(track, phase)) {
+    for (const sampled of sampleTrack(track, phase)) {
+      const atom = glyph.text === undefined ? sampled : readableText(sampled, glyph.text)
+      if (atom === undefined) continue
       const alpha = atom.alpha * breath
       if (alpha <= 0.004) continue
       // each formation crowns one hero — head ink feeds the bloom pass
