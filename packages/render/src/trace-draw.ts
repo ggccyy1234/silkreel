@@ -285,7 +285,7 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     const diag = Math.hypot(W, H)
     const ux = W / diag
     const uy = H / diag
-    const band = 0.18 * W
+    const band = 0.11 * W
     const c = (-0.15 + 1.3 * g) * diag
     const cx = ux * c
     const cy = uy * c
@@ -295,7 +295,7 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     gradient.addColorStop(1, 'rgba(0,0,0,0)')
     ctx.save()
     ctx.globalCompositeOperation = 'lighter'
-    ctx.globalAlpha = fade * 0.5
+    ctx.globalAlpha = fade * 0.3
     ctx.strokeStyle = gradient
     for (const layer of s.layers) {
       if (layer.side !== topSide) continue
