@@ -105,12 +105,24 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
   const g = growthSchedule(segs, links, seeds, originMm)
   const md = Math.max(1e-9, g.maxDist)
 
+  // schedule by rank, not raw distance — a long tail of distant stragglers
+  // would otherwise hog the growth window while heads trickle. rank keeps
+  // the visible head count roughly constant; distance still breaks ties and
+  // preserves the outward wavefront ordering inside each rank bucket
+  const order = segs.map((_, i) => i).sort((a, b) => (g.start[a] as number) - (g.start[b] as number))
+  const rank = new Array<number>(segs.length)
+  order.forEach((segIdx, r) => {
+    rank[segIdx] = r / Math.max(1, segs.length - 1)
+  })
+
   const rowsByLayer = new Map<string, { side: Side; rows: number[][] }>()
+  const segT0 = new Array<number>(segs.length)
   segs.forEach((s, i) => {
     const side = sideOf(s.layer)
-    const u = Math.pow(Math.min(1, (g.start[i] as number) / md), 0.85)
+    const u = 0.7 * (rank[i] as number) + 0.3 * Math.min(1, (g.start[i] as number) / md)
     const t0 = Math.min(g1, g0 + u * (g1 - g0 - 0.06) + SIDE_DELAY[side])
-    const dur = Math.max(0.004, Math.pow(segLen[i] as number / md, 0.85) * (g1 - g0))
+    segT0[i] = t0
+    const dur = Math.max(0.004, Math.min(0.12 * (g1 - g0), Math.pow((segLen[i] as number) / md, 0.85) * (g1 - g0)))
     const t1 = Math.min(g1, t0 + dur)
     const ends = g.flipped[i] === true ? [s.b, s.a] : [s.a, s.b]
     const a = fit.map(ends[0] as Vec2)

@@ -61,10 +61,10 @@ describe('approved trace schedule', () => {
     expect(t0s).toMatchInlineSnapshot(`
       [
         0.14,
-        0.14,
-        0.14,
-        0.14,
-        0.14,
+        0.1401,
+        0.1402,
+        0.1402,
+        0.1403,
       ]
     `)
   })
