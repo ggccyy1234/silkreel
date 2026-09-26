@@ -37,8 +37,8 @@ const HOLD_DRIFT: Partial<Record<FormationId, HoldDrift>> = {
   quad: { grow: 0.96 }
 }
 /** transition choreography scales with formation size: a residue exits in a
- *  blink, a dense act needs its full dissolve; a dead gap sits between the
- *  last atom out and the first atom in — the reference's empty valleys */
+ *  blink, a dense act needs its full dissolve; the reveal overlaps the evac
+ *  tail — a breath between waves, not a dead gap */
 const evacShare = (nOut: number): number => (nOut === 0 ? 0 : clamp(0.08 + nOut * 0.014, 0.08, 0.55))
 const buildShare = (nIn: number): number => (nIn === 0 ? 0 : clamp(0.15 + nIn * 0.03, 0.15, 0.9))
 
@@ -192,7 +192,9 @@ export function composeFilm(board: BoardModel, resolved: ResolvedConfig, seed: n
       nIn += s.nIn
     }
     const evacEnd = evacShare(nOut)
-    const buildStart = nIn === 0 ? 1 : Math.max(1 - buildShare(nIn), evacEnd + 0.08)
+    // overlap: the build may start while the last evac atoms fade; the dead
+    // gap between the waves is capped at a breath of the bracket
+    const buildStart = nIn === 0 ? 1 : clamp(1 - buildShare(nIn), evacEnd * 0.5, evacEnd + 0.04)
     brackets.push({ evacEnd, buildStart })
   }
 
@@ -443,7 +445,7 @@ export function sampleTrack(track: Track, p: number): AtomState[] {
     const eff = 0.6 * (p.b.order ?? 0.5) + 0.4 * accel(i / nPop)
     // the scout: the first-ranked atom lands ahead of the wave, alone in the gap
     let start = buildStart + eff * Math.max(0, 1 - buildStart - popDurK)
-    if (i === 0) start = Math.max(evacEnd + 0.01, start - 0.07)
+    if (i === 0) start = Math.max(buildStart, start - 0.07)
     const ramp = clamp01((t - start) / popDurK)
     const s = settle(p.a, p.b, smooth01(ramp))
     const alpha = p.b.alpha * smooth01(clamp01(ramp / 0.32))
