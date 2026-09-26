@@ -8,8 +8,8 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import { bundle } from '@remotion/bundler'
-import { compileTimeline } from '../packages/choreo/src/index.js'
-import type { FilmConfig } from '../packages/choreo/src/index.js'
+import { ASPECT_SIZE, compileTimeline } from '../packages/choreo/src/index.js'
+import type { Aspect, FilmConfig } from '../packages/choreo/src/index.js'
 import { renderFilm } from '../packages/render-api/src/render-film.js'
 import { DEMO_BOARDS, loadDemoBoard, defaultFilmConfig } from '../packages/render-api/src/boards.js'
 
@@ -39,6 +39,7 @@ try {
     const name = `${style}-${board}-${aspect.replace(':', 'x')}`
     const config = {
       ...defaultFilmConfig(board), style, aspect,
+      output: { ...defaultFilmConfig(board).output, ...ASPECT_SIZE[aspect as Aspect] },
       ...(values.palette ? { palette: values.palette } : {}),
       seed: Number(values.seed)
     } as unknown as FilmConfig

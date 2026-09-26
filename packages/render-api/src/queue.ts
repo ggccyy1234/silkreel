@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { mkdir, rm } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
+import { ASPECT_SIZE } from '@silk-reel/choreo'
 import type { FilmConfig, Timeline } from '@silk-reel/choreo'
 import type { GateReport } from '@silk-reel/metrics'
 import { FORMAT_EXT, isAlphaFormat, renderFilm } from './render-film.js'
@@ -329,7 +330,7 @@ function mergeConfig(partial: Partial<FilmConfig> | undefined, demoId?: string):
     knobs: { ...base.knobs, ...partial.knobs },
     seed: partial.seed !== undefined ? partial.seed : base.seed,
     duration: partial.duration !== undefined ? partial.duration : base.duration,
-    output: { ...base.output, ...partial.output }
+    output: { ...base.output, ...(partial.aspect !== undefined ? ASPECT_SIZE[partial.aspect] : {}), ...partial.output }
   }
   if (partial.style !== undefined) config.style = partial.style
   if (partial.aspect !== undefined) config.aspect = partial.aspect
