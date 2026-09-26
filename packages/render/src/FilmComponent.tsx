@@ -9,10 +9,11 @@ import { useFont } from './font'
 
 export interface FilmProps {
   timeline: Timeline
+  grain?: boolean
   children?: React.ReactNode
 }
 
-export const FilmCanvas: React.FC<FilmProps> = ({ timeline, children }) => {
+export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, children }) => {
   useFont()
   const frame = useCurrentFrame()
   const { width, height } = useVideoConfig()
@@ -51,7 +52,7 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, children }) => {
     if (post !== null) {
       post.render(offscreen, {
         bloom: timeline.palette.bloom,
-        grain: !timeline.transparent,
+        grain: grain && !timeline.transparent,
         vignette: !timeline.transparent,
         transparent: timeline.transparent,
         frame
@@ -62,7 +63,7 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, children }) => {
       target.clearRect(0, 0, canvas.width, canvas.height)
       target.drawImage(offscreen, 0, 0)
     }
-  }, [frame, timeline, scene, offscreen])
+  }, [frame, timeline, scene, offscreen, grain])
 
   return React.createElement(
     AbsoluteFill,

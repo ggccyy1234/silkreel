@@ -22,7 +22,7 @@ export const isAlphaFormat = (format: OutputFormat): boolean => format === 'webm
 
 function codecOptions(format: OutputFormat) {
   switch (format) {
-    case 'mp4': return { codec: 'h264' as const, crf: 16, pixelFormat: 'yuv420p' as const, imageFormat: 'jpeg' as const, jpegQuality: 95 }
+    case 'mp4': return { codec: 'h264' as const, crf: 16, pixelFormat: 'yuv420p' as const, imageFormat: 'png' as const }
     case 'gif': return { codec: 'gif' as const, everyNthFrame: 2, imageFormat: 'png' as const }
     case 'webm-alpha': return { codec: 'vp9' as const, pixelFormat: 'yuva420p' as const, imageFormat: 'png' as const }
     case 'prores-alpha': return { codec: 'prores' as const, proResProfile: '4444' as const, pixelFormat: 'yuva444p10le' as const, imageFormat: 'png' as const }
@@ -53,7 +53,7 @@ export async function renderFilm(options: RenderFilmOptions): Promise<RenderFilm
   if (isAlphaFormat(format) && !options.inputProps.timeline.transparent) {
     throw new Error(`${format} needs a transparent timeline (compile with transparent: true)`)
   }
-  const inputProps = options.inputProps as unknown as Record<string, unknown>
+  const inputProps = (format === 'gif' ? { ...options.inputProps, grain: false } : options.inputProps) as unknown as Record<string, unknown>
   const composition = await selectComposition({
     serveUrl: bundleLocation,
     id: 'film',

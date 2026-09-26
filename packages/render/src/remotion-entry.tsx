@@ -5,6 +5,8 @@ import { Film } from './FilmComponent'
 
 export interface FilmInputProps {
   timeline: Timeline
+  /** film grain in the post pass (off for GIF: per-frame noise defeats palette compression) */
+  grain?: boolean
 }
 
 function readInputProps(source: unknown): FilmInputProps {
@@ -12,12 +14,12 @@ function readInputProps(source: unknown): FilmInputProps {
   if (!props?.timeline) {
     throw new Error('remotion-entry requires inputProps { timeline }')
   }
-  return { timeline: props.timeline }
+  return { timeline: props.timeline, ...(props.grain !== undefined ? { grain: props.grain } : {}) }
 }
 
 const EntryFilm: React.FC<Record<string, unknown>> = (props) => {
-  const { timeline } = readInputProps(props)
-  return <Film timeline={timeline} />
+  const { timeline, grain } = readInputProps(props)
+  return <Film timeline={timeline} grain={grain ?? true} />
 }
 
 const Root: React.FC = () => {
