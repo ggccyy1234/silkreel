@@ -131,20 +131,16 @@ describe('composeFilm cast', () => {
 })
 
 describe('composeFilm formations', () => {
-  it('emits the ordered formation arc with non-overlapping holds inside [0,1)', () => {
+  it('emits a planned formation arc with non-overlapping holds inside [0,1)', () => {
     const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
-    expect(tl.formations.map((f) => f.id)).toEqual([
-      'marks',
-      'spine',
-      'totem',
-      'marks',
-      'columns',
-      'marks',
-      'ring',
-      'quad',
-      'marks'
-    ])
-    expect(tl.formations.map((f) => f.beat)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+    const ids = tl.formations.map((f) => f.id)
+    // marks residue bookends the loop; 5–7 middles; nothing repeats in a row
+    expect(ids[0]).toBe('marks')
+    expect(ids.at(-1)).toBe('marks')
+    expect(ids.length).toBeGreaterThanOrEqual(7)
+    expect(ids.length).toBeLessThanOrEqual(9)
+    for (let i = 1; i < ids.length; i++) expect(ids[i]).not.toBe(ids[i - 1])
+    expect(tl.formations.map((f) => f.beat)).toEqual(ids.map((_, i) => i))
     for (const f of tl.formations) {
       expect(f.startPhase).toBeGreaterThanOrEqual(0)
       expect(f.endPhase).toBeLessThanOrEqual(1)

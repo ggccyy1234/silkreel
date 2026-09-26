@@ -1,6 +1,6 @@
 import type { BoardModel } from '@silk-reel/ingest'
 import { clamp, clamp01, smooth01 } from './curves'
-import { BEATS, buildBeatMaps } from './formations'
+import { buildBeatMaps, planBeats } from './formations'
 import { safeArea } from './layout'
 import type { CopySpec, GlyphGroups, Slot } from './formations'
 import { buildCast } from './glyphs'
@@ -34,7 +34,9 @@ const HOLD_DRIFT: Partial<Record<FormationId, HoldDrift>> = {
   totem: { grow: 1.01 },
   columns: { dx: 0.005 },
   ring: { rot: 0.1 },
-  quad: { grow: 0.96 }
+  quad: { grow: 0.96 },
+  grid: { grow: 1.01 },
+  orbit: { rot: 0.12 }
 }
 /** transition choreography scales with formation size: a residue exits in a
  *  blink, a dense act needs its full dissolve; the reveal overlaps the evac
@@ -78,9 +80,13 @@ function expand(copies: CopySpec, base: AtomState, drift: HoldDrift | undefined)
     atoms = atoms.map((at) => {
       let { x, y, scale } = at
       // mirror twins counter-rotate: the fold stays exactly Y-symmetric
-      // instead of tilting the whole formation off-axis; axis singles pinned
+      // instead of tilting the whole formation off-axis; axis singles pinned;
+      // turn flips the spin — orbit's inner ring rolls against the outer
       if (drift.rot !== undefined && copies.mode !== 'single') {
-        const p = rotate({ x, y }, at.flipX === true ? -drift.rot : drift.rot)
+        const p = rotate(
+          { x, y },
+          drift.rot * (at.flipX === true ? -1 : 1) * (at.turn ?? 1)
+        )
         x = p.x
         y = p.y
       }
@@ -103,7 +109,11 @@ function expand(copies: CopySpec, base: AtomState, drift: HoldDrift | undefined)
 
 function slotAtoms(slots: Slot[], alpha: number, drift: HoldDrift | undefined): AtomState[] {
   const atoms = slots.flatMap((s) =>
-    expand(s.copies, { x: s.x, y: s.y, rot: s.rot, scale: s.scale, alpha, order: s.order }, drift)
+    expand(
+      s.copies,
+      { x: s.x, y: s.y, rot: s.rot, scale: s.scale, alpha, order: s.order, turn: s.turn },
+      drift
+    )
   )
   atoms.sort((a, b) => {
     const aa = Math.atan2(a.y, a.x)
@@ -137,14 +147,18 @@ export function composeFilm(board: BoardModel, resolved: ResolvedConfig, seed: n
   const groups = groupCast(cast)
 
   const safe = safeArea(resolved.width, resolved.height, resolved.title !== undefined)
+  // the plan stream keys on the board too: one seed still gives every board
+  // its own arc while staying fully deterministic
+  const plan = planBeats(groups, makeRng(seed, `plan:${board.source.boardName}`))
   const beatMaps = buildBeatMaps(
     groups,
     resolved.knobs.density,
     (label) => makeRng(seed, `form:${label}`),
+    plan,
     safe.w / safe.h
   )
 
-  const n = BEATS.length
+  const n = plan.length
   // dormant beats borrow the nearest active slots so the glyph evaporates
   // in place, then pops back in at its next active slot
   const slotsFor = (glyphId: string, bi: number): Slot[] | undefined => {
@@ -163,7 +177,7 @@ export function composeFilm(board: BoardModel, resolved: ResolvedConfig, seed: n
     const rngAlpha = makeRng(seed, `alpha:${glyph.id}`)
     const beats: Array<{ enter: AtomState[]; depart: AtomState[] }> = []
     for (let bi = 0; bi < n; bi++) {
-      const beat = BEATS[bi] as { id: FormationId; h0: number; h1: number }
+      const beat = plan[bi] as { id: FormationId; h0: number; h1: number }
       const slots = slotsFor(glyph.id, bi)
       if (slots === undefined) break
       const active = beatMaps.get(bi)?.has(glyph.id) === true
@@ -203,7 +217,7 @@ export function composeFilm(board: BoardModel, resolved: ResolvedConfig, seed: n
     const beats = beatAtoms.get(glyph.id) ?? []
     const knots: TrackKnot[] = []
     for (let bi = 0; bi < beats.length; bi++) {
-      const beat = BEATS[bi] as { id: FormationId; h0: number; h1: number }
+      const beat = plan[bi] as { id: FormationId; h0: number; h1: number }
       const atoms = beats[bi] as { enter: AtomState[]; depart: AtomState[] }
       knots.push({ phase: beat.h0, atoms: atoms.enter })
       knots.push({ phase: beat.h1, atoms: atoms.depart, transit: brackets[bi] })
@@ -217,7 +231,7 @@ export function composeFilm(board: BoardModel, resolved: ResolvedConfig, seed: n
   const activeTracks = tracks.filter((t) => t.knots.length > 0)
   const activeCast = cast.filter((g) => usedIds.has(g.id))
 
-  const formations: FormationEvent[] = BEATS.map((beat, i) => ({
+  const formations: FormationEvent[] = plan.map((beat, i) => ({
     id: beat.id,
     startPhase: beat.h0,
     endPhase: beat.h1,

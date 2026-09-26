@@ -37,6 +37,8 @@ export interface AtomState {
   flipY?: boolean | undefined
   /** reveal rank 0..1 inside a transition — pops are a spatial script, not a blur */
   order?: number | undefined
+  /** hold-drift rotation direction — orbit's inner ring counter-rotates */
+  turn?: number | undefined
 }
 
 export interface TrackKnot {
@@ -56,7 +58,7 @@ export interface Track {
   knots: TrackKnot[]
 }
 
-export type FormationId = 'marks' | 'spine' | 'totem' | 'columns' | 'ring' | 'quad'
+export type FormationId = 'marks' | 'spine' | 'totem' | 'columns' | 'ring' | 'quad' | 'grid' | 'orbit'
 
 export interface FormationEvent {
   id: FormationId

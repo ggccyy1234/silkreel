@@ -12,6 +12,8 @@ export interface Slot {
   /** 0..1 reveal rank — the spatial script for when this slot pops in;
    *  dissolves run last-in-first-out so high-order slots leave first */
   order: number
+  /** hold-drift rotation sign — orbit's inner ring counter-rotates */
+  turn?: number | undefined
 }
 
 /** no cast member ever lands smaller than this — below it a glyph is noise */
@@ -323,6 +325,86 @@ function quadBeat(groups: GlyphGroups, rng: Rng): SlotMap {
   return out
 }
 
+/** cartesian tiling — the top hero repeated in a mirrored grid, marks
+ *  orbiting the lattice */
+function gridBeat(groups: GlyphGroups, density: number, rng: Rng): SlotMap {
+  const out: SlotMap = new Map()
+  const hero = groups.packages[0]
+  if (hero !== undefined) {
+    const cols = Math.max(2, Math.round(3 * density))
+    const slots: Slot[] = []
+    for (let r = 0; r < 2; r++) {
+      for (let c = 0; c < cols; c++) {
+        slots.push({
+          x: 0.2 + c * 0.21,
+          y: 0.24 + r * 0.36,
+          rot: 0,
+          scale: 0.12,
+          copies: QUAD,
+          order: (r * cols + c) / Math.max(1, 2 * cols - 1)
+        })
+      }
+    }
+    repeat([hero], slots, out)
+  }
+  assign(
+    groups.marks,
+    [
+      { x: 0, y: 0.42, rot: 0, scale: 0.04, copies: MIRROR_X, order: 0.8 },
+      { x: 0.62, y: 0.42, rot: PI2, scale: 0.035, copies: MIRROR_X, order: 0.7 },
+      { x: 0.41, y: 0, rot: 0, scale: 0.035, copies: MIRROR_X, order: 0.75 },
+      { x: 0, y: 0, rot: 0, scale: 0.045, copies: SINGLE, order: 0.95 }
+    ],
+    out,
+    rng
+  )
+  assign(
+    groups.texts,
+    [
+      { x: 0, y: -0.68, rot: 0, scale: 0.05, copies: SINGLE, order: 0.85 },
+      { x: 0, y: 0.68, rot: Math.PI, scale: 0.05, copies: SINGLE, order: 0.88 }
+    ],
+    out,
+    rng
+  )
+  return out
+}
+
+/** counter-rotating orbits — two concentric rings of marks around one hero */
+function orbitBeat(groups: GlyphGroups, rng: Rng): SlotMap {
+  const out: SlotMap = new Map()
+  const hero = groups.packages[0]
+  if (hero !== undefined) {
+    place(out, hero, { x: 0, y: 0, rot: 0, scale: 0.16, copies: SINGLE, order: 0.05 })
+  }
+  // half-ring primaries with mirrorX twins close each circle symmetrically;
+  // turn signs make the rings counter-rotate under the hold drift
+  const ring = (radius: number, count: number, turn: number, order0: number): Slot[] => {
+    const slots: Slot[] = []
+    for (let i = 0; i < count; i++) {
+      const a = -PI2 + ((i + 0.5) / count) * Math.PI
+      slots.push({
+        x: Math.cos(a) * radius,
+        y: Math.sin(a) * radius,
+        rot: a + PI2,
+        scale: 0.04,
+        copies: MIRROR_X,
+        order: order0 + i * 0.04,
+        turn
+      })
+    }
+    return slots
+  }
+  assign(groups.marks, [...ring(0.3, 4, -1, 0.4), ...ring(0.56, 6, 1, 0.55)], out, rng)
+  assign(
+    groups.texts,
+    [{ x: 0, y: -0.78, rot: 0, scale: 0.05, copies: SINGLE, order: 0.9 }],
+    out,
+    rng
+  )
+  return out
+}
+
 export interface BeatDef {
   id: FormationId
   /** hold span as fractions of the loop; transitions fill the gaps */
@@ -330,45 +412,109 @@ export interface BeatDef {
   h1: number
 }
 
+/** formations that need a real cast of packages to read as hardware */
+const NEEDS_PACKAGES: ReadonlySet<FormationId> = new Set(['spine', 'totem'])
+const DENSE_POOL: readonly FormationId[] = ['columns', 'ring', 'grid', 'quad', 'spine', 'totem']
+const SPARSE_POOL: readonly FormationId[] = ['marks', 'orbit']
+/** total hold coverage of the loop; transitions own the rest */
+const HOLD_TOTAL = 0.42
+
 /**
- * the reference's real arc: three density waves, each building and fully
- * dissolving. residue constellations hold the valleys between waves and at
- * the loop seam — the first and last marks beats share one map so the wrap
- * is seamless.
+ * Board-driven formation arc: the marks residue bookends the loop so the
+ * seam shares one map; 5–7 middles alternate sparse/dense with a quad-or-
+ * grid climax parked at the last middle — inside the loop's final third.
+ * Holds spread evenly, the climax holding 1.4× longer.
  */
-export const BEATS: readonly BeatDef[] = [
-  { id: 'marks', h0: 0.0, h1: 0.025 },
-  { id: 'spine', h0: 0.19, h1: 0.235 },
-  { id: 'totem', h0: 0.32, h1: 0.36 },
-  { id: 'marks', h0: 0.44, h1: 0.48 },
-  { id: 'columns', h0: 0.58, h1: 0.645 },
-  { id: 'marks', h0: 0.69, h1: 0.72 },
-  { id: 'ring', h0: 0.755, h1: 0.81 },
-  { id: 'quad', h0: 0.855, h1: 0.9 },
-  { id: 'marks', h0: 0.945, h1: 0.999 }
-]
+export function planBeats(groups: GlyphGroups, rng: Rng): BeatDef[] {
+  const dense = DENSE_POOL.filter((d) => !NEEDS_PACKAGES.has(d) || groups.packages.length >= 2)
+  const climax = rng.pick(['quad', 'grid'] as const)
+  const bench = dense.filter((d) => d !== climax)
+  const pools: Record<'d' | 's', FormationId[]> = {
+    d: rng.shuffle(bench),
+    s: rng.shuffle([...SPARSE_POOL])
+  }
+  const draw = (cls: 'd' | 's'): FormationId => {
+    const pool = pools[cls]
+    if (pool.length === 0) pool.push(...rng.shuffle([...(cls === 'd' ? bench : SPARSE_POOL)]))
+    return pool.pop() as FormationId
+  }
+
+  const middleCount = rng.int(5, 8)
+  const middles: FormationId[] = new Array<FormationId>(middleCount)
+  middles[middleCount - 1] = climax
+  // fill back from the climax alternating sparse/dense — the climax is dense
+  // and the opening/closing bookends are marks, so the only possible repeat
+  // is a sparse marks at middles[0]
+  let cls: 'd' | 's' = 's'
+  for (let i = middleCount - 2; i >= 0; i--) {
+    middles[i] = draw(cls)
+    cls = cls === 'd' ? 's' : 'd'
+  }
+  if (middles[0] === 'marks') middles[0] = 'orbit'
+
+  const seq: FormationId[] = ['marks', ...middles, 'marks']
+  const n = seq.length
+  const base = HOLD_TOTAL / (n + 0.4)
+  return seq.map((id, i) => {
+    const h = i === n - 2 ? base * 1.4 : base
+    const c = i / (n - 1)
+    return { id, h0: Math.max(0, c - h / 2), h1: Math.min(0.999, c + h / 2) }
+  })
+}
 
 export function buildBeatMaps(
   groups: GlyphGroups,
   density: number,
   rngFor: (label: string) => Rng,
+  plan: readonly BeatDef[],
   stageAspect = 1
 ): Map<number, SlotMap> {
   const maps = new Map<number, SlotMap>()
   // cast order is already hint-ranked — heroes are the head of it, guaranteed
   // slots across the arc; the seed varies marks/texts, not the curation
   const heroes = groups.packages
-  const marksA = marksBeat(groups, heroes.slice(2), rngFor('marks:a'), 0)
-  const spine = spineBeat(groups, heroes.slice(0, 2), density, rngFor('spine'))
-  maps.set(0, marksA)
-  maps.set(1, spine)
-  maps.set(2, totemBeat(groups, spine, rngFor('totem')))
-  maps.set(3, marksBeat(groups, heroes.slice(4), rngFor('marks:b'), 1))
-  maps.set(4, columnsBeat(groups, density, rngFor('columns')))
-  maps.set(5, marksBeat(groups, heroes.slice(6), rngFor('marks:c'), 0))
-  maps.set(6, ringBeat(groups, density, rngFor('ring')))
-  maps.set(7, quadBeat(groups, rngFor('quad')))
-  maps.set(8, marksA)
+  let marksSeen = 0
+  let spineCache: SlotMap | undefined
+  const buildOne = (id: FormationId, key: string): SlotMap => {
+    switch (id) {
+      case 'marks': {
+        const k = marksSeen++
+        // each interlude's residue draws from a deeper bench — density keeps
+        // widening the used cast instead of recycling the same heroes
+        return marksBeat(groups, heroes.slice(2 + k * 3), rngFor(key), k % 2)
+      }
+      case 'spine': {
+        spineCache = spineBeat(groups, heroes.slice(0, 2), density, rngFor(key))
+        return spineCache
+      }
+      case 'totem':
+        // totem is spine + flanks — clone the standing column when the plan
+        // played one, build a shadow spine when it didn't
+        return totemBeat(
+          groups,
+          spineCache ?? spineBeat(groups, heroes.slice(0, 2), density, rngFor(`${key}:base`)),
+          rngFor(key)
+        )
+      case 'columns':
+        return columnsBeat(groups, density, rngFor(key))
+      case 'ring':
+        return ringBeat(groups, density, rngFor(key))
+      case 'quad':
+        return quadBeat(groups, rngFor(key))
+      case 'grid':
+        return gridBeat(groups, density, rngFor(key))
+      case 'orbit':
+        return orbitBeat(groups, rngFor(key))
+    }
+  }
+  for (let i = 0; i < plan.length; i++) {
+    const id = (plan[i] as BeatDef).id
+    if (i === plan.length - 1 && id === 'marks' && plan[0]?.id === 'marks') {
+      maps.set(i, maps.get(0) as SlotMap)
+      continue
+    }
+    maps.set(i, buildOne(id, `${id}:${i}`))
+  }
   // stage is square-normalized: widen slots on wide frames, deepen on tall
   const sx = Math.max(1, stageAspect)
   const sy = Math.max(1, 1 / stageAspect)
