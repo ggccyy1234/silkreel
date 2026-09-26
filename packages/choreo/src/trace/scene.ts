@@ -8,7 +8,7 @@ import { pickHero } from './hero'
 
 export const TRACE_BEATS: TraceBeats = {
   outline: [0, 0.1],
-  pads: [0.05, 0.24],
+  pads: [0.04, 0.24],
   growth: [0.14, 0.72],
   zones: [0.6, 0.76],
   silk: [0.68, 0.84],
@@ -143,16 +143,35 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
       segs: rows.sort((x, y) => (x[5] as number) - (y[5] as number)).flat()
     }))
 
-  const [p0, p1] = beats.pads
+  const [p0] = beats.pads
   const pads: TracePad[] = []
   let padDMax = 1e-9
   for (const { pad } of padLayerSets.values()) {
     padDMax = Math.max(padDMax, Math.hypot(pad.pos.x - originMm.x, pad.pos.y - originMm.y))
   }
+  // a pad pops when the growth wavefront touches it — the earliest t0 of a
+  // seg ending inside the pad, a beat early; pads no copper reaches keep a
+  // distance-ordered pop squeezed into the growth window
+  const touchedT = (pad: Pad): number => {
+    const r = Math.max(pad.size.x, pad.size.y) / 2 + 0.05
+    let best = Infinity
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i] as GraphSeg
+      const ta = Math.hypot(s.a.x - pad.pos.x, s.a.y - pad.pos.y) <= r
+      const tb = Math.hypot(s.b.x - pad.pos.x, s.b.y - pad.pos.y) <= r
+      if ((ta || tb) && (segT0[i] as number) < best) best = segT0[i] as number
+    }
+    return best
+  }
   for (const { pad, sides } of padLayerSets.values()) {
     const d = Math.hypot(pad.pos.x - originMm.x, pad.pos.y - originMm.y)
     const isHero = hero !== undefined && pad.footprintRef === hero.ref
-    const t = isHero ? p0 : p0 + (d / padDMax) * (p1 - p0 - 0.03)
+    const touch = touchedT(pad)
+    const t = isHero
+      ? p0
+      : Number.isFinite(touch)
+        ? Math.min(g1, Math.max(p0, touch - 0.01))
+        : g0 + (d / padDMax) * (g1 - g0 - 0.06)
     const m = fit.map(pad.pos)
     pads.push({
       x: m.x,

@@ -40,7 +40,7 @@ describe('approved trace schedule', () => {
           0.1,
         ],
         "pads": [
-          0.05,
+          0.04,
           0.24,
         ],
         "silk": [
