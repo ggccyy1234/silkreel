@@ -123,7 +123,10 @@ export function readableText(atom: AtomState, text: string): AtomState | undefin
     if (atom.flipY === true) return undefined
     y = 0
   }
-  return { ...atom, x, y, flipX: false, flipY: false }
+  // wrap into (−π/2, π/2]: a word turned past vertical reads upside down
+  const m = ((atom.rot % Math.PI) + Math.PI) % Math.PI
+  const rot = m > Math.PI / 2 + 1e-9 ? m - Math.PI : m
+  return { ...atom, x, y, rot, flipX: false, flipY: false }
 }
 
 export function drawGlyphFrame(

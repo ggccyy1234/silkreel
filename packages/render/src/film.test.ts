@@ -152,6 +152,11 @@ describe('readableText', () => {
   it('never mirrors words, and keeps twins that sit clear of each other', () => {
     expect(readableText({ ...base, x: -0.5, flipX: true, flipY: true }, 'VCC')).toMatchObject({ x: -0.5, flipX: false, flipY: false })
   })
+  it('turns upside-down words upright', () => {
+    expect(readableText({ ...base, rot: Math.PI }, 'PMOD1A')?.rot).toBeCloseTo(0, 9)
+    expect(readableText({ ...base, rot: -Math.PI / 2 }, 'PMOD1A')?.rot).toBeCloseTo(Math.PI / 2, 9)
+    expect(readableText({ ...base, rot: 2.5 }, 'PMOD1A')?.rot).toBeCloseTo(2.5 - Math.PI, 9)
+  })
   it('drops an overlapping twin and centers the survivor on that axis', () => {
     // 10 chars * 0.6em * 0.05 = 0.3 wide: a twin at x=±0.1 would collide
     expect(readableText({ ...base, x: -0.1, flipX: true }, 'UARTCAN201')).toBeUndefined()
