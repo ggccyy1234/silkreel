@@ -400,7 +400,7 @@ function orbitBeat(groups: GlyphGroups, rng: Rng): SlotMap {
   assign(groups.marks, [...ring(0.3, 4, -1, 0.4), ...ring(0.56, 6, 1, 0.55)], out, rng)
   assign(
     groups.texts,
-    [{ x: 0, y: -0.78, rot: 0, scale: 0.05, copies: SINGLE, order: 0.9 }],
+    [{ x: 0, y: -0.68, rot: 0, scale: 0.05, copies: SINGLE, order: 0.9 }],
     out,
     rng
   )
@@ -463,6 +463,10 @@ export function planBeats(groups: GlyphGroups, rng: Rng): BeatDef[] {
     return { id, h0: Math.max(0, c - h / 2), h1: Math.min(0.999, c + h / 2) }
   })
 }
+
+/** half-extent in stage units ([-1,1] = the safe area's short side) */
+const FILL_TARGET = 0.8
+const FILL_GROWTH_MAX = 1.5
 
 export function buildBeatMaps(
   groups: GlyphGroups,
@@ -527,6 +531,24 @@ export function buildBeatMaps(
       for (const s of slots) if (best === undefined || s.scale > best.scale) best = s
     }
     if (best !== undefined) best.hero = true
+  }
+  // formations were authored at mixed sizes (quad reached 53% of the safe
+  // area, columns 82%); grow each one toward a common fill so every beat
+  // holds the frame. Never shrinks, and caps growth so sparse residue stays sparse
+  for (const map of new Set(maps.values())) {
+    let extent = 0
+    for (const slots of map.values()) {
+      for (const s of slots) extent = Math.max(extent, Math.abs(s.x) + s.scale / 2, Math.abs(s.y) + s.scale / 2)
+    }
+    const k = extent > 0 ? Math.min(FILL_GROWTH_MAX, Math.max(1, FILL_TARGET / extent)) : 1
+    if (k === 1) continue
+    for (const slots of map.values()) {
+      for (const s of slots) {
+        s.x *= k
+        s.y *= k
+        s.scale *= k
+      }
+    }
   }
   // stage is square-normalized: widen slots on wide frames, deepen on tall
   const sx = Math.max(1, stageAspect)
