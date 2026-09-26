@@ -13,9 +13,9 @@ export interface Rect { x: number; y: number; w: number; h: number }
 /** margins keep clear of platform UI (9:16 has top/bottom chrome); a title reserves the bottom band */
 export function safeArea(width: number, height: number, hasTitle: boolean): Rect {
   const tall = height / width > 1.6
-  const mx = width * (width > height ? 0.12 : 0.1)
-  const top = height * (tall ? 0.16 : 0.1)
-  const bottom = height * (tall ? 0.2 : 0.1) + (hasTitle ? height * 0.1 : 0)
+  const mx = width * (width > height ? 0.08 : 0.07)
+  const top = height * (tall ? 0.12 : 0.08)
+  const bottom = height * (tall ? 0.14 : 0.08) + (hasTitle ? height * 0.1 : 0)
   return { x: mx, y: top, w: width - 2 * mx, h: height - top - bottom }
 }
 
