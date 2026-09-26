@@ -165,7 +165,7 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
   }
   // mounting holes sit in copper layers but are really drills — plated:false
   // marks them; oversized pads draw as rings either way so they never blob
-  const npth = board.drill.filter((d) => d.plated === false)
+  const npth = board.drill.filter((d) => !d.plated)
   const drillOnly = (pad: Pad): boolean =>
     npth.some((d) => Math.hypot(d.pos.x - pad.pos.x, d.pos.y - pad.pos.y) < 0.05)
   const pxMin = Math.min(resolved.width, resolved.height)
