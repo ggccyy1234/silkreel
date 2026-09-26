@@ -3,7 +3,8 @@ import { mkdir, rm } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import type { FilmConfig, Timeline } from '@silk-reel/choreo'
 import type { GateReport } from '@silk-reel/metrics'
-import { renderFilm } from './render-film.js'
+import { FORMAT_EXT, isAlphaFormat, renderFilm } from './render-film.js'
+import type { OutputFormat } from './render-film.js'
 import { compileFilm, loadDemoBoard, boardFromJson, defaultFilmConfig } from './boards.js'
 import type { DemoBoardId } from './boards.js'
 import { runGate } from './gate.js'
@@ -18,6 +19,7 @@ export type GateAdvisory =
 
 interface JobBase {
   id: string
+  format: OutputFormat
   progress: number
   createdAt: string
 }
@@ -49,7 +51,7 @@ type CancelledJob = JobBase & {
 export type RenderJob = PendingJob | RenderingJob | DoneJob | ErrorJob | CancelledJob
 export type JobStatus = RenderJob['status']
 
-type SubmissionOptions = { config?: Partial<FilmConfig> }
+type SubmissionOptions = { config?: Partial<FilmConfig>; format?: OutputFormat }
 
 export type RenderSubmission =
   | (SubmissionOptions & { demoId: DemoBoardId; boardJson?: never })
@@ -114,6 +116,7 @@ export class RenderQueue implements RenderQueuePort {
   submit(input: RenderSubmission): RenderJob {
     const job: PendingJob = {
       id: randomUUID(),
+      format: input.format ?? 'mp4',
       status: 'pending',
       progress: 0,
       createdAt: new Date().toISOString()
@@ -123,6 +126,7 @@ export class RenderQueue implements RenderQueuePort {
       source: 'demoId' in input ? { kind: 'demo', demoId: input.demoId } : { kind: 'json', boardJson: input.boardJson },
       config: mergeConfig(input.config, 'demoId' in input ? input.demoId : undefined)
     }
+    if (isAlphaFormat(job.format)) entry.config.transparent = true
     this.jobs.set(job.id, job)
     const scheduled = enqueueMachine(() => this.run(entry))
     const completion = scheduled.then(
@@ -231,7 +235,8 @@ export class RenderQueue implements RenderQueuePort {
       const board = entry.source.kind === 'demo' ? await loadDemoBoard(entry.source.demoId) : boardFromJson(entry.source.boardJson)
       if (this.isCancelled(rendering.id)) return
       const { inputProps } = compileFilm(board, entry.config)
-      outputLocation = path.join(this.exportsRoot, `${rendering.id}.mp4`)
+      const { format } = rendering
+      outputLocation = path.join(this.exportsRoot, `${rendering.id}.${FORMAT_EXT[format]}`)
       if (this.isCancelled(rendering.id)) return
       const bundleLocation = await this.ensureBundle()
       if (this.isCancelled(rendering.id)) return
@@ -242,6 +247,8 @@ export class RenderQueue implements RenderQueuePort {
         bundleLocationOverride: bundleLocation,
         inputProps,
         outputLocation,
+        format,
+        ...(format === 'gif' ? { scale: Math.min(1, 720 / entry.config.output.width) } : {}),
         onProgress: (pct) => {
           const nextProgress = nextJobProgress(progress, pct)
           if (nextProgress === undefined) return
@@ -253,7 +260,10 @@ export class RenderQueue implements RenderQueuePort {
         await this.discardOutput(outputLocation)
         return
       }
-      const gate = await this.readGateAdvisory(outputLocation, entry.config, inputProps.timeline)
+      const gate: GateAdvisory =
+        format === 'mp4'
+          ? await this.readGateAdvisory(outputLocation, entry.config, inputProps.timeline)
+          : { status: 'unavailable', error: 'gate runs on mp4 only' }
       if (this.isCancelled(rendering.id)) {
         await this.discardOutput(outputLocation)
         return

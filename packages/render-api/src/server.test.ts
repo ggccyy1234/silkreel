@@ -5,6 +5,7 @@ import { mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { buildApp } from './server.js'
 import type { GateExpectations, GateReport } from './gate.js'
 import type { RenderJob, RenderQueuePort, RenderSubmission } from './queue.js'
+import type { OutputFormat } from './render-film.js'
 
 interface JobResponse {
   jobId: string
@@ -21,10 +22,11 @@ interface JobStatusResponse {
 
 const testExports = path.resolve(import.meta.dirname, '../../../exports/render-api-tests')
 
-function completedJob(id: string, downloadPath: string): RenderJob {
+function completedJob(id: string, downloadPath: string, format: OutputFormat = 'mp4'): RenderJob {
   const now = new Date().toISOString()
   return {
     id,
+    format,
     status: 'done',
     progress: 100,
     createdAt: now,
@@ -48,6 +50,7 @@ class StubQueue implements RenderQueuePort {
     this.submissions.push(input)
     const job: RenderJob = {
       id: `job-${this.submissions.length}`,
+      format: input.format ?? 'mp4',
       status: 'pending',
       progress: 0,
       createdAt: new Date().toISOString()
@@ -174,6 +177,35 @@ describe('render-api contract', () => {
       })
       expect(bad.statusCode).toBe(400)
     })
+  })
+
+  it('accepts the four output formats and rejects anything else', async () => {
+    const queue = new StubQueue()
+    await withApp(queue, async (app) => {
+      const gif = await app.inject({ method: 'POST', url: '/render', payload: { demoId: 'glasgow', format: 'gif' } })
+      expect(gif.statusCode).toBe(202)
+      expect(queue.submissions.at(-1)?.format).toBe('gif')
+      const avi = await app.inject({ method: 'POST', url: '/render', payload: { demoId: 'glasgow', format: 'avi' } })
+      expect(avi.statusCode).toBe(400)
+    })
+  })
+
+  it('serves non-mp4 downloads with the matching type and extension', async () => {
+    await mkdir(testExports, { recursive: true })
+    const downloadPath = path.join(testExports, 'gif-job.gif')
+    await writeFile(downloadPath, 'tiny gif')
+    const queue = new StubQueue()
+    queue.add(completedJob('gif-job', downloadPath, 'gif'))
+    try {
+      await withApp(queue, async (app) => {
+        const response = await app.inject({ method: 'GET', url: '/download/gif-job' })
+        expect(response.statusCode).toBe(200)
+        expect(response.headers['content-type']).toBe('image/gif')
+        expect(response.headers['content-disposition']).toContain('silk-reel-gif-job.gif')
+      })
+    } finally {
+      await rm(testExports, { recursive: true, force: true })
+    }
   })
 
   it('accepts a valid submission and exposes job lifecycle endpoints', async () => {

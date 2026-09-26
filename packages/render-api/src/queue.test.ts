@@ -104,6 +104,40 @@ describe('render queue execution', () => {
     expect(completed.every((job) => job.progress === 100)).toBe(true)
   })
 
+  it('compiles alpha jobs transparent, scales gifs, and gates only mp4', async () => {
+    const seen: RenderFilmOptions[] = []
+    let gateCalls = 0
+    const render = async (options: RenderFilmOptions): Promise<RenderFilmResult> => {
+      seen.push(options)
+      outputPaths.add(options.outputLocation)
+      await writeFile(options.outputLocation, 'test video')
+      return { bundleLocation: 'test-bundle', outputLocation: options.outputLocation }
+    }
+    const queue = new RenderQueue({
+      renderFilm: render,
+      runGate: (videoPath) => {
+        gateCalls += 1
+        return Promise.resolve(gateReport(videoPath, true))
+      },
+      bundle: () => Promise.resolve('test-bundle')
+    })
+    const webm = queue.submit({ demoId: 'ecc83-pp', format: 'webm-alpha' })
+    const mov = queue.submit({ demoId: 'ecc83-pp', format: 'prores-alpha' })
+    const gif = queue.submit({ demoId: 'ecc83-pp', format: 'gif' })
+    await queue.waitForIdle()
+    const [w, m, g] = seen
+    expect(w?.inputProps.timeline.transparent).toBe(true)
+    expect(w?.outputLocation.endsWith(`${webm.id}.webm`)).toBe(true)
+    expect(m?.inputProps.timeline.transparent).toBe(true)
+    expect(m?.outputLocation.endsWith(`${mov.id}.mov`)).toBe(true)
+    expect(g?.inputProps.timeline.transparent).toBe(false)
+    expect(g?.outputLocation.endsWith(`${gif.id}.gif`)).toBe(true)
+    expect(g?.scale).toBeCloseTo(720 / 1080)
+    expect(gateCalls).toBe(0)
+    expect(doneJob(queue, gif.id).gate.status).toBe('unavailable')
+    expect(doneJob(queue, gif.id).format).toBe('gif')
+  })
+
   it('serializes rendering across queue instances', async () => {
     const events: string[] = []
     let active = 0

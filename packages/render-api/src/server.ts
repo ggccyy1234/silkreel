@@ -8,6 +8,8 @@ import { DEMO_BOARDS, boardFromJson, defaultFilmConfig, isDemoBoardId } from './
 import { RenderQueue } from './queue.js'
 import type { RenderQueuePort, RenderSubmission } from './queue.js'
 import { runGate } from './gate.js'
+import { FORMAT_EXT, FORMAT_MIME, OUTPUT_FORMATS } from './render-film.js'
+import type { OutputFormat } from './render-film.js'
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..')
 const allowedVideoRoots = [path.join(repoRoot, 'exports'), path.join(repoRoot, 'fixtures')]
@@ -40,9 +42,9 @@ async function safeFilePath(target: string, roots: readonly string[]): Promise<s
   }
 }
 
-function downloadFilename(id: string): string {
+function downloadFilename(id: string, format: OutputFormat): string {
   const safeId = id.replace(/[^a-zA-Z0-9._-]/g, '_')
-  return `silk-reel-${safeId || 'job'}.mp4`
+  return `silk-reel-${safeId || 'job'}.${FORMAT_EXT[format]}`
 }
 
 export interface BuildAppOptions {
@@ -105,8 +107,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (downloadPath === undefined) {
       return await reply.code(410).send({ error: 'render artifact missing' })
     }
-    reply.header('content-type', 'video/mp4')
-    reply.header('content-disposition', `attachment; filename="${downloadFilename(job.id)}"`)
+    reply.header('content-type', FORMAT_MIME[job.format])
+    reply.header('content-disposition', `attachment; filename="${downloadFilename(job.id, job.format)}"`)
     return await reply.send(createReadStream(downloadPath))
   })
 
@@ -265,7 +267,7 @@ function parseFilmConfig(value: unknown): FilmConfigResult {
 
 function parseRenderRequest(body: unknown): RenderRequestResult {
   if (!isRecord(body)) return { ok: false, error: 'request body must be an object' }
-  const unexpected = unknownField(body, ['demoId', 'boardJson', 'filmConfig'])
+  const unexpected = unknownField(body, ['demoId', 'boardJson', 'filmConfig', 'format'])
   if (unexpected !== undefined) return { ok: false, error: `${unexpected} is not supported` }
   const hasDemo = Object.hasOwn(body, 'demoId')
   const hasBoard = Object.hasOwn(body, 'boardJson')
@@ -274,6 +276,11 @@ function parseRenderRequest(body: unknown): RenderRequestResult {
   const parsedConfig = parseFilmConfig(body.filmConfig)
   if (!parsedConfig.ok) return parsedConfig
   const config = parsedConfig.config
+  if (Object.hasOwn(body, 'format') && !OUTPUT_FORMATS.includes(body.format as OutputFormat)) {
+    return { ok: false, error: `format must be one of ${OUTPUT_FORMATS.join(', ')}` }
+  }
+  const format = body.format as OutputFormat | undefined
+  const extras = { ...(config !== undefined ? { config } : {}), ...(format !== undefined ? { format } : {}) }
 
   if (hasDemo) {
     const demoId = body.demoId
@@ -281,7 +288,7 @@ function parseRenderRequest(body: unknown): RenderRequestResult {
       return { ok: false, error: 'demoId must be a non-empty string' }
     }
     if (!isDemoBoardId(demoId)) return { ok: false, error: `unknown demoId ${demoId}`, known: DEMO_BOARDS }
-    return { ok: true, input: { demoId, ...(config !== undefined ? { config } : {}) } }
+    return { ok: true, input: { demoId, ...extras } }
   }
 
   if (!isRecord(body.boardJson)) return { ok: false, error: 'boardJson must be an object' }
@@ -290,7 +297,7 @@ function parseRenderRequest(body: unknown): RenderRequestResult {
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'invalid boardJson' }
   }
-  return { ok: true, input: { boardJson: body.boardJson, ...(config !== undefined ? { config } : {}) } }
+  return { ok: true, input: { boardJson: body.boardJson, ...extras } }
 }
 
 const isMain = process.argv[1] !== undefined && import.meta.url.endsWith(path.basename(process.argv[1]))

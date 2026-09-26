@@ -12,5 +12,5 @@ export type {
 } from './queue.js'
 export { DEMO_BOARDS, loadDemoBoard, defaultFilmConfig } from './boards.js'
 export type { DemoBoardId } from './boards.js'
-export { renderFilm } from './render-film.js'
-export type { RenderFilmOptions, RenderFilmResult } from './render-film.js'
+export { renderFilm, FORMAT_EXT, FORMAT_MIME, OUTPUT_FORMATS, isAlphaFormat } from './render-film.js'
+export type { OutputFormat, RenderFilmOptions, RenderFilmResult } from './render-film.js'
