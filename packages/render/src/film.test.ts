@@ -55,6 +55,21 @@ describe('drawFrame', () => {
     expect(props['fillStyle']).toBe('#ffffff')
   })
 
+  it('inks the formation hero in palette.head and the rest in palette.silk', () => {
+    const timeline = compiled(board, { palette: 'copper' })
+    const scene = buildScene(timeline)
+    const inks: unknown[] = []
+    for (let f = 0; f < timeline.totalFrames; f += 5) {
+      currentRecorder().reset()
+      drawFrame(asCtx(currentRecorder()), timeline, scene, f)
+      inks.push(...callsOf('set:strokeStyle').map((c) => c.args[0]))
+    }
+    const head = inks.filter((c) => c === timeline.palette.head).length
+    const silk = inks.filter((c) => c === timeline.palette.silk).length
+    expect(head).toBeGreaterThan(0)
+    expect(silk).toBeGreaterThan(head)
+  })
+
   it('draws nothing at the loop point (breath = 0)', () => {
     const timeline = compiled(board)
     const scene = buildScene(timeline)

@@ -40,6 +40,15 @@ describe('choreo package smoke', () => {
         0
       )
       expect(lit).toBeGreaterThan(0)
+      // the climax crowns one hero (plus its mirror copies) — an accent, not a flood
+      if (tl.cast.some((g) => g.kind === 'package')) {
+        const heroes = tl.tracks.reduce(
+          (n, t) => n + sampleTrack(t, midClimax).filter((a) => a.alpha > 0.05 && a.hero === true).length,
+          0
+        )
+        expect(heroes).toBeGreaterThan(0)
+        expect(heroes).toBeLessThanOrEqual(Math.max(4, lit / 4))
+      }
     })
   }
 
