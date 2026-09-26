@@ -1,4 +1,4 @@
-import type { Arc, BoardModel, Pad, Vec2 } from '@silk-reel/ingest'
+import type { Arc, BBox, BoardModel, Pad, Vec2 } from '@silk-reel/ingest'
 import { fitBoard, safeArea } from '../layout'
 import type { ResolvedConfig } from '../config'
 import type { CameraKey, FlatPath, TraceBeats, TraceLayer, TracePad, TraceScene, TraceText, TraceVia, TraceZone, TimelineWarning } from '../types'
@@ -60,14 +60,46 @@ const padShape = (pad: Pad): TracePad['shape'] => {
   return 'rect'
 }
 
+/**
+ * what reads as the board: its outline plus copper and part bodies hanging
+ * past it (edge connectors). board.bbox also counts silk text and footprint
+ * origins floating off the edge, which shrank boards like StickHub by ~30%
+ */
+function contentBox(board: BoardModel): BBox {
+  const pts = board.outline.flatMap((path) => path.points)
+  if (pts.length < 2) return board.bbox
+  const min = { x: Infinity, y: Infinity }
+  const max = { x: -Infinity, y: -Infinity }
+  const add = (x: number, y: number, r = 0): void => {
+    min.x = Math.min(min.x, x - r)
+    min.y = Math.min(min.y, y - r)
+    max.x = Math.max(max.x, x + r)
+    max.y = Math.max(max.y, y + r)
+  }
+  for (const p of pts) add(p.x, p.y)
+  for (const copper of Object.values(board.copper)) {
+    for (const pad of copper.pads) add(pad.pos.x, pad.pos.y, Math.max(pad.size.x, pad.size.y) / 2)
+    for (const trace of copper.traces) for (const p of trace.points) add(p.x, p.y)
+    for (const via of copper.vias) add(via.pos.x, via.pos.y, via.dia / 2)
+  }
+  // footprint silk is the part's body (a connector overhanging the edge);
+  // free silk and text off the edge is annotation
+  const owned = new Set(board.footprints.flatMap((fp) => [...fp.silkRefs]))
+  for (const silk of Object.values(board.silkscreen)) {
+    for (const line of silk.lines) if (owned.has(line.id)) for (const p of line.points) add(p.x, p.y)
+  }
+  return { min, max }
+}
+
 export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { scene: TraceScene; warnings: TimelineWarning[] } {
   const beats = TRACE_BEATS
   const [g0, g1] = beats.growth
-  const fit = fitBoard(board.bbox, resolved.width, resolved.height, resolved.title !== undefined)
+  const box = contentBox(board)
+  const fit = fitBoard(box, resolved.width, resolved.height, resolved.title !== undefined)
   const hero = pickHero(board, resolved.cast)
   const originMm = hero?.center ?? {
-    x: (board.bbox.min.x + board.bbox.max.x) / 2,
-    y: (board.bbox.min.y + board.bbox.max.y) / 2
+    x: (box.min.x + box.max.x) / 2,
+    y: (box.min.y + box.max.y) / 2
   }
 
   const segs: GraphSeg[] = []
@@ -324,7 +356,7 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
       silkStrokes,
       texts,
       origin,
-      camera: cameraTrack(board, resolved, fit.map, layers, origin),
+      camera: cameraTrack(box, resolved, fit.map, layers, origin),
       beats
     },
     warnings
@@ -338,7 +370,7 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
  * to the whole board for the hold — the reveal.
  */
 function cameraTrack(
-  board: BoardModel,
+  bbox: BBox,
   resolved: ResolvedConfig,
   map: (p: Vec2) => Vec2,
   layers: TraceLayer[],
@@ -346,7 +378,7 @@ function cameraTrack(
 ): CameraKey[] {
   const W = resolved.width
   const H = resolved.height
-  const corners = [board.bbox.min, { x: board.bbox.max.x, y: board.bbox.min.y }, board.bbox.max, { x: board.bbox.min.x, y: board.bbox.max.y }].map(map)
+  const corners = [bbox.min, { x: bbox.max.x, y: bbox.min.y }, bbox.max, { x: bbox.min.x, y: bbox.max.y }].map(map)
   const bx0 = Math.min(...corners.map((c) => c.x))
   const bx1 = Math.max(...corners.map((c) => c.x))
   const by0 = Math.min(...corners.map((c) => c.y))
