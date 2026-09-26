@@ -4,7 +4,7 @@ import { drawTraceFrame } from './trace-draw'
 import { drawTitle } from './title'
 import { FONT } from './font'
 /** hairline stroke width in output pixels (constant regardless of glyph scale) */
-const INK_PX = 1.3
+const INK_PX = 1.6
 /** fade-to-black window at both loop edges, as a fraction of the loop */
 const BREATH = 0.02
 
@@ -64,7 +64,9 @@ function drawAtom(
     ctx.fillText(glyph.text, 0, 0)
   } else {
     if (glyph.path !== undefined) {
-      ctx.lineWidth = INK_PX / sizePx
+      // the hero reads by weight as well as color — in copper/mono the head
+      // ink sits too close to silk to carry the accent alone
+      ctx.lineWidth = (atom.hero === true ? INK_PX * 1.8 : INK_PX) / sizePx
       ctx.stroke(glyph.path)
     }
     // silkscreen labels ride inside the outline at their mirrored spot but
