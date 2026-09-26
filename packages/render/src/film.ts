@@ -1,6 +1,7 @@
 import { sampleTrack } from '@silk-reel/choreo'
 import type { AtomState, GlyphLabel, GlyphTimeline, Timeline } from '@silk-reel/choreo'
 import { drawTraceFrame } from './trace-draw'
+import { drawTitle } from './title'
 import { FONT } from './font'
 /** hairline stroke width in output pixels (constant regardless of glyph scale) */
 const INK_PX = 1.3
@@ -128,5 +129,6 @@ export function drawGlyphFrame(
     }
   }
   ctx.globalAlpha = 1
+  drawTitle(ctx, timeline, phase, breath)
   return drawn
 }

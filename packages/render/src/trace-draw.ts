@@ -1,5 +1,6 @@
 import type { FlatPath, TraceTimeline } from '@silk-reel/choreo'
 import { FONT } from './font'
+import { drawTitle } from './title'
 
 const ease = (x: number): number => {
   const t = Math.min(1, Math.max(0, x))
@@ -322,5 +323,8 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
   }
 
   ctx.restore()
+
+  // 10 title card — screen space, after the camera transform is popped
+  drawTitle(ctx, tl, p, fade)
   return drawn
 }
