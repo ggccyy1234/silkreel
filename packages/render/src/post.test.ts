@@ -4,6 +4,6 @@ import { createPost } from './post.js'
 
 describe('createPost', () => {
   it('returns undefined where WebGL2 is unavailable (happy-dom), exercising the drawImage fallback', () => {
-    expect(createPost(document.createElement('canvas'))).toBeUndefined()
+    expect(createPost()).toBeUndefined()
   })
 })

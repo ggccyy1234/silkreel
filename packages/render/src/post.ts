@@ -12,7 +12,8 @@ export interface PostOptions {
 }
 
 export interface Post {
-  render(src: HTMLCanvasElement, o: PostOptions): void
+  /** post-processes `src` on the pass's own WebGL canvas and returns it for the caller to drawImage */
+  render(src: HTMLCanvasElement, o: PostOptions): HTMLCanvasElement
   dispose(): void
 }
 
@@ -109,8 +110,13 @@ function makeTarget(gl: WebGL2RenderingContext, w: number, h: number): Target | 
   return ok ? { tex, fbo, w, h } : undefined
 }
 
-/** returns undefined when WebGL2 is unavailable — caller falls back to drawImage */
-export function createPost(canvas: HTMLCanvasElement): Post | undefined {
+/**
+ * returns undefined when WebGL2 is unavailable — caller falls back to drawImage.
+ * The pass owns its GL canvas so the visible canvas keeps a 2d context: once a
+ * canvas hands out webgl2 it can never give 2d, which would blank the fallback.
+ */
+export function createPost(): Post | undefined {
+  const canvas = document.createElement('canvas')
   let gl: WebGL2RenderingContext | null = null
   try {
     gl = canvas.getContext('webgl2', {
@@ -162,6 +168,8 @@ export function createPost(canvas: HTMLCanvasElement): Post | undefined {
       gl.deleteFramebuffer(t.fbo)
     }
     levels = []
+    canvas.width = w
+    canvas.height = h
     let lw = Math.max(1, Math.ceil(w / 2))
     let lh = Math.max(1, Math.ceil(h / 2))
     for (let i = 0; i <= LEVELS; i++) {
@@ -183,8 +191,8 @@ export function createPost(canvas: HTMLCanvasElement): Post | undefined {
   }
 
   return {
-    render(src: HTMLCanvasElement, o: PostOptions): void {
-      if (gl.isContextLost() || !ensureTargets(src.width, src.height)) return
+    render(src: HTMLCanvasElement, o: PostOptions): HTMLCanvasElement {
+      if (gl.isContextLost() || !ensureTargets(src.width, src.height)) return src
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, srcTex)
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src)
@@ -227,6 +235,7 @@ export function createPost(canvas: HTMLCanvasElement): Post | undefined {
       gl.activeTexture(gl.TEXTURE0)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       gl.finish()
+      return canvas
     },
     dispose(): void {
       for (const t of levels) {

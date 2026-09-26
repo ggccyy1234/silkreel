@@ -31,9 +31,7 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, childr
 
   // pick the pipeline once per mounted canvas: webgl2 post, else plain 2d
   React.useLayoutEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    postRef.current = createPost(canvas) ?? null
+    postRef.current = createPost() ?? null
     readyRef.current = true
     return () => {
       postRef.current?.dispose()
@@ -48,21 +46,17 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, childr
     const ctx = offscreen.getContext('2d')
     if (!ctx) return
     drawFrame(ctx, timeline, scene, frame)
-    const post = postRef.current
-    if (post !== null) {
-      post.render(offscreen, {
-        bloom: timeline.palette.bloom,
-        grain: grain && !timeline.transparent,
-        vignette: !timeline.transparent,
-        transparent: timeline.transparent,
-        frame
-      })
-    } else {
-      const target = canvas.getContext('2d')
-      if (!target) return
-      target.clearRect(0, 0, canvas.width, canvas.height)
-      target.drawImage(offscreen, 0, 0)
-    }
+    const target = canvas.getContext('2d')
+    if (!target) return
+    const out = postRef.current?.render(offscreen, {
+      bloom: timeline.palette.bloom,
+      grain: grain && !timeline.transparent,
+      vignette: !timeline.transparent,
+      transparent: timeline.transparent,
+      frame
+    }) ?? offscreen
+    target.clearRect(0, 0, canvas.width, canvas.height)
+    target.drawImage(out, 0, 0)
   }, [frame, timeline, scene, offscreen, grain])
 
   return React.createElement(
