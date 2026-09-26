@@ -515,9 +515,12 @@ const FORMATION_LABELS: Record<string, string> = {
 
 interface FilmSegment { id: string; beat: number; startPhase: number; endPhase: number }
 
-/** ribbon blocks: glyph formations, or the trace beats laid end to end */
+/** ribbon blocks tile the loop: each glyph formation runs until the next one starts; trace beats laid end to end */
 function filmSegments(timeline: Timeline): FilmSegment[] {
-  if (timeline.style === 'glyph') return timeline.formations
+  if (timeline.style === 'glyph') {
+    const f = timeline.formations
+    return f.map((x, i) => ({ id: x.id, beat: x.beat, startPhase: i === 0 ? 0 : x.startPhase, endPhase: f[i + 1]?.startPhase ?? 1 }))
+  }
   const b = timeline.scene.beats
   const cuts: Array<[string, number]> = [['build', 0], ['growth', b.growth[0]], ['finish', b.growth[1]], ['hold', b.hold[0]], ['fade', b.fade[0]]]
   return cuts.map(([id, start], i) => ({ id, beat: i, startPhase: start, endPhase: cuts[i + 1]?.[1] ?? 1 }))
@@ -860,9 +863,11 @@ const ExportControl: React.FC<{ state: ExportState | null; onExport: () => Promi
       )}
       {state?.status === 'completed' && (
         <>
-          <span className={`gate-chip ${state.job.gatePassed === true ? 'gate-ok' : 'gate-warn'}`} title={state.job.gateDetail ?? 'advisory metrics unavailable'}>
-            {state.job.gatePassed === null ? 'gate unavailable' : `gate ${state.job.gatePassed ? 'pass' : 'advisory'}`}
-          </span>
+          {state.job.gatePassed !== null && (
+            <span className={`gate-chip ${state.job.gatePassed ? 'gate-ok' : 'gate-warn'}`} title={state.job.gateDetail ?? ''}>
+              {`gate ${state.job.gatePassed ? 'pass' : 'advisory'}`}
+            </span>
+          )}
           <a className="button-link" href={downloadUrl(state.job.jobId)}>download</a>
           <button className="ghost" disabled={disabled} onClick={() => {
             void onExport()
