@@ -2,9 +2,10 @@
 // Render every style x board x aspect into review/<stamp>/ with dense contact
 // sheets (5 fps => the sheets cover the whole video), a gallery index.html,
 // and a notes.md rubric. Quality gate: a human reads every sheet.
-// usage: npm run review -- [--styles glyph] [--boards glasgow,video|all] [--aspects 4:5] [--palette copper] [--seed 42]
+// usage: npm run review -- [--styles glyph] [--boards glasgow,video|all] [--aspects 4:5] [--palette copper] [--seed 42] [--out review/<stamp>]
+// --out resumes into an existing run: videos already there are kept
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import { bundle } from '@remotion/bundler'
@@ -20,14 +21,15 @@ const { values } = parseArgs({
     boards: { type: 'string', default: 'all' },
     aspects: { type: 'string', default: '4:5' },
     palette: { type: 'string', default: '' },
-    seed: { type: 'string', default: '42' }
+    seed: { type: 'string', default: '42' },
+    out: { type: 'string', default: '' }
   }
 })
 const styles = values.styles.split(',')
 const boards = values.boards === 'all' ? [...DEMO_BOARDS] : values.boards.split(',')
 const aspects = values.aspects.split(',')
-const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-const out = path.join(root, 'review', stamp)
+const out = values.out ? path.resolve(values.out) : path.join(root, 'review', new Date().toISOString().replace(/[:.]/g, '-'))
+const stamp = path.basename(out)
 mkdirSync(out, { recursive: true })
 
 const entryPoint = path.join(root, 'packages/render/src/remotion-entry.tsx')
@@ -47,7 +49,9 @@ try {
     const timeline = compileTimeline(await loadDemoBoard(board), config)
     const compileMs = Date.now() - t0
     const video = path.join(out, `${name}.mp4`)
-    await renderFilm({ entryPoint, bundleLocationOverride: bundleLocation, inputProps: { timeline }, outputLocation: video })
+    const render = () => renderFilm({ entryPoint, bundleLocationOverride: bundleLocation, inputProps: { timeline }, outputLocation: video })
+    // heavy boards occasionally time out Chromium's page pool; one retry clears it
+    if (!existsSync(video)) await render().catch((err: unknown) => { console.warn(`${name}: retrying after ${String(err)}`); return render() })
     const sheetDir = path.join(out, name)
     mkdirSync(sheetDir, { recursive: true })
     // 5 fps sampling, 4x4 tiles => every second of the film is on a sheet

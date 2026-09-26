@@ -86,8 +86,9 @@ describe('camera track', () => {
     const ts = scene.camera.map((k) => k.t)
     expect(ts).toEqual([...ts].sort((a, b) => a - b))
     expect(Math.max(...scene.camera.map((k) => k.zoom))).toBeGreaterThan(1.3)
-    const reveal = scene.camera.find((k) => k.t >= 0.88)
-    expect(reveal?.zoom).toBe(1)
+    // whole board back in frame early enough to hold ≥1.5s of a 12s loop before the fade
+    const reveal = scene.camera.find((k) => k.zoom === 1 && k.t > 0.5)
+    expect(reveal?.t).toBeLessThanOrEqual(0.96 - 1.5 / 12)
   })
   it('keeps a frame-filling board on a gentle push', () => {
     const { scene } = compileTrace(boardModel('glasgow.kicad_pcb'), resolved('4:5'), 1)

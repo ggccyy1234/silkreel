@@ -364,11 +364,11 @@ function cameraTrack(
     cx: clampAxis(cx, bx0, bx1, W / 2 / zoom),
     cy: clampAxis(cy, by0, by1, H / 2 / zoom)
   })
-  const [g0] = TRACE_BEATS.growth
+  const [g0, g1] = TRACE_BEATS.growth
   const STEP = 0.04
   const fronts: Array<{ t: number; x: number; y: number }> = []
   let last = { x: origin.x, y: origin.y }
-  for (let t = g0; t < 0.8 - 1e-9; t += STEP) {
+  for (let t = g0; t < g1 - 1e-9; t += STEP) {
     let sx = 0
     let sy = 0
     let n = 0
@@ -386,16 +386,17 @@ function cameraTrack(
     fronts.push({ t: t + STEP / 2, ...last })
   }
   const smooth = fronts.map((f, i) => {
-    const w = fronts.slice(Math.max(0, i - 1), i + 2)
+    const w = fronts.slice(Math.max(0, i - 2), i + 3)
     return { t: f.t, x: w.reduce((a, b) => a + b.x, 0) / w.length, y: w.reduce((a, b) => a + b.y, 0) / w.length }
   })
   return [
     { t: 0, ...home, zoom: 1 },
     { t: TRACE_BEATS.outline[0] + 0.07, ...home, zoom: 1 },
     { t: TRACE_BEATS.pads[0] + 0.07, ...clampKey(origin.x, origin.y), zoom },
-    ...smooth.filter((f) => f.t > TRACE_BEATS.pads[0] + 0.07 && f.t < 0.78).map((f) => ({ t: f.t, ...clampKey(f.x, f.y), zoom })),
-    { t: 0.8, ...clampKey(last.x, last.y), zoom },
-    { t: 0.88, ...home, zoom: 1 },
+    ...smooth.filter((f) => f.t > TRACE_BEATS.pads[0] + 0.07 && f.t < g1 - 0.02).map((f) => ({ t: f.t, ...clampKey(f.x, f.y), zoom })),
+    { t: g1, ...clampKey(last.x, last.y), zoom },
+    // the reveal lands before zones/silk finish so the whole board holds ≥1.5s
+    { t: 0.8, ...home, zoom: 1 },
     { t: 1, ...home, zoom: 1.03 }
   ]
 }

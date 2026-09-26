@@ -79,7 +79,10 @@ export function sampleCamera(keys: CameraKey[], p: number, W: number, H: number)
   while (k + 1 < keys.length && (keys[k + 1] as CameraKey).t <= p) k++
   const a = keys[k] as CameraKey
   const b = keys[k + 1] ?? a
-  const u = b.t > a.t ? ease((p - a.t) / (b.t - a.t)) : 0
+  // zoom moves ease in and out; tracking keys at one zoom glide at constant
+  // speed so the camera doesn't stop at every key
+  const v = b.t > a.t ? (p - a.t) / (b.t - a.t) : 0
+  const u = a.zoom === b.zoom ? v : ease(v)
   return { cx: a.cx + (b.cx - a.cx) * u, cy: a.cy + (b.cy - a.cy) * u, zoom: a.zoom + (b.zoom - a.zoom) * u }
 }
 
