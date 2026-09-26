@@ -85,6 +85,7 @@ function layerKindOf(layerId: string): Layer['kind'] | undefined {
   return undefined
 }
 
+/** KiCad angles are counter-clockwise on screen (y down) */
 function rotatePoint(p: Vec2, origin: Vec2, rotDeg: number): Vec2 {
   if (rotDeg === 0) return p
   const rad = (rotDeg * Math.PI) / 180
@@ -92,7 +93,7 @@ function rotatePoint(p: Vec2, origin: Vec2, rotDeg: number): Vec2 {
   const sin = Math.sin(rad)
   const dx = p.x - origin.x
   const dy = p.y - origin.y
-  return { x: origin.x + dx * cos - dy * sin, y: origin.y + dx * sin + dy * cos }
+  return { x: origin.x + dx * cos + dy * sin, y: origin.y - dx * sin + dy * cos }
 }
 
 function padShapeOf(token: string): PadShape {
@@ -370,7 +371,8 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
       pos: globalPos,
       size: { x: sx, y: sy },
       shape: padShapeOf(shapeToken),
-      rot: fpRot + padRot,
+      // pad and text angles in the file are already board-absolute
+      rot: padRot,
       footprintRef: fp.ref
     }
     const netId = bindNet(netAtomOf(node), 'pad', key, fp.ref)
@@ -476,7 +478,7 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
         value: info.value,
         refdes: fp.ref,
         pos: globalAt,
-        rot: fpRot + info.rot,
+        rot: info.rot,
         height: info.height,
         mirrored: info.mirrored,
         footprintRef: fp.ref

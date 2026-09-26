@@ -206,8 +206,11 @@ describe('VAL-INGEST-016b footprint geometry under rotation', () => {
       expect(Math.hypot(p.x - arcCenter.x, p.y - arcCenter.y), 'arc points must keep their radius about the rotated center').toBeCloseTo(1.5, 3)
     }
 
-    expect(arc.points[0]).toEqual({ x: 10, y: 11.5 })
-    expect(arc.points[arc.points.length - 1]).toEqual({ x: 8.5, y: 10 })
+    // KiCad rotates counter-clockwise on screen (y down): local (1.5, 0) at 90° lands at (0, -1.5)
+    expect(arc.points[0]?.x).toBeCloseTo(10, 6)
+    expect(arc.points[0]?.y).toBeCloseTo(8.5, 6)
+    expect(arc.points[arc.points.length - 1]?.x).toBeCloseTo(11.5, 6)
+    expect(arc.points[arc.points.length - 1]?.y).toBeCloseTo(10, 6)
   })
 
   it('circle bbox uses the global center after footprint rotation', () => {
@@ -223,10 +226,10 @@ describe('VAL-INGEST-016b footprint geometry under rotation', () => {
     const rad = (45 * Math.PI) / 180
     const cos = Math.cos(rad)
     const sin = Math.sin(rad)
-    const rotate = (x: number, y: number) => ({ x: 100 + x * cos - y * sin, y: 50 + x * sin + y * cos })
+    const rotate = (x: number, y: number) => ({ x: 100 + x * cos + y * sin, y: 50 - x * sin + y * cos })
     const expectedCenter = rotate(0, -2)
-    expect(m.bbox.min.x).toBeCloseTo(99.5, 5)
-    expect(m.bbox.max.x).toBeCloseTo(expectedCenter.x + 1, 5)
+    expect(m.bbox.min.x).toBeCloseTo(expectedCenter.x - 1, 5)
+    expect(m.bbox.max.x).toBeCloseTo(100.5, 5)
     expect(m.bbox.min.y).toBeCloseTo(expectedCenter.y - 1, 5)
     expect(m.bbox.max.y).toBeCloseTo(50.5, 5)
     const circleLine = Object.values(m.silkscreen)
