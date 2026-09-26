@@ -377,7 +377,7 @@ function orbitBeat(groups: GlyphGroups, rng: Rng): SlotMap {
   const out: SlotMap = new Map()
   const hero = groups.packages[0]
   if (hero !== undefined) {
-    place(out, hero, { x: 0, y: 0, rot: 0, scale: 0.16, copies: SINGLE, order: 0.05 })
+    place(out, hero, { x: 0, y: 0, rot: 0, scale: 0.22, copies: SINGLE, order: 0.05 })
   }
   // half-ring primaries with mirrorX twins close each circle symmetrically;
   // turn signs make the rings counter-rotate under the hold drift
@@ -389,7 +389,7 @@ function orbitBeat(groups: GlyphGroups, rng: Rng): SlotMap {
         x: Math.cos(a) * radius,
         y: Math.sin(a) * radius,
         rot: a + PI2,
-        scale: 0.04,
+        scale: 0.055,
         copies: MIRROR_X,
         order: order0 + i * 0.04,
         turn
