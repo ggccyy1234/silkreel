@@ -10,7 +10,7 @@ export type {
   RenderQueuePort,
   RenderSubmission
 } from './queue.js'
-export { DEMO_BOARDS, loadDemoBoard, defaultFilmConfig } from './boards.js'
+export { DEMO_BOARDS, loadDemoBoard, defaultFilmConfig, compileFilm } from './boards.js'
 export type { DemoBoardId } from './boards.js'
 export { renderFilm, FORMAT_EXT, FORMAT_MIME, OUTPUT_FORMATS, isAlphaFormat } from './render-film.js'
 export type { OutputFormat, RenderFilmOptions, RenderFilmResult } from './render-film.js'

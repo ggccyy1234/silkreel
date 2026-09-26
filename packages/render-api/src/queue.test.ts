@@ -132,7 +132,6 @@ describe('render queue execution', () => {
     expect(m?.outputLocation.endsWith(`${mov.id}.mov`)).toBe(true)
     expect(g?.inputProps.timeline.transparent).toBe(false)
     expect(g?.outputLocation.endsWith(`${gif.id}.gif`)).toBe(true)
-    expect(g?.scale).toBeCloseTo(720 / 1080)
     expect(gateCalls).toBe(0)
     expect(doneJob(queue, gif.id).gate.status).toBe('unavailable')
     expect(doneJob(queue, gif.id).format).toBe('gif')

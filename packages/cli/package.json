@@ -1,0 +1,20 @@
+{
+  "name": "@silk-reel/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "silk-reel": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@silk-reel/choreo": "0.1.0",
+    "@silk-reel/ingest": "0.1.0",
+    "@silk-reel/render-api": "0.1.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "build": "tsc --noEmit"
+  }
+}

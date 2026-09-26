@@ -14,6 +14,7 @@
     "metrics:gate": "tsx packages/metrics/src/cli.ts fixtures/canonical.mp4",
     "frame-sheet": "node scripts/frame-sheet.mjs",
     "review": "tsx scripts/review.ts",
+    "reel": "tsx packages/cli/src/cli.ts",
     "test:production": "node scripts/production-smoke.mjs"
   },
   "dependencies": {

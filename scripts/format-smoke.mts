@@ -20,8 +20,7 @@ for (const format of OUTPUT_FORMATS) {
     ...(bundleLocation !== undefined ? { bundleLocationOverride: bundleLocation } : {}),
     inputProps: { timeline },
     outputLocation: file,
-    format,
-    ...(format === 'gif' ? { scale: 720 / config.output.width } : {})
+    format
   })
   bundleLocation = r.bundleLocation
   const probe = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name,pix_fmt,width,height:stream_tags=alpha_mode', '-of', 'csv=p=0', file]).toString().trim()

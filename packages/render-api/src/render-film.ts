@@ -35,7 +35,7 @@ export interface RenderFilmOptions {
   inputProps: FilmInputProps
   outputLocation: string
   format?: OutputFormat
-  /** output scale factor (GIFs are capped at 720px wide) */
+  /** output scale factor; GIFs default to a 720px-wide cap */
   scale?: number
   onProgress?: (pct: number) => void
 }
@@ -53,6 +53,7 @@ export async function renderFilm(options: RenderFilmOptions): Promise<RenderFilm
   if (isAlphaFormat(format) && !options.inputProps.timeline.transparent) {
     throw new Error(`${format} needs a transparent timeline (compile with transparent: true)`)
   }
+  let lastPct = -1
   const inputProps = (format === 'gif' ? { ...options.inputProps, grain: false } : options.inputProps) as unknown as Record<string, unknown>
   const composition = await selectComposition({
     serveUrl: bundleLocation,
@@ -65,13 +66,15 @@ export async function renderFilm(options: RenderFilmOptions): Promise<RenderFilm
     inputProps,
     ...codecOptions(format),
     outputLocation: options.outputLocation,
-    scale: options.scale ?? 1,
+    scale: options.scale ?? (format === 'gif' ? Math.min(1, 720 / options.inputProps.timeline.width) : 1),
     concurrency: Number(process.env.SILK_REEL_CONCURRENCY) || Math.max(1, Math.floor(os.cpus().length / 2)),
     // angle uses the real GPU for the WebGL2 post pass; SILK_REEL_GL=swangle for GPU-less CI/servers
     chromiumOptions: { gl: (process.env.SILK_REEL_GL ?? 'angle') as OpenGlRenderer },
     onProgress: ({ progress }) => {
       const pct = Math.round(progress * 100)
-      if (pct % 20 === 0) options.onProgress?.(pct)
+      if (pct % 20 !== 0 || pct === lastPct) return
+      lastPct = pct
+      options.onProgress?.(pct)
     }
   })
   if (format === 'mp4') await normalizeMp4(options.outputLocation)

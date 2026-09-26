@@ -248,7 +248,6 @@ export class RenderQueue implements RenderQueuePort {
         inputProps,
         outputLocation,
         format,
-        ...(format === 'gif' ? { scale: Math.min(1, 720 / entry.config.output.width) } : {}),
         onProgress: (pct) => {
           const nextProgress = nextJobProgress(progress, pct)
           if (nextProgress === undefined) return
