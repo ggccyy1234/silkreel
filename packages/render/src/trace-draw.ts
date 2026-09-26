@@ -145,6 +145,16 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
   // layers run inner -> B -> F, so the last is the topmost — on boards with no
   // F copper the top present side is promoted to the hero color, not dimmed
   const topSide = s.layers.some((l) => l.side === 'F') ? 'F' : (s.layers[s.layers.length - 1]?.side ?? 'F')
+  // dense boards smear when every growing seg carries a glowing head — cap to
+  // the ones whose seg length clears the 60th percentile
+  const segLens: number[] = []
+  for (const layer of s.layers) {
+    for (let i = 0; i + 3 < layer.segs.length; i += 7) {
+      segLens.push(Math.hypot((layer.segs[i + 2] as number) - (layer.segs[i] as number), (layer.segs[i + 3] as number) - (layer.segs[i + 1] as number)))
+    }
+  }
+  segLens.sort((a, b) => a - b)
+  const headMinLen = segLens[Math.floor(segLens.length * 0.6)] ?? 0
   const heads: Array<{ x: number; y: number; w: number }> = []
   for (const layer of s.layers) {
     const front = layer.side === topSide
@@ -182,7 +192,7 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
       ctx.moveTo(x0, y0)
       ctx.lineTo(hx, hy)
       ctx.stroke()
-      heads.push({ x: hx, y: hy, w })
+      if (Math.hypot(x1 - x0, y1 - y0) >= headMinLen) heads.push({ x: hx, y: hy, w })
       drawn += 1
     }
     ctx.globalAlpha = fade * (front ? 1 : 0.45)
