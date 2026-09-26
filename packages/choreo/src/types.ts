@@ -145,6 +145,8 @@ export interface GlyphTimeline extends TimelineBase {
   cast: Glyph[]
   tracks: Track[]
   formations: FormationEvent[]
+  /** safeArea w/h — formations widen on wide frames, deepen on tall ones */
+  stageAspect: number
 }
 
 export interface TraceTimeline extends TimelineBase {

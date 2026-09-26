@@ -1,6 +1,7 @@
 import type { BoardModel } from '@silk-reel/ingest'
 import { planDuration, resolveConfig } from './config'
 import { composeFilm } from './composer'
+import { safeArea } from './layout'
 import { organicSeed } from './rng'
 import { compileTrace } from './trace/index'
 import type { FilmConfig, Timeline } from './types'
@@ -26,5 +27,12 @@ export function compileTimeline(board: BoardModel, config: FilmConfig): Timeline
     return { ...base, style: 'trace', scene: t.scene, warnings: [...duration.warnings, ...resolved.knobWarnings, ...t.warnings] }
   }
   const film = composeFilm(board, resolved, seed)
-  return { ...base, style: 'glyph', ...film, warnings: [...duration.warnings, ...resolved.knobWarnings, ...film.warnings] }
+  const safe = safeArea(resolved.width, resolved.height, resolved.title !== undefined)
+  return {
+    ...base,
+    style: 'glyph',
+    ...film,
+    stageAspect: safe.w / safe.h,
+    warnings: [...duration.warnings, ...resolved.knobWarnings, ...film.warnings]
+  }
 }

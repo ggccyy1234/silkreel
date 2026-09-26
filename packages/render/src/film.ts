@@ -1,12 +1,10 @@
-import { sampleTrack } from '@silk-reel/choreo'
+import { sampleTrack, safeArea } from '@silk-reel/choreo'
 import type { AtomState, GlyphLabel, GlyphTimeline, Timeline } from '@silk-reel/choreo'
 import { drawTraceFrame } from './trace-draw'
 import { drawTitle } from './title'
 import { FONT } from './font'
 /** hairline stroke width in output pixels (constant regardless of glyph scale) */
 const INK_PX = 1.3
-/** stage [-1,1] maps to ±33% of frame height around the center */
-const STAGE = 0.33
 /** fade-to-black window at both loop edges, as a fraction of the loop */
 const BREATH = 0.02
 
@@ -107,9 +105,12 @@ export function drawGlyphFrame(
   const breath = smooth01(phase / BREATH) * smooth01((1 - phase) / BREATH)
   if (breath <= 0.003) return 0
 
-  const stagePx = timeline.height * STAGE
-  const cx = timeline.width / 2
-  const cy = timeline.height / 2
+  // stage [-1,1] maps to half the safe area's short side around its center;
+  // the timeline stretches slot x/y for the frame aspect (stageAspect)
+  const safe = safeArea(timeline.width, timeline.height, timeline.title !== undefined)
+  const stagePx = Math.min(safe.w, safe.h) * 0.5
+  const cx = safe.x + safe.w / 2
+  const cy = safe.y + safe.h / 2
   const ink = timeline.palette.silk
   ctx.strokeStyle = ink
   ctx.fillStyle = ink

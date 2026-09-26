@@ -1,6 +1,7 @@
 import type { BoardModel } from '@silk-reel/ingest'
 import { clamp, clamp01, smooth01 } from './curves'
 import { BEATS, buildBeatMaps } from './formations'
+import { safeArea } from './layout'
 import type { CopySpec, GlyphGroups, Slot } from './formations'
 import { buildCast } from './glyphs'
 import { makeRng } from './rng'
@@ -135,7 +136,13 @@ export function composeFilm(board: BoardModel, resolved: ResolvedConfig, seed: n
   warnings.push(...castWarnings)
   const groups = groupCast(cast)
 
-  const beatMaps = buildBeatMaps(groups, resolved.knobs.density, (label) => makeRng(seed, `form:${label}`))
+  const safe = safeArea(resolved.width, resolved.height, resolved.title !== undefined)
+  const beatMaps = buildBeatMaps(
+    groups,
+    resolved.knobs.density,
+    (label) => makeRng(seed, `form:${label}`),
+    safe.w / safe.h
+  )
 
   const n = BEATS.length
   // dormant beats borrow the nearest active slots so the glyph evaporates

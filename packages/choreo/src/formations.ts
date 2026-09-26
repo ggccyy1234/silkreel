@@ -1,5 +1,5 @@
 import type { Rng } from './rng'
-import type { FormationId, Glyph } from './types'
+import type { FormationId, Glyph, GlyphKind } from './types'
 
 export type CopySpec = { mode: 'single' } | { mode: 'mirrorX' } | { mode: 'quad' }
 
@@ -13,6 +13,10 @@ export interface Slot {
    *  dissolves run last-in-first-out so high-order slots leave first */
   order: number
 }
+
+/** no cast member ever lands smaller than this — below it a glyph is noise */
+const SCALE_FLOOR: Record<GlyphKind, number> = { package: 0.12, text: 0.05, mark: 0.035 }
+const floorScale = (v: number, kind: GlyphKind): number => Math.max(v, SCALE_FLOOR[kind])
 
 export interface GlyphGroups {
   packages: Glyph[]
@@ -29,9 +33,10 @@ const PI2 = Math.PI / 2
 export type SlotMap = Map<string, Slot[]>
 
 function place(out: SlotMap, glyph: Glyph, s: Slot): void {
+  const slot = { ...s, scale: floorScale(s.scale, glyph.kind) }
   const list = out.get(glyph.id)
-  if (list === undefined) out.set(glyph.id, [s])
-  else list.push(s)
+  if (list === undefined) out.set(glyph.id, [slot])
+  else list.push(slot)
 }
 
 /** one glyph per slot — the seed picks which accents appear, never the geometry */
@@ -56,7 +61,7 @@ function stack(glyphs: Glyph[], slots: Slot[], out: SlotMap): void {
 }
 
 function cloneMap(map: SlotMap): SlotMap {
-  return new Map([...map].map(([k, v]) => [k, [...v]]))
+  return new Map([...map].map(([k, v]) => [k, v.map((s) => ({ ...s }))]))
 }
 
 /**
@@ -346,7 +351,8 @@ export const BEATS: readonly BeatDef[] = [
 export function buildBeatMaps(
   groups: GlyphGroups,
   density: number,
-  rngFor: (label: string) => Rng
+  rngFor: (label: string) => Rng,
+  stageAspect = 1
 ): Map<number, SlotMap> {
   const maps = new Map<number, SlotMap>()
   // cast order is already hint-ranked — heroes are the head of it, guaranteed
@@ -363,5 +369,18 @@ export function buildBeatMaps(
   maps.set(6, ringBeat(groups, density, rngFor('ring')))
   maps.set(7, quadBeat(groups, rngFor('quad')))
   maps.set(8, marksA)
+  // stage is square-normalized: widen slots on wide frames, deepen on tall
+  const sx = Math.max(1, stageAspect)
+  const sy = Math.max(1, 1 / stageAspect)
+  if (sx > 1 || sy > 1) {
+    for (const map of new Set(maps.values())) {
+      for (const slots of map.values()) {
+        for (const s of slots) {
+          s.x *= sx
+          s.y *= sy
+        }
+      }
+    }
+  }
   return maps
 }
