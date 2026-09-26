@@ -181,6 +181,7 @@ export interface TracePad {
 export interface TraceVia { x: number; y: number; r: number; t: number }
 export interface TraceZone { fill: FlatPath; side: 'F' | 'B' | 'inner'; t0: number; t1: number }
 export interface TraceText { text: string; x: number; y: number; size: number; rot: number; t: number }
+export interface CameraKey { t: number; cx: number; cy: number; zoom: number }
 export interface TraceBeats {
   outline: [number, number]
   pads: [number, number]
@@ -202,8 +203,8 @@ export interface TraceScene {
   texts: TraceText[]
   /** growth origin (hero footprint center), px — used by zone wipe + glint */
   origin: { x: number; y: number }
-  /** slow push-in about the frame center */
-  camera: { from: number; to: number }
+  /** camera keys (px, ascending t), smoothstep-sampled: frame center (cx,cy) looks at, zoom about it */
+  camera: CameraKey[]
   beats: TraceBeats
 }
 

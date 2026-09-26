@@ -1,4 +1,4 @@
-import type { FlatPath, TraceTimeline } from '@silk-reel/choreo'
+import type { CameraKey, FlatPath, TraceTimeline } from '@silk-reel/choreo'
 import { FONT } from './font'
 import { drawTitle } from './title'
 
@@ -72,6 +72,17 @@ const withAlpha = (hex: string, a: number): string => {
   return `rgba(${r},${g},${b},${a})`
 }
 
+export function sampleCamera(keys: CameraKey[], p: number, W: number, H: number): Omit<CameraKey, 't'> {
+  const first = keys[0]
+  if (first === undefined) return { cx: W / 2, cy: H / 2, zoom: 1 }
+  let k = 0
+  while (k + 1 < keys.length && (keys[k + 1] as CameraKey).t <= p) k++
+  const a = keys[k] as CameraKey
+  const b = keys[k + 1] ?? a
+  const u = b.t > a.t ? ease((p - a.t) / (b.t - a.t)) : 0
+  return { cx: a.cx + (b.cx - a.cx) * u, cy: a.cy + (b.cy - a.cy) * u, zoom: a.zoom + (b.zoom - a.zoom) * u }
+}
+
 /** first seg index (stride 7) with t0 > p — segs are sorted by t0 */
 const liveSegs = (segs: number[], p: number): number => {
   let lo = 0
@@ -95,11 +106,11 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
   }
   const fade = 1 - within(p, s.beats.fade)
   if (fade <= 0.002) return 0
-  const cam = s.camera.from + (s.camera.to - s.camera.from) * ease(p)
+  const cam = sampleCamera(s.camera, p, W, H)
   ctx.save()
   ctx.translate(W / 2, H / 2)
-  ctx.scale(cam, cam)
-  ctx.translate(-W / 2, -H / 2)
+  ctx.scale(cam.zoom, cam.zoom)
+  ctx.translate(-cam.cx, -cam.cy)
   ctx.globalAlpha = fade
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
@@ -140,10 +151,16 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     ctx.beginPath()
     ctx.arc(s.origin.x, s.origin.y, r, 0, Math.PI * 2)
     ctx.clip()
-    ctx.fillStyle = pal.copperDim
-    ctx.globalAlpha = fade * 0.16
+    // pours are texture, not subject — stacked sides at higher alpha turned
+    // whole boards into amber mush and killed copper contrast
     tracePath(ctx, zone.fill)
+    ctx.fillStyle = pal.copperDim
+    ctx.globalAlpha = fade * (zone.side === 'F' ? 0.07 : 0.035)
     ctx.fill()
+    ctx.strokeStyle = pal.copperDim
+    ctx.lineWidth = 1
+    ctx.globalAlpha = fade * 0.2
+    ctx.stroke()
     ctx.restore()
     drawn += 1
   }
@@ -301,7 +318,7 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
   for (const stroke of s.silkStrokes) {
     const frac = ease((p - stroke.t) / 0.03)
     if (frac <= 0) continue
-    ctx.globalAlpha = fade * 0.5
+    ctx.globalAlpha = fade * 0.45
     strokeReveal(ctx, stroke.path, frac)
     drawn += 1
   }
@@ -319,7 +336,7 @@ export function drawTraceFrame(ctx: CanvasRenderingContext2D, tl: TraceTimeline,
     ctx.translate(text.x, text.y)
     ctx.rotate(text.rot)
     ctx.font = `${text.size}px ${FONT}`
-    ctx.globalAlpha = fade * 0.9
+    ctx.globalAlpha = fade * 0.7
     ctx.fillText(shown, 0, 0)
     ctx.restore()
     drawn += 1

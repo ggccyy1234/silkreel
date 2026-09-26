@@ -80,6 +80,21 @@ for (const name of BOARDS) {
   }
 }
 
+describe('camera track', () => {
+  it('rides a low-fill board zoomed in, then pulls back to the whole board for the hold', () => {
+    const { scene } = compileTrace(boardModel('video.kicad_pcb'), resolved('4:5'), 1)
+    const ts = scene.camera.map((k) => k.t)
+    expect(ts).toEqual([...ts].sort((a, b) => a - b))
+    expect(Math.max(...scene.camera.map((k) => k.zoom))).toBeGreaterThan(1.3)
+    const reveal = scene.camera.find((k) => k.t >= 0.88)
+    expect(reveal?.zoom).toBe(1)
+  })
+  it('keeps a frame-filling board on a gentle push', () => {
+    const { scene } = compileTrace(boardModel('glasgow.kicad_pcb'), resolved('4:5'), 1)
+    expect(scene.camera.map((k) => k.zoom)).toEqual([1, 1.05])
+  })
+})
+
 describe('compileTrace performance', () => {
   it('compiles video.kicad_pcb in under 4s', () => {
     const board = boardModel('video.kicad_pcb')

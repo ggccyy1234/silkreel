@@ -1,7 +1,7 @@
 import type { Arc, BoardModel, Pad, Vec2 } from '@silk-reel/ingest'
-import { fitBoard } from '../layout'
+import { fitBoard, safeArea } from '../layout'
 import type { ResolvedConfig } from '../config'
-import type { FlatPath, TraceBeats, TraceLayer, TracePad, TraceScene, TraceText, TraceVia, TraceZone, TimelineWarning } from '../types'
+import type { CameraKey, FlatPath, TraceBeats, TraceLayer, TracePad, TraceScene, TraceText, TraceVia, TraceZone, TimelineWarning } from '../types'
 import { growthSchedule } from './graph'
 import type { GraphLink, GraphSeg, GraphSeed } from './graph'
 import { pickHero } from './hero'
@@ -306,6 +306,7 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
     return { x: m.x, y: m.y, r: Math.max(0.8, (d.dia / 2) * fit.scale) }
   })
 
+  const origin = hero !== undefined ? fit.map(hero.center) : { x: resolved.width / 2, y: resolved.height / 2 }
   const warnings: TimelineWarning[] = []
   if (segs.length === 0) warnings.push({ code: 'trace-no-copper', message: 'board has no copper segments to grow' })
   if (hero === undefined) warnings.push({ code: 'trace-no-hero', message: 'no hero footprint; growth ordered from board center' })
@@ -320,12 +321,81 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
       zones,
       silkStrokes,
       texts,
-      origin: hero !== undefined ? fit.map(hero.center) : { x: resolved.width / 2, y: resolved.height / 2 },
-      camera: { from: 1, to: 1.05 },
+      origin,
+      camera: cameraTrack(board, resolved, fit.map, layers, origin),
       beats
     },
     warnings
   }
+}
+
+/**
+ * Boards that fill the frame get a gentle whole-film push. Boards that leave
+ * it mostly empty (a 1:3 board in 4:5, a square board in 9:16) punch in on the
+ * hero, ride the growth front at a zoom that fills the frame, then pull back
+ * to the whole board for the hold — the reveal.
+ */
+function cameraTrack(
+  board: BoardModel,
+  resolved: ResolvedConfig,
+  map: (p: Vec2) => Vec2,
+  layers: TraceLayer[],
+  origin: { x: number; y: number }
+): CameraKey[] {
+  const W = resolved.width
+  const H = resolved.height
+  const corners = [board.bbox.min, { x: board.bbox.max.x, y: board.bbox.min.y }, board.bbox.max, { x: board.bbox.min.x, y: board.bbox.max.y }].map(map)
+  const bx0 = Math.min(...corners.map((c) => c.x))
+  const bx1 = Math.max(...corners.map((c) => c.x))
+  const by0 = Math.min(...corners.map((c) => c.y))
+  const by1 = Math.max(...corners.map((c) => c.y))
+  const safe = safeArea(W, H, resolved.title !== undefined)
+  const fill = ((bx1 - bx0) * (by1 - by0)) / (safe.w * safe.h)
+  const home = { cx: W / 2, cy: H / 2 }
+  if (fill >= 0.55) return [{ t: 0, ...home, zoom: 1 }, { t: 1, ...home, zoom: 1.05 }]
+  const zoom = Math.min(2.2, Math.max(1, 1 / Math.sqrt(fill)))
+  const m = 0.04 * Math.min(W, H)
+  // keep the zoomed window over the board (plus margin) on each axis
+  const clampAxis = (c: number, lo: number, hi: number, half: number): number =>
+    hi - lo + 2 * m <= 2 * half ? (lo + hi) / 2 : Math.min(hi + m - half, Math.max(lo - m + half, c))
+  const clampKey = (cx: number, cy: number): { cx: number; cy: number } => ({
+    cx: clampAxis(cx, bx0, bx1, W / 2 / zoom),
+    cy: clampAxis(cy, by0, by1, H / 2 / zoom)
+  })
+  const [g0] = TRACE_BEATS.growth
+  const STEP = 0.04
+  const fronts: Array<{ t: number; x: number; y: number }> = []
+  let last = { x: origin.x, y: origin.y }
+  for (let t = g0; t < 0.8 - 1e-9; t += STEP) {
+    let sx = 0
+    let sy = 0
+    let n = 0
+    for (const layer of layers) {
+      const segs = layer.segs
+      for (let o = 0; o < segs.length; o += 7) {
+        const t0 = segs[o + 5] as number
+        if (t0 < t || t0 >= t + STEP) continue
+        sx += ((segs[o] as number) + (segs[o + 2] as number)) / 2
+        sy += ((segs[o + 1] as number) + (segs[o + 3] as number)) / 2
+        n += 1
+      }
+    }
+    if (n > 0) last = { x: sx / n, y: sy / n }
+    fronts.push({ t: t + STEP / 2, ...last })
+  }
+  const smooth = fronts.map((f, i) => {
+    const w = fronts.slice(Math.max(0, i - 1), i + 2)
+    return { t: f.t, x: w.reduce((a, b) => a + b.x, 0) / w.length, y: w.reduce((a, b) => a + b.y, 0) / w.length }
+  })
+  return [
+    { t: 0, ...home, zoom: 1 },
+    { t: TRACE_BEATS.outline[0] + 0.07, ...home, zoom: 1 },
+    { t: TRACE_BEATS.pads[0] + 0.07, ...clampKey(origin.x, origin.y), zoom },
+    ...smooth.filter((f) => f.t > TRACE_BEATS.pads[0] + 0.07 && f.t < 0.78).map((f) => ({ t: f.t, ...clampKey(f.x, f.y), zoom })),
+    { t: 0.8, ...clampKey(last.x, last.y), zoom },
+    { t: 0.88, ...home, zoom: 1 },
+    { t: 1, ...home, zoom: 1.03 }
+  ]
 }
 
 function meanY(path: FlatPath): number {
