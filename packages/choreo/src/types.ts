@@ -39,6 +39,8 @@ export interface AtomState {
   order?: number | undefined
   /** hold-drift rotation direction — orbit's inner ring counter-rotates */
   turn?: number | undefined
+  /** this atom is the formation's hero — the renderer inks it palette.head */
+  hero?: boolean | undefined
 }
 
 export interface TrackKnot {

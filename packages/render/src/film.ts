@@ -114,8 +114,7 @@ export function drawGlyphFrame(
   const cx = safe.x + safe.w / 2
   const cy = safe.y + safe.h / 2
   const ink = timeline.palette.silk
-  ctx.strokeStyle = ink
-  ctx.fillStyle = ink
+  const head = timeline.palette.head
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
 
@@ -126,6 +125,10 @@ export function drawGlyphFrame(
     for (const atom of sampleTrack(track, phase)) {
       const alpha = atom.alpha * breath
       if (alpha <= 0.004) continue
+      // each formation crowns one hero — head ink feeds the bloom pass
+      const c = atom.hero === true ? head : ink
+      ctx.strokeStyle = c
+      ctx.fillStyle = c
       ctx.globalAlpha = alpha
       drawAtom(ctx, glyph, atom, cx, cy, stagePx)
       drawn += 1

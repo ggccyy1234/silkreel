@@ -111,7 +111,7 @@ function slotAtoms(slots: Slot[], alpha: number, drift: HoldDrift | undefined): 
   const atoms = slots.flatMap((s) =>
     expand(
       s.copies,
-      { x: s.x, y: s.y, rot: s.rot, scale: s.scale, alpha, order: s.order, turn: s.turn },
+      { x: s.x, y: s.y, rot: s.rot, scale: s.scale, alpha, order: s.order, turn: s.turn, hero: s.hero },
       drift
     )
   )
@@ -333,6 +333,7 @@ export function sampleTrack(track: Track, p: number): AtomState[] {
       const amp = 0.03 + 0.09 * clamp01(1 - a.scale / 0.07)
       const twinkle = 1 + amp * depth * swell * Math.sin(Math.PI * 2 * (t * 1.5 + i * 0.618))
       emit(o0, {
+        ...a,
         x: a.x + (b.x - a.x) * e,
         y: a.y + (b.y - a.y) * e,
         rot: a.rot + dr * e,

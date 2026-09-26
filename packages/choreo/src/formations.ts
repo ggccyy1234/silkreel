@@ -14,6 +14,8 @@ export interface Slot {
   order: number
   /** hold-drift rotation sign — orbit's inner ring counter-rotates */
   turn?: number | undefined
+  /** this slot is the formation's hero — drawn in the palette's head colour */
+  hero?: boolean | undefined
 }
 
 /** no cast member ever lands smaller than this — below it a glyph is noise */
@@ -514,6 +516,17 @@ export function buildBeatMaps(
       continue
     }
     maps.set(i, buildOne(id, `${id}:${i}`))
+  }
+  // each formation crowns one hero — the largest package slot it holds
+  const kindOf = new Map<string, GlyphKind>()
+  for (const g of [...groups.packages, ...groups.texts, ...groups.marks]) kindOf.set(g.id, g.kind)
+  for (const map of new Set(maps.values())) {
+    let best: Slot | undefined
+    for (const [gid, slots] of map) {
+      if (kindOf.get(gid) !== 'package') continue
+      for (const s of slots) if (best === undefined || s.scale > best.scale) best = s
+    }
+    if (best !== undefined) best.hero = true
   }
   // stage is square-normalized: widen slots on wide frames, deepen on tall
   const sx = Math.max(1, stageAspect)
