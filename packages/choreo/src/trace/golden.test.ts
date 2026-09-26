@@ -28,7 +28,7 @@ describe('approved trace schedule', () => {
           1,
         ],
         "growth": [
-          0.14,
+          0.07,
           0.72,
         ],
         "hold": [
@@ -60,11 +60,11 @@ describe('approved trace schedule', () => {
       .map((t) => Math.round(t * 1e4) / 1e4)
     expect(t0s).toMatchInlineSnapshot(`
       [
-        0.14,
-        0.1401,
-        0.1402,
-        0.1402,
-        0.1403,
+        0.07,
+        0.0701,
+        0.0702,
+        0.0703,
+        0.0704,
       ]
     `)
   })

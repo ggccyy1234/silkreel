@@ -9,7 +9,7 @@ import { pickHero } from './hero'
 export const TRACE_BEATS: TraceBeats = {
   outline: [0, 0.1],
   pads: [0.04, 0.24],
-  growth: [0.14, 0.72],
+  growth: [0.07, 0.72],
   zones: [0.6, 0.76],
   silk: [0.68, 0.84],
   hold: [0.82, 0.96],
@@ -117,10 +117,12 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
 
   const rowsByLayer = new Map<string, { side: Side; rows: number[][] }>()
   const segT0 = new Array<number>(segs.length)
+  // side delays stagger sides against each other; a back-only board still starts on time
+  const delay0 = Math.min(...segs.map((s) => SIDE_DELAY[sideOf(s.layer)]))
   segs.forEach((s, i) => {
     const side = sideOf(s.layer)
     const u = 0.7 * (rank[i] as number) + 0.3 * Math.min(1, (g.start[i] as number) / md)
-    const t0 = Math.min(g1, g0 + u * (g1 - g0 - 0.06) + SIDE_DELAY[side])
+    const t0 = Math.min(g1, g0 + u * (g1 - g0 - 0.06) + SIDE_DELAY[side] - delay0)
     segT0[i] = t0
     const dur = Math.max(0.004, Math.min(0.12 * (g1 - g0), Math.pow((segLen[i] as number) / md, 0.85) * (g1 - g0)))
     const t1 = Math.min(g1, t0 + dur)
