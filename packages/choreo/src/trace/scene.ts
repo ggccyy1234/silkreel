@@ -17,6 +17,11 @@ export const TRACE_BEATS: TraceBeats = {
 }
 
 const DEG = Math.PI / 180
+/** wrap a text rotation into (−π/2, π/2] — text reads the same upside-down */
+const upright = (r: number): number => {
+  const m = ((r % Math.PI) + Math.PI) % Math.PI
+  return m > Math.PI / 2 ? m - Math.PI : m
+}
 const SIDE_DELAY = { F: 0, inner: 0.05, B: 0.08 } as const
 const SIDE_ORDER = { inner: 0, B: 1, F: 2 } as const
 
@@ -243,7 +248,8 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
           x: m.x,
           y: m.y,
           size: Math.max(9, text.height * fit.scale),
-          rot: text.rot * DEG + (fit.rotated ? Math.PI / 2 : 0),
+          // keep text upright: rot is mod π so a flipped board never draws it upside-down
+          rot: upright(text.rot * DEG + (fit.rotated ? Math.PI / 2 : 0)),
           t: 0
         }
       })
