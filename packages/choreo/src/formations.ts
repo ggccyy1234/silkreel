@@ -509,6 +509,8 @@ export function planBeats(groups: GlyphGroups, rng: Rng): BeatDef[] {
 
 /** half-extent in stage units ([-1,1] = the safe area's short side) */
 const FILL_TARGET = 0.8
+/** fraction of each axis's post-stretch bound the formation positions reach */
+const AXIS_FILL = 0.92
 const FILL_GROWTH_MAX = 1.5
 
 export function buildBeatMaps(
@@ -663,6 +665,35 @@ export function buildBeatMaps(
           s.x *= sx
           s.y *= sy
         }
+      }
+    }
+  }
+  // the square fill tops out at FILL_TARGET on the dominant axis and lets the
+  // minor axis sag (9:16 holds measured 57-62% of the safe area vs the 70-85%
+  // rubric). After the aspect stretch the safe rect in stage units is exactly
+  // [-sx,sx] x [-sy,sy], so grow each formation's positions to ~92% of each
+  // axis's own bound. Positions only — glyph size was set by the fill pass
+  for (const map of new Set(maps.values())) {
+    let ex = 0
+    let ey = 0
+    for (const [gid, slots] of map) {
+      const glyph = glyphById.get(gid)
+      if (glyph === undefined) continue
+      for (const s of slots) {
+        const { hw, hh } = halfExtents(s, glyph)
+        for (const p of copyPositions(s)) {
+          ex = Math.max(ex, Math.abs(p.x) + hw)
+          ey = Math.max(ey, Math.abs(p.y) + hh)
+        }
+      }
+    }
+    const kx = ex > 0 ? Math.min(FILL_GROWTH_MAX, Math.max(1, (AXIS_FILL * sx) / ex)) : 1
+    const ky = ey > 0 ? Math.min(FILL_GROWTH_MAX, Math.max(1, (AXIS_FILL * sy) / ey)) : 1
+    if (kx === 1 && ky === 1) continue
+    for (const slots of map.values()) {
+      for (const s of slots) {
+        s.x *= kx
+        s.y *= ky
       }
     }
   }
