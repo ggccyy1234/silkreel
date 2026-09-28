@@ -1,26 +1,18 @@
-import { sampleTrack, safeArea } from '@silk-reel/choreo'
+import { decodeAlpha, safeArea } from '@silk-reel/choreo'
 import type { AtomState, GlyphLabel, GlyphTimeline, Timeline } from '@silk-reel/choreo'
 import { drawTraceFrame } from './trace-draw'
 import { drawTitle } from './title'
 import { FONT } from './font'
-/** hairline stroke width in output pixels (constant regardless of glyph scale) */
-const INK_PX = 1.6
-/** fade-to-black window at both loop edges, as a fraction of the loop */
-const BREATH = 0.02
 
 export interface GlyphRender {
   path: Path2D | undefined
   text: string | undefined
   labels: GlyphLabel[]
+  filled: boolean
 }
 
 export interface Scene {
   glyphs: Map<string, GlyphRender>
-}
-
-function smooth01(t: number): number {
-  const x = t < 0 ? 0 : t > 1 ? 1 : t
-  return x * x * (3 - 2 * x)
 }
 
 export function buildScene(timeline: Timeline): Scene {
@@ -37,7 +29,7 @@ export function buildScene(timeline: Timeline): Scene {
         for (const p of stroke.slice(1)) path.lineTo(p.x, p.y)
       }
     }
-    glyphs.set(glyph.id, { path, text: glyph.text, labels: glyph.labels ?? [] })
+    glyphs.set(glyph.id, { path, text: glyph.text, labels: glyph.labels ?? [], filled: glyph.filled === true })
   }
   return { glyphs }
 }
@@ -48,7 +40,8 @@ function drawAtom(
   atom: AtomState,
   cx: number,
   cy: number,
-  stagePx: number
+  stagePx: number,
+  inkPx: number
 ): void {
   ctx.save()
   ctx.translate(cx + atom.x * stagePx, cy + atom.y * stagePx)
@@ -64,10 +57,12 @@ function drawAtom(
     ctx.fillText(glyph.text, 0, 0)
   } else {
     if (glyph.path !== undefined) {
-      // the hero reads by weight as well as color — in copper/mono the head
-      // ink sits too close to silk to carry the accent alone
-      ctx.lineWidth = (atom.hero === true ? INK_PX * 1.8 : INK_PX) / sizePx
-      ctx.stroke(glyph.path)
+      if (glyph.filled) {
+        ctx.fill(glyph.path)
+      } else {
+        ctx.lineWidth = inkPx / sizePx
+        ctx.stroke(glyph.path)
+      }
     }
     // silkscreen labels ride inside the outline at their mirrored spot but
     // counter-flip so the word still reads. below 9px they smear into noise —
@@ -101,34 +96,26 @@ export function drawFrame(
   return drawGlyphFrame(ctx, timeline, scene, frame)
 }
 
-/** JetBrains Mono advance, in em */
-const MONO_ADVANCE = 0.6
+/** post-pass settings per style — the glyph look is flat: no bloom, no vignette */
+export function postOptionsFor(timeline: Timeline, grain = true): {
+  bloom: number
+  grain: boolean
+  vignette: boolean
+  transparent: boolean
+} {
+  const glyph = timeline.style === 'glyph'
+  return {
+    bloom: glyph ? 0 : timeline.palette.bloom,
+    grain: grain && !timeline.transparent,
+    vignette: !glyph && !timeline.transparent,
+    transparent: timeline.transparent
+  }
+}
 
-/**
- * Symmetry copies mirror shapes, but mirrored or upside-down words read as a
- * glitch: text always renders unflipped. A twin whose label would overlap its
- * partner across the axis is dropped and the survivor centered on that axis.
- */
-export function readableText(atom: AtomState, text: string): AtomState | undefined {
-  const w = text.length * MONO_ADVANCE * atom.scale
-  const h = atom.scale
-  const c = Math.abs(Math.cos(atom.rot))
-  const s = Math.abs(Math.sin(atom.rot))
-  const halfX = (c * w + s * h) / 2
-  const halfY = (s * w + c * h) / 2
-  let { x, y } = atom
-  if (Math.abs(x) < halfX) {
-    if (atom.flipX === true) return undefined
-    x = 0
-  }
-  if (Math.abs(y) < halfY) {
-    if (atom.flipY === true) return undefined
-    y = 0
-  }
-  // wrap into (−π/2, π/2]: a word turned past vertical reads upside down
-  const m = ((atom.rot % Math.PI) + Math.PI) % Math.PI
-  const rot = m > Math.PI / 2 + 1e-9 ? m - Math.PI : m
-  return { ...atom, x, y, rot, flipX: false, flipY: false }
+/** wrap a rotation into (−π/2, π/2] — the upright reading of a word */
+function uprightRot(rot: number): number {
+  const m = ((rot % Math.PI) + Math.PI) % Math.PI
+  return m > Math.PI / 2 + 1e-9 ? m - Math.PI : m
 }
 
 export function drawGlyphFrame(
@@ -137,40 +124,104 @@ export function drawGlyphFrame(
   scene: Scene,
   frame: number
 ): number {
-  const phase = frame / timeline.totalFrames
-  const breath = smooth01(phase / BREATH) * smooth01((1 - phase) / BREATH)
-  if (breath <= 0.003) return 0
+  // the decode grid runs at 15 steps a second regardless of output fps —
+  // at 30fps 'twos' holds each step for exactly 2 frames (the spec's
+  // floor(frame/2)); 'smooth' interpolates between them
+  const smooth = timeline.cadence === 'smooth'
+  const s = (frame * 15) / timeline.fps
+  const step = smooth ? s : Math.floor(s)
 
-  // stage [-1,1] maps to half the safe area's short side around its center;
-  // the timeline stretches slot x/y for the frame aspect (stageAspect)
+  // stage [-1,1] maps to half the safe area's short side around its center
   const safe = safeArea(timeline.width, timeline.height, timeline.title !== undefined)
   const stagePx = Math.min(safe.w, safe.h) * 0.5
   const cx = safe.x + safe.w / 2
   const cy = safe.y + safe.h / 2
   const ink = timeline.palette.silk
   const head = timeline.palette.head
-  ctx.lineJoin = 'round'
-  ctx.lineCap = 'round'
+  /** the reference's crisp 2px hairline, scaled to this frame's size */
+  const inkPx = (2 * Math.min(timeline.width, timeline.height)) / 1080
+  ctx.lineJoin = 'miter'
+  ctx.lineCap = 'butt'
+  ctx.miterLimit = 4
+
+  // a glint dims one placement for exactly one step
+  const glintAt = new Map<number, number>()
+  for (const g of timeline.glints) {
+    if (Math.floor(step) === g.step) glintAt.set(g.placement, 0.35)
+  }
 
   let drawn = 0
-  for (const track of timeline.tracks) {
-    const glyph = scene.glyphs.get(track.glyphId)
+  for (const [pi, placement] of timeline.placements.entries()) {
+    const glyph = scene.glyphs.get(placement.glyphId)
     if (glyph === undefined) continue
-    for (const sampled of sampleTrack(track, phase)) {
-      const atom = glyph.text === undefined ? sampled : readableText(sampled, glyph.text)
-      if (atom === undefined) continue
-      const alpha = atom.alpha * breath
+    const base = decodeAlpha(step, placement.inStep, placement.outStep, placement.pattern, timeline.steps, smooth)
+    if (base <= 0.004) continue
+    const glint = glintAt.get(pi) ?? 1
+    for (const [i, atom] of placement.atoms.entries()) {
+      const alpha = base * (placement.tones[i] ?? 1) * glint
       if (alpha <= 0.004) continue
-      // each formation crowns one hero — head ink feeds the bloom pass
-      const c = atom.hero === true ? head : ink
+      // text is ornament in this style — reflections render mirrored; only the
+      // true copy (index 0) is rotated to an upright reading
+      const a =
+        glyph.text !== undefined && i === 0 ? { ...atom, rot: uprightRot(atom.rot) } : atom
+      const c = placement.role === 'hero' ? head : ink
       ctx.strokeStyle = c
       ctx.fillStyle = c
       ctx.globalAlpha = alpha
-      drawAtom(ctx, glyph, atom, cx, cy, stagePx)
+      drawAtom(ctx, glyph, a, cx, cy, stagePx, inkPx)
       drawn += 1
     }
   }
+
+  // the ghost: the board's own silk, stroked in stage coordinates
+  for (const bin of timeline.ghost.bins) {
+    const alpha =
+      decodeAlpha(step, bin.inStep, bin.outStep, bin.pattern, timeline.steps, smooth) *
+      (bin.hero ? 1 : 0.3)
+    if (alpha <= 0.004) continue
+    const c = bin.hero ? head : ink
+    ctx.strokeStyle = c
+    ctx.globalAlpha = alpha
+    ctx.lineWidth = inkPx
+    ctx.beginPath()
+    for (const path of bin.strokes) {
+      const x0 = path[0]
+      const y0 = path[1]
+      if (x0 === undefined || y0 === undefined) continue
+      ctx.moveTo(cx + x0 * stagePx, cy + y0 * stagePx)
+      for (let i = 2; i + 1 < path.length; i += 2) {
+        ctx.lineTo(cx + (path[i] as number) * stagePx, cy + (path[i + 1] as number) * stagePx)
+      }
+    }
+    ctx.stroke()
+    drawn += 1
+  }
+
+  // ghost label — the release name typed on under the board silhouette
+  const label = timeline.ghost.label
+  if (label !== undefined && timeline.ghost.bins.length > 0) {
+    const labelStart = Math.min(...timeline.ghost.bins.map((b) => b.inStep)) + 7
+    const t = (step - labelStart) / 4
+    if (t > 0) {
+      const px = Math.min(timeline.width, timeline.height) / 1080
+      const shown = label.name.substring(0, Math.ceil(label.name.length * Math.min(1, t)))
+      ctx.save()
+      ctx.translate(cx + timeline.ghost.labelPos.x * stagePx, cy + timeline.ghost.labelPos.y * stagePx)
+      ctx.font = `${16 * px}px ${FONT}`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      try {
+        ctx.letterSpacing = '0.12em'
+      } catch { /* older canvas impls */ }
+      ctx.fillStyle = ink
+      ctx.globalAlpha = 0.8
+      ctx.fillText(shown, 0, 0)
+      ctx.restore()
+      drawn += 1
+    }
+  }
+
   ctx.globalAlpha = 1
-  drawTitle(ctx, timeline, phase, breath)
+  drawTitle(ctx, timeline, frame / timeline.totalFrames, 1)
   return drawn
 }

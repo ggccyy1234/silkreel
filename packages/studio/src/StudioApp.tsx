@@ -506,11 +506,11 @@ const PlayerPane: React.FC<{ timeline: Timeline; stale: boolean }> = ({ timeline
 
 const FORMATION_LABELS: Record<string, string> = {
   marks: 'marks',
-  spine: 'spine',
-  totem: 'totem',
+  orbit: 'orbit',
   columns: 'columns',
   ring: 'ring',
-  quad: 'quad'
+  quad: 'quad',
+  ghost: 'ghost'
 }
 
 interface FilmSegment { id: string; beat: number; startPhase: number; endPhase: number }

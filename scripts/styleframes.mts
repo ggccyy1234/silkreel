@@ -70,10 +70,10 @@ try {
       ...defaultFilmConfig(board), style: values.style, aspect: values.aspect,
       output: { ...defaultFilmConfig(board).output, ...size },
       ...(values.palette ? { palette: values.palette } : {}),
-      ...(values.smooth ? { cadence: 'smooth' } : {}), // ignored until glyph exposes cadence
       seed: Number(values.seed)
     } as unknown as FilmConfig
-    const timeline = compileTimeline(await loadDemoBoard(board), config)
+    const boardModel = await loadDemoBoard(board)
+    const timeline = compileTimeline(boardModel, config)
     const inputProps = { timeline }
     const composition = await selectComposition({ serveUrl: bundleLocation, id: 'film', inputProps })
     const stills = new Map<number, string>()
@@ -98,12 +98,13 @@ try {
       })
       animatics.push(anim)
       console.log(anim)
-      // once the timeline carries cadence, the smooth config differs and gets its own animatic
-      if (values.smooth && 'cadence' in timeline) {
+      // the smooth A/B variant — same placements, interpolated decode ramps
+      if (values.smooth) {
+        const smoothTimeline = compileTimeline(boardModel, { ...config, cadence: 'smooth' })
         const smooth = `${board}-animatic-smooth.mp4`
         await renderFilm({
           entryPoint, bundleLocationOverride: bundleLocation,
-          inputProps: { timeline: compileTimeline(await loadDemoBoard(board), config) },
+          inputProps: { timeline: smoothTimeline },
           outputLocation: path.join(out, smooth), scale: 0.5
         })
         animatics.push(smooth)

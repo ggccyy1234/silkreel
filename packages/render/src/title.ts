@@ -7,12 +7,11 @@ const ease = (x: number): number => {
   return t * t * (3 - 2 * t)
 }
 
-/** the window the card lives in: the trace hold beat, or the glyph film's last formation hold */
+/** the window the card lives in: the trace hold beat. glyph draws no title —
+ *  the ghost's label plate is the card */
 function titleWindow(tl: Timeline): readonly [number, number] | undefined {
-  if (tl.style === 'trace') return tl.scene.beats.hold
-  const last = tl.formations[tl.formations.length - 1]
-  if (last === undefined) return undefined
-  return [last.startPhase, last.endPhase]
+  if (tl.style === 'glyph') return undefined
+  return tl.scene.beats.hold
 }
 
 /**

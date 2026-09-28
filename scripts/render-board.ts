@@ -13,7 +13,7 @@ const board = await loadDemoBoard(demoId)
 const config: FilmConfig = { ...defaultFilmConfig(demoId), style: 'glyph', knobs: { density: 1, texts: 1 } }
 const t0 = Date.now()
 const timeline = compileTimeline(board, config)
-console.log(`${demoId}: ${timeline.totalFrames}f ${timeline.durationSeconds.toFixed(1)}s cast=${timeline.cast.length} tracks=${timeline.tracks.length} compile=${Date.now()-t0}ms`)
+console.log(`${demoId}: ${timeline.totalFrames}f ${timeline.durationSeconds.toFixed(1)}s cast=${timeline.cast.length} placements=${timeline.style === 'glyph' ? timeline.placements.length : 0} compile=${Date.now()-t0}ms`)
 for (const w of timeline.warnings) console.log(`  warn[${w.code}] ${w.message}`)
 let bundle: string | undefined
 try {

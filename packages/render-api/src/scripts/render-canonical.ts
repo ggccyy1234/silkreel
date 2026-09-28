@@ -13,7 +13,7 @@ const { timeline, inputProps } = compileFilm(board, config)
 
 console.log(
   `compiling done: ${timeline.totalFrames} frames @ ${timeline.fps}fps ` +
-    (timeline.style === 'glyph' ? `cast=${timeline.cast.length} tracks=${timeline.tracks.length}` : 'trace scene')
+    (timeline.style === 'glyph' ? `cast=${timeline.cast.length} placements=${timeline.placements.length}` : 'trace scene')
 )
 for (const w of timeline.warnings) console.log(`  warn[${w.code}] ${w.message}`)
 let bundleLocation: string | undefined

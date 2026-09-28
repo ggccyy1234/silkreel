@@ -1,7 +1,7 @@
 import React from 'react'
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion'
 import type { Timeline } from '@silk-reel/choreo'
-import { drawFrame, buildScene } from './film'
+import { drawFrame, buildScene, postOptionsFor } from './film'
 import type { Scene } from './film'
 import { createPost } from './post'
 import type { Post } from './post'
@@ -48,13 +48,7 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, childr
     drawFrame(ctx, timeline, scene, frame)
     const target = canvas.getContext('2d')
     if (!target) return
-    const out = postRef.current?.render(offscreen, {
-      bloom: timeline.palette.bloom,
-      grain: grain && !timeline.transparent,
-      vignette: !timeline.transparent,
-      transparent: timeline.transparent,
-      frame
-    }) ?? offscreen
+    const out = postRef.current?.render(offscreen, { ...postOptionsFor(timeline, grain), frame }) ?? offscreen
     target.clearRect(0, 0, canvas.width, canvas.height)
     target.drawImage(out, 0, 0)
   }, [frame, timeline, scene, offscreen, grain])
