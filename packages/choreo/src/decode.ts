@@ -1,0 +1,56 @@
+import { smooth01 } from './curves'
+
+/**
+ * Decode flicker: a unit blinks on through a 5-step pattern, holds, then blinks
+ * out through a 6-step one. Values are only ever 0, 0.35, or 1 — the reference's
+ * hard blink, never a fade.
+ */
+export const DECODE_IN: number[][] = [
+  [0.35, 0, 1, 0, 1],
+  [1, 0, 0.35, 1, 1],
+  [0.35, 1, 0, 1, 1],
+  [1, 0.35, 0, 1, 1],
+  [0, 1, 0, 0.35, 1],
+  [0.35, 0.35, 1, 0, 1]
+]
+export const DECODE_OUT: number[][] = [
+  [1, 0.35, 1, 0, 0.35, 0],
+  [0.35, 1, 0, 0.35, 0, 0],
+  [1, 0, 1, 0, 0.35, 0],
+  [0.35, 0, 0.35, 1, 0, 0],
+  [1, 1, 0, 0.35, 0, 0],
+  [0, 1, 0.35, 0, 0, 0]
+]
+
+const IN_LEN = DECODE_IN[0]?.length ?? 0
+const OUT_LEN = DECODE_OUT[0]?.length ?? 0
+
+const mod = (a: number, n: number): number => ((a % n) + n) % n
+
+/**
+ * visibility 0..1 of a unit at loop step `step` (integer for twos; fractional
+ * allowed for smooth). inStep/outStep mark where decode-in and decode-out
+ * begin; both wrap around the loop.
+ */
+export function decodeAlpha(
+  step: number,
+  inStep: number,
+  outStep: number,
+  pattern: number,
+  steps: number,
+  smooth = false
+): number {
+  const p = pattern % DECODE_IN.length
+  const local = mod(step - inStep, steps)
+  const hold = mod(outStep - inStep, steps)
+  if (local < IN_LEN) {
+    if (smooth) return smooth01(local / IN_LEN)
+    return DECODE_IN[p]?.[Math.floor(local)] ?? 0
+  }
+  if (local < hold) return 1
+  if (local < hold + OUT_LEN) {
+    if (smooth) return 1 - smooth01((local - hold) / OUT_LEN)
+    return DECODE_OUT[p]?.[Math.floor(local - hold)] ?? 0
+  }
+  return 0
+}

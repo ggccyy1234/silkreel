@@ -18,6 +18,7 @@ export interface ResolvedConfig {
   transparent: boolean
   knobs: ResolvedKnobs
   seed: number | null
+  cadence: 'twos' | 'smooth'
   durationSeconds: number | 'auto'
   width: number
   height: number
@@ -97,6 +98,12 @@ export function resolveConfig(config: FilmConfig): ResolvedConfig {
   }
   const transparent = config.transparent ?? false
 
+  const cadenceRaw: unknown = config.cadence
+  if (cadenceRaw !== undefined && cadenceRaw !== 'twos' && cadenceRaw !== 'smooth') {
+    throw new ChoreoConfigError('cadence', cadenceRaw, "expected 'twos' or 'smooth'")
+  }
+  const cadence = cadenceRaw ?? 'twos'
+
   if (config.seed !== null && (typeof config.seed !== 'number' || !Number.isFinite(config.seed))) {
     throw new ChoreoConfigError('seed', config.seed, 'expected a finite number or null')
   }
@@ -174,6 +181,7 @@ export function resolveConfig(config: FilmConfig): ResolvedConfig {
     transparent,
     knobs: { density: density.value, texts: texts.value, tempo: tempo.value },
     seed: config.seed,
+    cadence,
     durationSeconds: durationRaw,
     width,
     height,
@@ -183,9 +191,9 @@ export function resolveConfig(config: FilmConfig): ResolvedConfig {
   }
 }
 
-/** the loop's content doesn't scale with board size — a fixed ~11s glyph cycle, 12s for trace */
+/** the loop's content doesn't scale with board size — a fixed 11.2s glyph cycle, 12s for trace */
 export function autoDurationSeconds(style: StyleId): number {
-  return style === 'glyph' ? 167 / 15 : 12
+  return style === 'glyph' ? 11.2 : 12
 }
 
 export function planDuration(resolved: Pick<ResolvedConfig, 'durationSeconds' | 'fps' | 'style' | 'knobs'>): DurationPlan {

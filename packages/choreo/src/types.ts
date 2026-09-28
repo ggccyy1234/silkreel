@@ -23,6 +23,8 @@ export interface Glyph {
   text?: string
   /** package glyphs may carry silkscreen labels drawn inside the outline */
   labels?: GlyphLabel[]
+  /** the dot marks fill rather than stroke */
+  filled?: boolean
 }
 
 /** one rendered instance of a glyph (a primary slot or a symmetry copy) */
@@ -31,36 +33,43 @@ export interface AtomState {
   y: number
   rot: number
   scale: number
+  /** unused for glyph placements — visibility comes from decodeAlpha */
   alpha: number
   /** mirrored copies flip the glyph itself so asymmetric outlines/text render mirrored */
   flipX?: boolean | undefined
   flipY?: boolean | undefined
-  /** reveal rank 0..1 inside a transition — pops are a spatial script, not a blur */
-  order?: number | undefined
-  /** hold-drift rotation direction — orbit's inner ring counter-rotates */
-  turn?: number | undefined
-  /** this atom is the formation's hero — the renderer inks it palette.head */
-  hero?: boolean | undefined
 }
 
-export interface TrackKnot {
-  /** cyclic position on the loop, [0,1) ascending */
-  phase: number
-  /** expanded copy instances sorted canonically (angle, then radius) */
-  atoms: AtomState[]
-  /** set when the bracket starting at this knot is a formation transition —
-   *  carries the global evac/dead/build split shared by all tracks */
-  transit?: { evacEnd: number; buildStart: number } | undefined
-}
+/** ink weight: heroes take palette.head, the rest ride on silk tones */
+export type Tone = 'hero' | 'support' | 'punct' | 'text'
 
-export interface Track {
+/** one slot's whole symmetry group — all copies flicker in unison; nothing moves */
+export interface Placement {
   glyphId: string
-  /** glyph weight class — heroes settle longer than marks on arrival */
-  kind: GlyphKind
-  knots: TrackKnot[]
+  /** static pose of every symmetry copy (x,y,rot,scale,flipX,flipY; alpha unused) */
+  atoms: AtomState[]
+  /** per-copy tone multiplier, same length as atoms (text: true copy .9, reflections .45) */
+  tones: number[]
+  role: Tone
+  /** loop steps (1 step = 1/15 s) where decode-in starts and where decode-out starts; may wrap */
+  inStep: number
+  outStep: number
+  /** index into the decode pattern banks */
+  pattern: number
+  /** index into formations[] */
+  formation: number
 }
 
-export type FormationId = 'marks' | 'spine' | 'totem' | 'columns' | 'ring' | 'quad' | 'grid' | 'orbit'
+/** the board's own silk screen, ghosted in as the signature beat */
+export interface GlyphGhost {
+  /** board silk strokes in stage units, grouped into ≤12 spatial bins that decode as units */
+  bins: Array<{ strokes: FlatPath[]; hero: boolean; inStep: number; outStep: number; pattern: number }>
+  label?: TitleCard | undefined
+  /** stage units, just below the ghost */
+  labelPos: { x: number; y: number }
+}
+
+export type FormationId = 'marks' | 'orbit' | 'ring' | 'columns' | 'quad' | 'ghost'
 
 export interface FormationEvent {
   id: FormationId
@@ -118,6 +127,8 @@ export interface FilmConfig {
   title?: TitleCard
   /** alpha-capable output: no background, no vignette/grain */
   transparent?: boolean
+  /** glyph cadence: 'twos' holds each 15fps step for 2 frames; 'smooth' interpolates */
+  cadence?: 'twos' | 'smooth'
   knobs: Knobs
   seed: number | null
   duration: 'auto' | number
@@ -147,8 +158,14 @@ interface TimelineBase {
 export interface GlyphTimeline extends TimelineBase {
   style: 'glyph'
   cast: Glyph[]
-  tracks: Track[]
+  placements: Placement[]
   formations: FormationEvent[]
+  /** loop length in decode steps (1 step = 1/15 s) */
+  steps: number
+  cadence: 'twos' | 'smooth'
+  ghost: GlyphGhost
+  /** single-step dips: the renderer multiplies that placement's alpha by 0.35 */
+  glints: Array<{ placement: number; step: number }>
   /** safeArea w/h — formations widen on wide frames, deepen on tall ones */
   stageAspect: number
 }
