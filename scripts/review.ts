@@ -35,7 +35,8 @@ mkdirSync(out, { recursive: true })
 const entryPoint = path.join(root, 'packages/render/src/remotion-entry.tsx')
 const bundleLocation = await bundle({ entryPoint, onProgress: () => undefined })
 const rows: string[] = []
-const notes: string[] = [`# Review ${stamp}\n`, 'Rubric: Hook, Flow, Legibility, Identity, Composition, Arc, Seam, Color, Post-it?\n']
+const notes: string[] = [`# Review ${stamp}\n`,
+  'Pre-filter: no clipping, dead air, seam pop, or illegible text. Score each line 1-5; pass requires every line >=4.\n']
 try {
   for (const style of styles) for (const board of boards) for (const aspect of aspects) {
     const name = `${style}-${board}-${aspect.replace(':', 'x')}`
@@ -59,8 +60,8 @@ try {
       'fps=5,scale=360:-1,tile=4x4:padding=4:color=0x303030', path.join(sheetDir, 'sheet-%02d.png')])
     rows.push(`<figure><video src="${name}.mp4" autoplay loop muted playsinline></video><figcaption>${name} · ${timeline.durationSeconds}s · compile ${compileMs}ms</figcaption></figure>`)
     notes.push(`\n## ${name}\nsheets: ${name}/sheet-*.png\n` +
-      ['Hook', 'Flow', 'Legibility', 'Identity', 'Composition', 'Arc', 'Seam', 'Color', 'Post it?']
-        .map((r) => `- [ ] ${r}: `).join('\n'))
+      ['First frame', 'Reading path', 'Rhythm', 'Breath', 'Restraint', 'Material', 'Signature moment', 'Resolve', 'Screenshot test', 'Board truth']
+        .map((r) => `- [ ] ${r} (1-5): `).join('\n'))
     console.log(`${name}: ${timeline.totalFrames}f compile=${compileMs}ms warnings=${timeline.warnings.length}`)
   }
 } finally {

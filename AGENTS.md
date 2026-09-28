@@ -31,9 +31,15 @@ Deterministic tests pass on videos that look like slop. A change to anything vis
 
 1. `npm run review -- --styles trace,glyph --boards all --aspects 4:5,1:1,9:16,16:9` writes `review/<stamp>/` (videos, 5 fps contact sheets covering every second, `index.html`, and a `notes.md` template). `npx tsx scripts/review-stats.mts review/<stamp>` adds numeric evidence (dead air, coverage, clipping).
 2. Open **every** sheet for every video and watch each loop at real speed. Spot-checking a few frames is not a review.
-3. Record PASS/FAIL with one concrete sentence per rubric line per video:
-   Hook (something within 0.5s) · Flow (no stalls, pops, or jitter) · Legibility at phone size · Board identity · Composition (70–85% of the safe area, re-laid out per aspect) · Arc (build → climax → hold ≥1.5s → resolve) · Loop seam · Color/glow (no washout) · Would you post it?
-4. Any FAIL or "no" means iterate. Commit the notes under `docs/reviews/`.
+3. Pre-filter: the old defect checks still gate first — no clipping, no dead air, clean loop seam, legible at phone size. A video that fails any of those is a FAIL before taste is scored.
+4. Score every rubric line 1–5 with one concrete sentence per video:
+   First frame (worth stopping the scroll?) · Reading path (the eye always knows where to look) · Rhythm (lands on the beat grid; nothing arbitrary) · Breath (sparse↔dense; negative space intended) · Restraint (nothing removable; glow only on energy) · Material (ink/copper/mask look chosen; no blobs or mud) · Signature moment (one beat people remember) · Resolve (invisible loop seam, or one-shot lands on a held hero frame) · Screenshot test (any frame is a poster) · Board truth (the board's designer would recognize it).
+5. My pass requires every line ≥4. Any line <4 means iterate. The final pass is the user's sign-off. Commit the notes under `docs/reviews/`.
+
+## Styleframes: compare against the reference, not just yourself
+
+- `npx tsx scripts/styleframes.mts --style glyph --boards icebreaker,glasgow --aspect 4:5 --at 0.02,0.3,0.62,0.8 [--animatic] [--smooth]` dumps per-phase stills of each board next to the same-phase still of the private reference, plus optional half-size animatics, into `review/styleframes/<style>-<stamp>/index.html` with an `intent.md` to fill.
+- `npx tsx scripts/taste.mts <video.mp4> [--ref <ref.mp4>] [--out <dir>]` writes `taste.html`: synced side-by-side playback, shared scrub, frame step (arrows), A/B flip (f), and a 240px native-pixel loupe. If no `--ref`, it uses `reference.mp4` beside the video or re-extracts it from git.
 
 ## Gotchas
 
