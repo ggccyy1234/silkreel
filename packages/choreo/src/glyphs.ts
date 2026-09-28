@@ -1,19 +1,20 @@
-import type { BoardModel, Pad, Text, Vec2 } from '@silk-reel/ingest'
+import type { BoardModel, Footprint, Text, Vec2 } from '@silk-reel/ingest'
 import type { Rng } from './rng'
+import { simplifyStrokes } from './simplify'
 import type { CastHints, Glyph, GlyphLabel, TimelineWarning } from './types'
 
-const MIN_STROKES = 2
-/** detailed connectors are heroes; silkscreen artwork above this is noise */
-const MAX_STROKES = 80
+const MIN_STROKES = 1
+/** after simplifying, more than this reads as noise at hairline width */
+const MAX_STROKES = 20
 const MAX_POINTS = 900
-/** pads past this make pin-fields, not readable heroes — silk carries them */
-const MAX_PAD_STROKES = 40
 /** the cast is small on purpose — formations repeat heroes for rhythm */
-const MAX_PACKAGE_GLYPHS = 14
-const MAX_TEXT_GLYPHS = 8
+const MAX_PACKAGE_GLYPHS = 8
+const MAX_TEXT_GLYPHS = 4
 /** embedded labels this far outside the outline's unit box would collide with neighbours */
 const LABEL_RADIUS_LIMIT = 1.3
 const LABEL_HEIGHT = 0.2
+/** JetBrains Mono advance, in em */
+const MONO_ADVANCE = 0.6
 
 function bboxOf(strokes: Vec2[][]): { min: Vec2; max: Vec2 } {
   const min = { x: Infinity, y: Infinity }
@@ -46,46 +47,76 @@ function normalize(strokes: Vec2[][]): { strokes: Vec2[][]; cx: number; cy: numb
   }
 }
 
-function closedRatio(strokes: Vec2[][]): number {
-  let closed = 0
-  for (const s of strokes) {
-    const a = s[0]
-    const b = s[s.length - 1]
-    if (a && b && Math.hypot(a.x - b.x, a.y - b.y) < 0.02) closed += 1
-  }
-  return strokes.length === 0 ? 0 : closed / strokes.length
+const isClosed = (s: Vec2[]): boolean => {
+  const a = s[0]
+  const b = s[s.length - 1]
+  return a !== undefined && b !== undefined && dist(a, b) < 0.02
 }
 
-/** pad shape → outline poly in board coords — pins inside a connector
- *  outline are what make a hero read as hardware, not a plain box */
-function padOutline(p: Pad): Vec2[] {
-  const hx = p.size.x / 2
-  const hy = p.size.y / 2
-  let pts: Vec2[]
-  if (p.shape === 'circle' || p.shape === 'oval') {
-    pts = []
-    for (let i = 0; i <= 10; i++) {
-      const a = (i / 10) * Math.PI * 2
-      pts.push({ x: Math.cos(a) * hx, y: Math.sin(a) * hy })
+const dist = (a: Vec2, b: Vec2): number => Math.hypot(a.x - b.x, a.y - b.y)
+
+const strokeLen = (s: Vec2[]): number => {
+  let n = 0
+  for (let i = 1; i < s.length; i++) n += dist(s[i - 1] as Vec2, s[i] as Vec2)
+  return n
+}
+
+/** largest closed stroke, or undefined — the package "body" a hero needs */
+function bodyStroke(strokes: Vec2[][]): Vec2[] | undefined {
+  let best: Vec2[] | undefined
+  let bestArea = 0
+  for (const s of strokes) {
+    if (!isClosed(s)) continue
+    const { min, max } = bboxOf([s])
+    const area = (max.x - min.x) * (max.y - min.y)
+    if (area > bestArea) {
+      bestArea = area
+      best = s
     }
-  } else {
-    pts = [
-      { x: -hx, y: -hy },
-      { x: hx, y: -hy },
-      { x: hx, y: hy },
-      { x: -hx, y: hy },
-      { x: -hx, y: -hy }
-    ]
   }
-  const c = Math.cos(p.rot)
-  const s = Math.sin(p.rot)
-  return pts.map((pt) => ({ x: p.pos.x + pt.x * c - pt.y * s, y: p.pos.y + pt.x * s + pt.y * c }))
+  return best
+}
+
+/**
+ * pin-1 marker: a chamfered corner on the body (a short diagonal edge near a
+ * bbox corner), or a small stray stroke parked at a corner — the notch that
+ * makes a silhouette read as a real package.
+ */
+function hasPin1(strokes: Vec2[][], body: Vec2[]): boolean {
+  const { min, max } = bboxOf(strokes)
+  const corners = [
+    { x: min.x, y: min.y },
+    { x: max.x, y: min.y },
+    { x: max.x, y: max.y },
+    { x: min.x, y: max.y }
+  ]
+  const nearCorner = (p: Vec2, r: number): boolean =>
+    corners.some((c) => Math.abs(p.x - c.x) < r && Math.abs(p.y - c.y) < r)
+  // chamfer: a diagonal body edge (slope ~±1) whose midpoint sits at a corner
+  for (let i = 1; i < body.length; i++) {
+    const a = body[i - 1] as Vec2
+    const b = body[i] as Vec2
+    const len = dist(a, b)
+    if (len < 0.03 || len > 0.4) continue
+    const slope = Math.abs((b.y - a.y) / Math.max(1e-9, b.x - a.x))
+    if (Math.abs(slope - 1) > 0.35) continue
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+    if (nearCorner(mid, 0.3)) return true
+  }
+  // or a detached tick (< 0.15 span) within 0.25 span of a corner
+  for (const s of strokes) {
+    if (s === body) continue
+    if (strokeLen(s) > 0.15) continue
+    if (s.some((p) => nearCorner(p, 0.25))) return true
+  }
+  return false
 }
 
 interface PackageCandidate {
   ref: string
+  fp: Footprint
   strokes: Vec2[][]
-  labels: GlyphLabel[]
+  label: GlyphLabel | undefined
   score: number
 }
 
@@ -96,72 +127,66 @@ function packageCandidates(board: BoardModel): PackageCandidate[] {
     for (const line of layer.lines) lineById.set(line.id, line.points)
     for (const text of layer.texts) textById.set(text.id, text)
   }
-  // pads repeat across copper layers (thru-hole sits on both sides) — one id each
-  const padById = new Map<string, Pad>()
-  for (const layers of Object.values(board.copper)) {
-    for (const pad of layers.pads) padById.set(pad.id, pad)
-  }
   const out: PackageCandidate[] = []
   for (const fp of board.footprints) {
-    const strokes: Vec2[][] = []
+    const raw: Vec2[][] = []
     const texts: Text[] = []
     for (const ref of fp.silkRefs) {
       const line = lineById.get(ref)
       if (line !== undefined && line.length >= 2) {
-        strokes.push(line)
+        raw.push(line)
         continue
       }
       const text = textById.get(ref)
       if (text !== undefined) texts.push(text)
     }
+    if (raw.length < MIN_STROKES) continue
+    const silkBox = bboxOf(raw)
+    const silkSpan = Math.max(1e-6, Math.max(silkBox.max.x - silkBox.min.x, silkBox.max.y - silkBox.min.y))
+    // silk only — pads turned connectors into pin-field noise; the simplified
+    // outline is the readable silhouette
+    const strokes = simplifyStrokes(raw, silkSpan)
     if (strokes.length < MIN_STROKES || strokes.length > MAX_STROKES) continue
-    const silkBox = bboxOf(strokes)
-    const silkSpan = Math.max(silkBox.max.x - silkBox.min.x, silkBox.max.y - silkBox.min.y)
-    // pin outlines inside the silk boundary — mounting holes and off-body
-    // pads stay out, fine-pitch fields (>40 pads) render as mush anyway
-    const padOutlines: Vec2[][] = []
-    if (fp.padRefs.length <= MAX_PAD_STROKES) {
-      const margin = silkSpan * 0.15
-      for (const ref of fp.padRefs) {
-        const pad = padById.get(ref)
-        if (pad === undefined || Math.max(pad.size.x, pad.size.y) > silkSpan * 0.4) continue
-        if (
-          pad.pos.x < silkBox.min.x - margin ||
-          pad.pos.x > silkBox.max.x + margin ||
-          pad.pos.y < silkBox.min.y - margin ||
-          pad.pos.y > silkBox.max.y + margin
-        ) continue
-        padOutlines.push(padOutline(pad))
-      }
-    }
-    const all = [...strokes, ...padOutlines]
-    const points = all.reduce((n, s) => n + s.length, 0)
+    const points = strokes.reduce((n, s) => n + s.length, 0)
     if (points > MAX_POINTS) continue
-    const normalized = normalize(all)
+    const normalized = normalize(strokes)
     if (normalized === undefined) continue
-    // the footprint's own silkscreen text rides inside the outline —
-    // the reference's "CREATION in the connector" look
-    const labels: GlyphLabel[] = []
+    const body = bodyStroke(normalized.strokes)
+    const bodyBox = body === undefined ? undefined : bboxOf([body])
+    const innerW = bodyBox === undefined ? 0 : bodyBox.max.x - bodyBox.min.x
+
+    // at most one embedded label, and only when the word fits inside the body
+    // (0.6em advance × label height vs 60% of the inner body width)
+    const fits = (value: string): boolean => value.length * MONO_ADVANCE * LABEL_HEIGHT <= 0.6 * innerW
+    let label: GlyphLabel | undefined
     for (const t of texts) {
       const value = t.value.trim().replace(/\s*\n\s*/g, ' ')
-      if (value.length < 1 || value.length > 16) continue
+      if (value.length < 1 || value.length > 16 || !fits(value)) continue
       const lx = (t.pos.x - normalized.cx) / normalized.span
       const ly = (t.pos.y - normalized.cy) / normalized.span
       if (Math.hypot(lx, ly) > LABEL_RADIUS_LIMIT) continue
-      labels.push({ text: value, x: lx, y: ly, size: LABEL_HEIGHT, rot: (t.rot * Math.PI) / 180 })
-      if (labels.length >= 2) break
+      label = { text: value, x: lx, y: ly, size: LABEL_HEIGHT, rot: (t.rot * Math.PI) / 180 }
+      break
     }
-    // silk labels are rare (refdes texts hide or sit on Fab layers) — fall back
-    // to the refdes inside the outline, the assembly-drawing look
-    if (labels.length === 0 && /^[A-Z]{1,4}\d+[A-Z]?$/.test(fp.ref)) {
-      labels.push({ text: fp.ref, x: 0, y: 0, size: LABEL_HEIGHT, rot: 0 })
+    // refdes inside the outline — the assembly-drawing look
+    if (label === undefined && /^[A-Z]{1,4}\d+[A-Z]?$/.test(fp.ref) && fits(fp.ref)) {
+      label = { text: fp.ref, x: 0, y: 0, size: LABEL_HEIGHT, rot: 0 }
     }
+
+    const ns = normalized.strokes
+    const { min, max } = bboxOf(ns)
+    const glyphArea = Math.max(1e-9, (max.x - min.x) * (max.y - min.y))
+    const closedBody = body !== undefined && bodyBox !== undefined
+      && ((bodyBox.max.x - bodyBox.min.x) * (bodyBox.max.y - bodyBox.min.y)) / glyphArea >= 0.6
+    const w = Math.max(1e-9, max.x - min.x)
+    const h = Math.max(1e-9, max.y - min.y)
     const score =
-      closedRatio(normalized.strokes) * 3 +
-      Math.min(strokes.length, 40) * 0.4 +
-      Math.min(padOutlines.length, 24) * 0.25 +
-      labels.length * 0.5
-    out.push({ ref: fp.ref, strokes: normalized.strokes, labels, score })
+      (closedBody ? 3 : 0) +
+      (body !== undefined && hasPin1(ns, body) ? 2 : 0) +
+      (Math.abs(Math.log(w / h)) > 0.25 ? 1 : 0) -
+      Math.max(0, ns.length - 6) * 0.5 +
+      (label === undefined ? 0 : 0.3)
+    out.push({ ref: fp.ref, fp, strokes: normalized.strokes, label, score })
   }
   return out
 }
@@ -196,34 +221,24 @@ function textCandidates(board: BoardModel): TextCandidate[] {
   return out
 }
 
-/** synthesized small marks standing in for drills, fiducials and pad artifacts */
-function markGlyphs(): Glyph[] {
-  const circle: Vec2[] = []
-  for (let i = 0; i <= 20; i++) {
-    const a = (i / 20) * Math.PI * 2
-    circle.push({ x: Math.cos(a) * 0.5, y: Math.sin(a) * 0.5 })
+const circle = (r: number, n = 20): Vec2[] => {
+  const pts: Vec2[] = []
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * Math.PI * 2
+    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r })
   }
-  const cross = [
+  return pts
+}
+
+/** synthesized small marks standing in for artifacts the board doesn't carry */
+function markGlyphs(): Glyph[] {
+  const crossH = [
     { x: -0.62, y: 0 },
     { x: 0.62, y: 0 }
   ]
   const crossV = [
     { x: 0, y: -0.62 },
     { x: 0, y: 0.62 }
-  ]
-  const diamond = [
-    { x: 0, y: -0.55 },
-    { x: 0.55, y: 0 },
-    { x: 0, y: 0.55 },
-    { x: -0.55, y: 0 },
-    { x: 0, y: -0.55 }
-  ]
-  const square = [
-    { x: -0.5, y: -0.5 },
-    { x: 0.5, y: -0.5 },
-    { x: 0.5, y: 0.5 },
-    { x: -0.5, y: 0.5 },
-    { x: -0.5, y: -0.5 }
   ]
   /** corner bracket — the reference's framing ornament */
   const bracket = [
@@ -247,45 +262,86 @@ function markGlyphs(): Glyph[] {
     { x: 0.55, y: 0 }
   ]
   return [
-    { id: 'mark:target', kind: 'mark', strokes: [circle, cross, crossV] },
-    {
-      id: 'mark:square',
-      kind: 'mark',
-      strokes: [square, circle.map((p) => ({ x: p.x * 0.4, y: p.y * 0.4 }))]
-    },
-    { id: 'mark:dot', kind: 'mark', strokes: [circle.map((p) => ({ x: p.x * 0.3, y: p.y * 0.3 }))] },
-    { id: 'mark:cross', kind: 'mark', strokes: [cross, crossV] },
-    { id: 'mark:diamond', kind: 'mark', strokes: [diamond, square.map((p) => ({ x: p.x * 0.45, y: p.y * 0.45 }))] },
+    { id: 'mark:dot', kind: 'mark', strokes: [circle(0.15)], filled: true },
+    { id: 'mark:dash', kind: 'mark', strokes: [dash] },
+    { id: 'mark:plus', kind: 'mark', strokes: [crossH, crossV] },
     { id: 'mark:bracket', kind: 'mark', strokes: [bracket] },
-    { id: 'mark:sparkle', kind: 'mark', strokes: [sparkle] },
-    { id: 'mark:dash', kind: 'mark', strokes: [dash] }
+    { id: 'mark:sparkle', kind: 'mark', strokes: [sparkle] }
   ]
 }
 
-/** fiducial/logo footprints carry silk artwork — extra marks when the board has them */
+/**
+ * marks that exist because this board has them — fiducials, mounting holes,
+ * test points, via pairs. Ranked ahead of the synthetic set so the ornaments
+ * stay true to the board.
+ */
 function boardMarks(board: BoardModel): Glyph[] {
+  const out: Glyph[] = []
+  let fiducial = false
+  let mount = false
+  let tp = false
   const lineById = new Map<string, Vec2[]>()
   for (const layer of Object.values(board.silkscreen)) {
     for (const line of layer.lines) lineById.set(line.id, line.points)
   }
-  const out: Glyph[] = []
   for (const fp of board.footprints) {
-    if (!/fiducial|logo|ref\*|target/i.test(fp.ref)) continue
-    const strokes = fp.silkRefs
-      .map((r) => lineById.get(r))
-      .filter((pts): pts is Vec2[] => pts !== undefined && pts.length >= 2)
-    if (strokes.length < 1 || strokes.length > MAX_STROKES) continue
-    const normalized = normalize(strokes)
-    if (normalized === undefined) continue
-    out.push({ id: `bmark:${fp.ref}`, kind: 'mark', strokes: normalized.strokes })
-    if (out.length >= 4) break
+    if (/^FID/i.test(fp.ref) || /fiducial/i.test(fp.value ?? '')) fiducial = true
+    else if (/^(H|MH|MK)\d+/.test(fp.ref) || /mounting[\s_-]*hole/i.test(fp.value ?? '')) mount = true
+    else if (/^TP\d+/.test(fp.ref)) tp = true
+    else if (/logo/i.test(fp.ref) || /logo/i.test(fp.value ?? '')) {
+      // logos keep their real artwork
+      const strokes = fp.silkRefs
+        .map((r) => lineById.get(r))
+        .filter((pts): pts is Vec2[] => pts !== undefined && pts.length >= 2)
+      if (strokes.length < 1) continue
+      const b = bboxOf(strokes)
+      const simplified = simplifyStrokes(strokes, Math.max(1e-6, Math.max(b.max.x - b.min.x, b.max.y - b.min.y)))
+      const normalized = normalize(simplified)
+      if (normalized !== undefined) {
+        out.push({ id: `bmark:${fp.ref}`, kind: 'mark', strokes: normalized.strokes })
+      }
+    }
   }
-  return out
+  if (board.drill.some((d) => !d.plated && d.dia >= 2)) mount = true
+  // via pairs within 1.5mm read as a colon
+  let vias = false
+  const viaPts: Vec2[] = []
+  for (const layers of Object.values(board.copper)) for (const v of layers.vias) viaPts.push(v.pos)
+  outer: for (let i = 0; i < viaPts.length; i++) {
+    for (let j = i + 1; j < viaPts.length; j++) {
+      if (dist(viaPts[i] as Vec2, viaPts[j] as Vec2) < 1.5) {
+        vias = true
+        break outer
+      }
+    }
+  }
+  // board-derived icons lead the mark bench
+  const derived: Glyph[] = []
+  if (fiducial) {
+    derived.push({ id: 'bmark:fiducial', kind: 'mark', strokes: [circle(0.4), [
+      { x: -0.62, y: 0 },
+      { x: 0.62, y: 0 }
+    ], [
+      { x: 0, y: -0.62 },
+      { x: 0, y: 0.62 }
+    ]] })
+  }
+  if (mount) derived.push({ id: 'bmark:mount', kind: 'mark', strokes: [circle(0.45)] })
+  if (tp) derived.push({ id: 'bmark:tp', kind: 'mark', strokes: [circle(0.12)], filled: true })
+  if (vias) {
+    derived.push({ id: 'bmark:vias', kind: 'mark', strokes: [
+      circle(0.14).map((p) => ({ x: p.x, y: p.y - 0.3 })),
+      circle(0.14).map((p) => ({ x: p.x, y: p.y + 0.3 }))
+    ] })
+  }
+  return [...derived, ...out]
 }
 
 export interface CastResult {
   cast: Glyph[]
   warnings: TimelineWarning[]
+  /** refs of footprints whose outlines made the cast — ghost heroes */
+  heroRefs: Set<string>
 }
 
 export function buildCast(
@@ -298,7 +354,7 @@ export function buildCast(
   const warnings: TimelineWarning[] = []
   const cast: Glyph[] = []
 
-  const packageCount = Math.max(6, Math.round(10 * density))
+  const packageCount = Math.min(MAX_PACKAGE_GLYPHS, Math.max(5, Math.round(7 * density)))
   const candidates = packageCandidates(board)
   const prefer = new Set(hints?.preferRefs ?? [])
   const preferred = candidates.filter((c) => prefer.has(c.ref))
@@ -306,15 +362,17 @@ export function buildCast(
   for (const ref of missed) {
     warnings.push({ code: 'cast-hint-miss', message: `cast.preferRefs: no usable outline for footprint ${ref}` })
   }
-  // hints lead, then detail score; ties shuffle so seeds still vary the bench
+  // hints lead, then silhouette score; ties shuffle so seeds still vary the bench
   const ranked = [
     ...preferred.sort((a, b) => (hints?.preferRefs ?? []).indexOf(a.ref) - (hints?.preferRefs ?? []).indexOf(b.ref)),
     ...rng
       .shuffle(candidates.filter((c) => !prefer.has(c.ref)))
       .sort((a, b) => b.score - a.score)
   ]
-  for (const c of ranked.slice(0, Math.min(packageCount, MAX_PACKAGE_GLYPHS))) {
-    cast.push({ id: `pkg:${c.ref}`, kind: 'package', strokes: c.strokes, labels: c.labels })
+  const heroRefs = new Set<string>()
+  for (const c of ranked.slice(0, packageCount)) {
+    cast.push({ id: `pkg:${c.ref}`, kind: 'package', strokes: c.strokes, labels: c.label === undefined ? [] : [c.label] })
+    heroRefs.add(c.ref)
   }
   if (cast.length < 4) {
     warnings.push({
@@ -332,7 +390,7 @@ export function buildCast(
         warnings.push({ code: 'cast-hint-miss', message: `cast.preferTexts: no silkscreen text ${JSON.stringify(v)}` })
       }
     }
-    const textCount = Math.min(MAX_TEXT_GLYPHS, Math.max(2, Math.round(6 * density)))
+    const textCount = Math.min(MAX_TEXT_GLYPHS, Math.max(2, Math.round(3 * density)))
     // hinted lead, then front-silk text tall enough to read, then the rest
     const rest = rng.shuffle(all.filter((c) => !wanted.has(c.value)))
     const picked = [
@@ -346,5 +404,5 @@ export function buildCast(
   }
 
   cast.push(...boardMarks(board), ...markGlyphs())
-  return { cast, warnings }
+  return { cast, warnings, heroRefs }
 }
