@@ -41,8 +41,11 @@ describe('seeded determinism', () => {
       if (tl.style !== 'glyph') throw new Error('expected a glyph timeline')
       digests.add(sha256Of(tl))
       expect(tl.cast.length).toBeGreaterThan(0)
-      expect(tl.formations[0]?.startPhase).toBe(0)
-      expect(tl.formations.at(-1)?.endPhase).toBeLessThanOrEqual(1)
+      expect(tl.placements.length).toBeGreaterThan(0)
+      for (const f of tl.formations) {
+        expect(f.startPhase).toBeGreaterThanOrEqual(0)
+        expect(f.endPhase).toBeLessThanOrEqual(1)
+      }
     }
     expect(digests.size).toBe(3)
   })

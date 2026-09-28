@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from './index'
-import { sampleTrack } from './composer'
+import { decodeAlpha } from './decode'
 import { boardModel } from '../test/helpers'
 
 describe('choreo package smoke', () => {
@@ -20,41 +20,44 @@ describe('choreo package smoke', () => {
         output: { width: 1080, height: 1350, fps: 15 }
       })
       if (tl.style !== 'glyph') throw new Error('expected a glyph timeline')
-      expect(tl.totalFrames).toBeGreaterThan(0)
+      // 11.2s auto duration → 168 decode steps; 168 output frames at fps 15
+      expect(tl.totalFrames).toBe(168)
+      expect(tl.steps).toBe(168)
       expect(tl.cast.length).toBeGreaterThan(0)
-      expect(tl.tracks.length).toBe(tl.cast.filter((g) => tl.tracks.some((t) => t.glyphId === g.id)).length)
+      // every cast member is placed at least once — dead cast was trimmed
+      for (const g of tl.cast) {
+        expect(tl.placements.some((p) => p.glyphId === g.id), `${g.id} never placed`).toBe(true)
+      }
       const ids = tl.formations.map((f) => f.id)
-      // the loop opens and closes on the same marks residue; 5–7 middles
-      expect(ids[0]).toBe('marks')
-      expect(ids.at(-1)).toBe('marks')
-      expect(ids.length).toBeGreaterThanOrEqual(7)
-      expect(ids.length).toBeLessThanOrEqual(9)
-      for (let i = 1; i < ids.length; i++) expect(ids[i]).not.toBe(ids[i - 1])
-      // something is visible during the longest (climax) hold
-      const climax = tl.formations.reduce((a, b) =>
-        b.endPhase - b.startPhase > a.endPhase - a.startPhase ? b : a
+      // fixed arc: seeded sparse, seeded dense, quad climax, ghost, marks residue
+      expect(ids.length).toBe(5)
+      expect(['orbit', 'marks']).toContain(ids[0])
+      expect(['columns', 'ring']).toContain(ids[1])
+      expect(ids[2]).toBe('quad')
+      expect(ids[3]).toBe('ghost')
+      expect(ids[4]).toBe('marks')
+      // something is visible during the climax hold
+      const climax = tl.formations[2]
+      expect(climax).toBeDefined()
+      if (climax === undefined) return
+      const midStep = Math.round(((climax.startPhase + climax.endPhase) / 2) * tl.steps)
+      const lit = tl.placements.filter(
+        (p) => decodeAlpha(midStep, p.inStep, p.outStep, p.pattern, tl.steps) > 0.05
       )
-      const midClimax = (climax.startPhase + climax.endPhase) / 2
-      const lit = tl.tracks.reduce(
-        (n, t) => n + sampleTrack(t, midClimax).filter((a) => a.alpha > 0.05).length,
-        0
-      )
-      expect(lit).toBeGreaterThan(0)
-      // the climax crowns one hero (plus its mirror copies) — an accent, not a flood
+      expect(lit.length).toBeGreaterThan(0)
+      // the climax crowns one hero — an accent, not a flood
+      const heroes = lit.filter((p) => p.role === 'hero').length
       if (tl.cast.some((g) => g.kind === 'package')) {
-        const heroes = tl.tracks.reduce(
-          (n, t) => n + sampleTrack(t, midClimax).filter((a) => a.alpha > 0.05 && a.hero === true).length,
-          0
-        )
         expect(heroes).toBeGreaterThan(0)
-        expect(heroes).toBeLessThanOrEqual(Math.max(4, lit / 4))
+        expect(heroes).toBeLessThanOrEqual(Math.max(4, lit.length / 4))
       }
     })
   }
 
   it('different seeds plan different formation sequences', () => {
+    const board = boardModel('glasgow.kicad_pcb')
     const seq = (seed: number): string => {
-      const tl = compileTimeline(boardModel('glasgow.kicad_pcb'), {
+      const tl = compileTimeline(board, {
         style: 'glyph',
         knobs: {},
         seed,
@@ -64,6 +67,7 @@ describe('choreo package smoke', () => {
       if (tl.style !== 'glyph') throw new Error('expected a glyph timeline')
       return tl.formations.map((f) => f.id).join(',')
     }
-    expect(seq(1)).not.toBe(seq(2))
+    const seen = new Set([1, 2, 3, 4, 5, 6].map(seq))
+    expect(seen.size).toBeGreaterThan(1)
   })
 })

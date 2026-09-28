@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from './index'
+import { buildCast } from './glyphs'
+import { makeRng } from './rng'
 import type { FilmConfig, GlyphTimeline } from './index'
 import type { BoardModel } from '@silk-reel/ingest'
 import { boardModel } from '../test/helpers'
@@ -26,9 +28,10 @@ function compile(board: BoardModel, overrides: Partial<FilmConfig> = {}): GlyphT
 
 describe('knobs', () => {
   it('density scales the package cast size', () => {
-    const sparse = compile(board(), { knobs: { density: 0.5 } })
-    const dense = compile(board(), { knobs: { density: 1.5 } })
-    const pk = (tl: typeof sparse) => tl.cast.filter((g) => g.kind === 'package').length
+    // cast size lives in buildCast — the timeline's cast is trimmed to used glyphs
+    const sparse = buildCast(board(), 0.5, true, makeRng(42, 'cast'))
+    const dense = buildCast(board(), 1.5, true, makeRng(42, 'cast'))
+    const pk = (r: typeof sparse) => r.cast.filter((g) => g.kind === 'package').length
     expect(pk(dense)).toBeGreaterThan(pk(sparse))
   })
 

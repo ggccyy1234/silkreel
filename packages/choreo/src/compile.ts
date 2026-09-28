@@ -26,7 +26,7 @@ export function compileTimeline(board: BoardModel, config: FilmConfig): Timeline
     const t = compileTrace(board, resolved, seed)
     return { ...base, style: 'trace', scene: t.scene, warnings: [...duration.warnings, ...resolved.knobWarnings, ...t.warnings] }
   }
-  const film = composeFilm(board, resolved, seed)
+  const film = composeFilm(board, resolved, seed, duration.durationSeconds)
   const safe = safeArea(resolved.width, resolved.height, resolved.title !== undefined)
   return {
     ...base,

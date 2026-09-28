@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from './index'
-import { sampleTrack } from './composer'
+import { decodeAlpha } from './decode'
 import { boardModel } from '../test/helpers'
 
 const BOARDS = [
@@ -12,32 +12,14 @@ const BOARDS = [
   'video.kicad_pcb'
 ]
 
-const VISIBLE = 0.05
-
-/** lit atom count at each output frame */
-function litPerFrame(totalFrames: number, tracks: { knots: unknown[] }[]): number[] {
-  const lit: number[] = []
-  for (let f = 0; f < totalFrames; f++) {
-    const p = f / totalFrames
-    let n = 0
-    for (const t of tracks) {
-      for (const a of sampleTrack(t as Parameters<typeof sampleTrack>[0], p)) {
-        if (a.alpha > VISIBLE) n++
-      }
-    }
-    lit.push(n)
-  }
-  return lit
-}
-
-/** longest run of low-atom frames on the cyclic loop */
-function longestLowRun(low: boolean[]): number {
-  const anchor = low.indexOf(false)
-  if (anchor < 0) return low.length
+/** longest cyclic run of steps where nothing is visible on the decode grid */
+function longestDarkRun(lit: boolean[]): number {
+  const anchor = lit.indexOf(true)
+  if (anchor < 0) return lit.length
   let best = 0
   let run = 0
-  for (let i = 1; i <= low.length; i++) {
-    if (low[(anchor + i) % low.length] === true) {
+  for (let i = 1; i <= lit.length; i++) {
+    if (lit[(anchor + i) % lit.length] === false) {
       run++
       if (run > best) best = run
     } else {
@@ -49,7 +31,7 @@ function longestLowRun(low: boolean[]): number {
 
 describe('glyph dead-air budget', () => {
   for (const name of BOARDS) {
-    it(`${name} keeps near-empty frames rare and short`, () => {
+    it(`${name} never goes dark for more than 2 consecutive steps`, () => {
       const tl = compileTimeline(boardModel(name), {
         style: 'glyph',
         knobs: {},
@@ -58,20 +40,19 @@ describe('glyph dead-air budget', () => {
         output: { width: 1080, height: 1350, fps: 15 }
       })
       if (tl.style !== 'glyph') throw new Error('expected a glyph timeline')
-      const lit = litPerFrame(tl.totalFrames, tl.tracks)
-      const low = lit.map((n) => n < 3)
-      const lowCount = low.reduce((n, v) => n + (v ? 1 : 0), 0)
-      const run = longestLowRun(low)
-      // under 8% of the loop sits nearly empty…
-      expect(
-        lowCount / tl.totalFrames,
-        `${name}: ${lowCount}/${tl.totalFrames} frames below 3 atoms`
-      ).toBeLessThanOrEqual(0.08)
-      // …and no single dead stretch exceeds half a second
-      const maxRun = Math.floor(0.5 * tl.fps)
-      expect(run, `${name}: ${run} consecutive near-empty frames (max ${maxRun})`).toBeLessThanOrEqual(
-        maxRun
-      )
+      const lit: boolean[] = []
+      for (let s = 0; s < tl.steps; s++) {
+        lit.push(
+          tl.placements.some((p) => decodeAlpha(s, p.inStep, p.outStep, p.pattern, tl.steps) > 0.01) ||
+            tl.ghost.bins.some((b) => decodeAlpha(s, b.inStep, b.outStep, b.pattern, tl.steps) > 0.01)
+        )
+      }
+      const darkCount = lit.filter((v) => !v).length
+      const run = longestDarkRun(lit)
+      expect(lit[0], 'step 0 must be lit — the seam mark holds across the wrap').toBe(true)
+      expect(run, `${name}: ${run} consecutive dark steps`).toBeLessThanOrEqual(2)
+      // dead air stays a garnish, not a beat: under a sixth of the loop
+      expect(darkCount / tl.steps).toBeLessThanOrEqual(1 / 6)
     })
   }
 })

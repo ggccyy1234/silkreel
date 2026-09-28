@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from './index'
-import { sampleTrack } from './composer'
-import type { AtomState, FilmConfig, GlyphTimeline } from './types'
+import { decodeAlpha } from './decode'
+import { buildCast } from './glyphs'
+import { makeRng } from './rng'
+import type { FilmConfig, GlyphTimeline } from './types'
 import type { BoardModel } from '@silk-reel/ingest'
 import { boardModel } from '../test/helpers'
 import { syntheticBoardWithFootprints } from '../test/synthetic'
 import { makeSyntheticBoard } from '../test/synthetic'
+
+const BOARDS = [
+  'ecc83-pp.kicad_pcb',
+  'kit-dev-coldfire-xilinx_5213.kicad_pcb',
+  'video.kicad_pcb',
+  'StickHub.kicad_pcb',
+  'icebreaker.kicad_pcb',
+  'glasgow.kicad_pcb'
+]
 
 function cfg(overrides: Partial<FilmConfig> = {}): FilmConfig {
   return {
@@ -24,25 +35,30 @@ function compile(board: BoardModel, overrides: Partial<FilmConfig> = {}): GlyphT
   return tl
 }
 
-function atomsAt(tl: GlyphTimeline, phase: number): AtomState[] {
-  const out: AtomState[] = []
-  for (const track of tl.tracks) out.push(...sampleTrack(track, phase))
-  return out
+/** is anything lit at this loop step (integer steps — the twos grid) */
+function litAt(tl: GlyphTimeline, step: number): boolean {
+  const on = (u: { inStep: number; outStep: number; pattern: number }): boolean =>
+    decodeAlpha(step, u.inStep, u.outStep, u.pattern, tl.steps) > 0.01
+  return tl.placements.some(on) || tl.ghost.bins.some(on)
 }
 
-/** every atom must have a mirror counterpart at (-x, y); atoms on the axis pair with themselves */
-function assertMirrorBalanced(atoms: AtomState[], context: string): void {
-  const eps = 1e-6
-  const right = atoms.filter((a) => a.x > eps)
-  const left = atoms.filter((a) => a.x < -eps)
-  expect(left.length, `${context}: left/right atom counts differ`).toBe(right.length)
-  for (const a of atoms) {
-    if (Math.abs(a.x) <= eps) continue
-    const twin = atoms.some(
-      (b) => Math.abs(b.x + a.x) <= eps && Math.abs(b.y - a.y) <= eps
-    )
-    expect(twin, `${context}: atom at (${a.x.toFixed(3)},${a.y.toFixed(3)}) lacks a mirror twin`).toBe(true)
+/** longest cyclic run of steps where nothing is visible */
+function longestDarkRun(tl: GlyphTimeline): number {
+  const lit: boolean[] = []
+  for (let s = 0; s < tl.steps; s++) lit.push(litAt(tl, s))
+  const anchor = lit.indexOf(true)
+  if (anchor < 0) return tl.steps
+  let best = 0
+  let run = 0
+  for (let i = 1; i <= tl.steps; i++) {
+    if (lit[(anchor + i) % tl.steps] === false) {
+      run++
+      if (run > best) best = run
+    } else {
+      run = 0
+    }
   }
+  return best
 }
 
 describe('composeFilm cast', () => {
@@ -86,14 +102,17 @@ describe('composeFilm cast', () => {
   })
 
   it('cast hints promote the listed refs and texts into the cast', () => {
-    const tl = compile(boardModel('icebreaker.kicad_pcb'), {
-      cast: { preferRefs: ['P1', 'J31'], preferTexts: ['iCEBreaker', 'FPGA'] }
+    // compileTimeline's cast is trimmed to placed glyphs — the hint contract
+    // lives in buildCast
+    const { cast } = buildCast(boardModel('icebreaker.kicad_pcb'), 1, true, makeRng(42, 'cast'), {
+      preferRefs: ['P1', 'J31'],
+      preferTexts: ['iCEBreaker', 'FPGA']
     })
-    const ids = tl.cast.map((g) => g.id)
+    const ids = cast.map((g) => g.id)
     expect(ids).toContain('pkg:P1')
     expect(ids).toContain('pkg:J31')
-    expect(tl.cast.some((g) => g.kind === 'text' && g.text === 'iCEBreaker')).toBe(true)
-    expect(tl.cast.some((g) => g.kind === 'text' && g.text === 'FPGA')).toBe(true)
+    expect(cast.some((g) => g.kind === 'text' && g.text === 'iCEBreaker')).toBe(true)
+    expect(cast.some((g) => g.kind === 'text' && g.text === 'FPGA')).toBe(true)
   })
 
   it('cast hints that miss produce a warning, not an error', () => {
@@ -132,100 +151,127 @@ describe('composeFilm cast', () => {
   })
 })
 
-describe('composeFilm formations', () => {
-  it('emits a planned formation arc with non-overlapping holds inside [0,1)', () => {
-    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
-    const ids = tl.formations.map((f) => f.id)
-    // marks residue bookends the loop; 5–7 middles; nothing repeats in a row
-    expect(ids[0]).toBe('marks')
-    expect(ids.at(-1)).toBe('marks')
-    expect(ids.length).toBeGreaterThanOrEqual(7)
-    expect(ids.length).toBeLessThanOrEqual(9)
-    for (let i = 1; i < ids.length; i++) expect(ids[i]).not.toBe(ids[i - 1])
-    expect(tl.formations.map((f) => f.beat)).toEqual(ids.map((_, i) => i))
-    for (const f of tl.formations) {
-      expect(f.startPhase).toBeGreaterThanOrEqual(0)
-      expect(f.endPhase).toBeLessThanOrEqual(1)
-      expect(f.endPhase).toBeGreaterThan(f.startPhase)
+describe('placements', () => {
+  for (const name of BOARDS) {
+    for (const aspect of ['4:5', '16:9'] as const) {
+      it(`${name} @ ${aspect}: every placement is one valid symmetry set with shared timing`, () => {
+        const tl = compile(boardModel(name), { aspect })
+        expect(tl.placements.length).toBeGreaterThan(0)
+        for (const p of tl.placements) {
+          const glyph = tl.cast.find((g) => g.id === p.glyphId)
+          expect(glyph, `${p.glyphId} missing from cast`).toBeDefined()
+          expect(p.atoms.length).toBeGreaterThanOrEqual(1)
+          expect(p.atoms.length).toBeLessThanOrEqual(4)
+          expect(p.tones.length).toBe(p.atoms.length)
+          expect(p.inStep).toBeGreaterThanOrEqual(0)
+          expect(p.inStep).toBeLessThan(tl.steps)
+          expect(p.outStep).toBeGreaterThanOrEqual(0)
+          expect(p.outStep).toBeLessThan(tl.steps)
+          expect(p.pattern).toBeGreaterThanOrEqual(0)
+          expect(p.pattern).toBeLessThan(6)
+          expect(tl.formations[p.formation], `formation ${p.formation} missing`).toBeDefined()
+          // the true copy is first and unflipped; every off-axis atom has a
+          // symmetry twin (mirror across Y, or the rot2 180° partner)
+          expect(p.atoms[0]?.flipX).toBeFalsy()
+          expect(p.atoms[0]?.flipY).toBeFalsy()
+          for (const a of p.atoms) {
+            if (Math.abs(a.x) < 1e-9) continue
+            const twin = p.atoms.some(
+              (b) =>
+                b !== a &&
+                Math.abs(b.x + a.x) < 1e-9 &&
+                (Math.abs(b.y - a.y) < 1e-9 || Math.abs(b.y + a.y) < 1e-9)
+            )
+            expect(twin, `atom (${a.x.toFixed(2)},${a.y.toFixed(2)}) lacks a symmetry twin`).toBe(true)
+          }
+          // text ornament: reflections ride at 0.45 under the true copy's 0.9
+          if (glyph?.kind === 'text' && p.atoms.length > 1) {
+            expect(p.tones[0]).toBeCloseTo(0.9, 9)
+            for (const t of p.tones.slice(1)) expect(t).toBeCloseTo(0.45, 9)
+          }
+        }
+      })
+
+      it(`${name} @ ${aspect}: step 0 is lit and no run of 3+ empty steps exists`, () => {
+        const tl = compile(boardModel(name), { aspect })
+        expect(tl.steps).toBe(168)
+        expect(litAt(tl, 0), 'the seam mark must be lit at step 0').toBe(true)
+        const run = longestDarkRun(tl)
+        expect(run, `longest dark run is ${run} steps`).toBeLessThanOrEqual(2)
+      })
+
+      it(`${name} @ ${aspect}: placements decode inside their formation's arc window`, () => {
+        const tl = compile(boardModel(name), { aspect })
+        const ids = tl.formations.map((f) => f.id)
+        // fixed arc: sparse A, dense B, quad climax, ghost, marks residue
+        expect(ids.length).toBe(5)
+        expect(['orbit', 'marks']).toContain(ids[0])
+        expect(['columns', 'ring']).toContain(ids[1])
+        expect(ids[2]).toBe('quad')
+        expect(ids[3]).toBe('ghost')
+        expect(ids[4]).toBe('marks')
+        for (const f of tl.formations) {
+          expect(f.startPhase).toBeGreaterThanOrEqual(0)
+          expect(f.endPhase).toBeLessThanOrEqual(1)
+          expect(f.endPhase).toBeGreaterThan(f.startPhase)
+        }
+        for (let i = 1; i < tl.formations.length; i++) {
+          const prev = tl.formations[i - 1]
+          const cur = tl.formations[i]
+          expect(cur !== undefined && prev !== undefined && cur.startPhase > prev.startPhase).toBe(true)
+        }
+        for (const p of tl.placements) {
+          const f = tl.formations[p.formation]
+          if (f === undefined) continue
+          // the seam mark wraps the loop on purpose — its inStep sits in D's band
+          const wraps = p.outStep < p.inStep
+          if (!wraps) {
+            expect(p.inStep).toBeGreaterThanOrEqual(f.startPhase * tl.steps - 1e-9)
+            expect(p.inStep).toBeLessThanOrEqual(f.endPhase * tl.steps + 1e-9)
+            expect(p.outStep).toBeLessThanOrEqual(f.endPhase * tl.steps + 1e-9)
+          }
+        }
+        for (const b of tl.ghost.bins) {
+          const f = tl.formations[3]
+          expect(f === undefined || b.inStep >= f.startPhase * tl.steps - 1e-9).toBe(true)
+        }
+        // glints target support placements inside their own hold
+        for (const g of tl.glints) {
+          const p = tl.placements[g.placement]
+          expect(p).toBeDefined()
+          expect(p?.role).toBe('support')
+          expect(g.step).toBeGreaterThanOrEqual(0)
+          expect(g.step).toBeLessThan(tl.steps)
+        }
+      })
     }
-    for (let i = 1; i < tl.formations.length; i++) {
-      const prev = tl.formations[i - 1]
-      const cur = tl.formations[i]
-      expect(cur !== undefined && prev !== undefined && cur.startPhase > prev.endPhase).toBe(true)
-    }
+  }
+
+  it('is deterministic for a fixed seed', () => {
+    const a = compile(boardModel('glasgow.kicad_pcb'))
+    const b = compile(boardModel('glasgow.kicad_pcb'))
+    expect(JSON.stringify(a.placements)).toBe(JSON.stringify(b.placements))
+    expect(JSON.stringify(a.ghost)).toBe(JSON.stringify(b.ghost))
   })
 
-  it('gives every track sorted knots inside [0,1)', () => {
-    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
-    expect(tl.tracks.length).toBeGreaterThan(0)
-    for (const track of tl.tracks) {
-      expect(track.knots.length).toBeGreaterThanOrEqual(2)
-      for (let i = 1; i < track.knots.length; i++) {
-        const prev = track.knots[i - 1]
-        const cur = track.knots[i]
-        expect(cur !== undefined && prev !== undefined && cur.phase >= prev.phase).toBe(true)
-      }
-      for (const k of track.knots) {
-        expect(k.phase).toBeGreaterThanOrEqual(0)
-        expect(k.phase).toBeLessThan(1)
-        expect(k.atoms.length).toBeGreaterThan(0)
-      }
+  it('board-seeded plans vary across the fixture set', () => {
+    const plans = new Set<string>()
+    for (const name of BOARDS) {
+      const tl = compile(boardModel(name))
+      plans.add(tl.formations.map((f) => f.id).join(','))
     }
-  })
-})
-
-describe('sampleTrack', () => {
-  it('is mirror-balanced at every sampled phase, including mid-transition', () => {
-    const tl = compile(boardModel('video.kicad_pcb'))
-    for (let i = 0; i < 200; i++) {
-      const p = i / 200
-      const atoms = atomsAt(tl, p).filter((a) => a.alpha > 0.01)
-      if (atoms.length === 0) continue
-      assertMirrorBalanced(atoms, `phase ${p.toFixed(3)}`)
-    }
+    expect(plans.size).toBeGreaterThan(1)
   })
 
-  it('produces identical atom states at phase 0 and phase 1 (seamless loop)', () => {
-    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
-    for (const track of tl.tracks) {
-      expect(sampleTrack(track, 1)).toEqual(sampleTrack(track, 0))
-    }
-    // and the film actually moves: ring-hold state differs from columns-hold
-    const ring = atomsAt(tl, 0.78)
-    const columns = atomsAt(tl, 0.6)
-    expect(JSON.stringify(ring)).not.toBe(JSON.stringify(columns))
-  })
-
-  it('keeps atoms finite with sane alpha and scale everywhere', () => {
+  it('keeps atoms finite and positive-scale everywhere', () => {
     const tl = compile(syntheticBoardWithFootprints(10))
-    for (let i = 0; i < 64; i++) {
-      for (const a of atomsAt(tl, i / 64)) {
+    for (const p of tl.placements) {
+      for (const a of p.atoms) {
         expect(Number.isFinite(a.x)).toBe(true)
         expect(Number.isFinite(a.y)).toBe(true)
         expect(Number.isFinite(a.rot)).toBe(true)
-        expect(a.alpha).toBeGreaterThanOrEqual(0)
-        expect(a.alpha).toBeLessThanOrEqual(1)
         expect(a.scale).toBeGreaterThan(0)
       }
-    }
-  })
-
-  it('dims mid-transition so holds read as separate density waves', () => {
-    const tl = compile(boardModel('ecc83-pp.kicad_pcb'))
-    // midpoint of a transition bracket: alpha should dip below both endpoint levels
-    const track = tl.tracks.find((t) => t.knots.some((k) => k.transit !== undefined))
-    expect(track).toBeDefined()
-    if (track === undefined) return
-    const depart = track.knots.find((k) => k.transit !== undefined)
-    const idx = depart === undefined ? -1 : track.knots.indexOf(depart)
-    const next = track.knots[(idx + 1) % track.knots.length]
-    if (depart === undefined || next === undefined) throw new Error('no transit bracket found')
-    const mid = depart.phase + (((next.phase - depart.phase + 1) % 1) / 2)
-    const peak0 = depart.atoms.reduce((s, a) => s + a.alpha, 0)
-    const peak1 = next.atoms.reduce((s, a) => s + a.alpha, 0)
-    const midSum = sampleTrack(track, ((mid % 1) + 1) % 1).reduce((s, a) => s + a.alpha, 0)
-    if (peak0 > 0 && peak1 > 0) {
-      expect(midSum).toBeLessThan(Math.max(peak0, peak1))
     }
   })
 })
