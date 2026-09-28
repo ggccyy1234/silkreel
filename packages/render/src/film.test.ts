@@ -91,7 +91,7 @@ describe('drawFrame', () => {
     expect(silk).toBeGreaterThan(head)
   })
 
-  it('draws the seam mark at frame 0 — the loop point is never empty', () => {
+  it('frame 0 is never empty — A holds across the wrap', () => {
     const timeline = compiled(board)
     const scene = buildScene(timeline)
     const drawn = drawFrame(asCtx(currentRecorder()), timeline, scene, 0)

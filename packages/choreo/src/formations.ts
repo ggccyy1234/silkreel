@@ -121,31 +121,48 @@ function repeat(glyphs: Glyph[], slots: Slot[], out: SlotMap): void {
  */
 function marksBeat(groups: GlyphGroups, pkgs: Glyph[], rng: Rng, variant: number): SlotMap {
   const out: SlotMap = new Map()
+  // a packed triad of package silhouettes — the marks dress it, not the other
+  // way around; outer marks hug the blob instead of floating in the dark
   const slots =
     variant === 0
       ? [
-          { x: 0.44, y: -0.26, rot: 0, scale: 0.13, copies: MIRROR_X, order: 0 },
-          { x: 0, y: 0.5, rot: 0, scale: 0.11, copies: SINGLE, order: 0.1 }
+          { x: 0.2, y: -0.05, rot: 0, scale: 0.21, copies: MIRROR_X, order: 0 },
+          { x: 0, y: -0.28, rot: 0, scale: 0.17, copies: SINGLE, order: 0.1 },
+          { x: 0, y: 0.28, rot: 0, scale: 0.17, copies: SINGLE, order: 0.15 }
         ]
       : [
-          { x: 0.5, y: 0.28, rot: 0, scale: 0.12, copies: MIRROR_X, order: 0 },
-          { x: 0, y: -0.5, rot: 0, scale: 0.11, copies: SINGLE, order: 0.1 }
+          { x: 0, y: 0, rot: 0, scale: 0.22, copies: SINGLE, order: 0 },
+          { x: 0.3, y: 0.18, rot: 0, scale: 0.17, copies: MIRROR_X, order: 0.1 },
+          { x: 0.3, y: -0.24, rot: 0, scale: 0.15, copies: MIRROR_X, order: 0.15 }
         ]
   repeat(pkgs, slots, out)
   assign(
     groups.marks,
-    [
-      { x: 0.54, y: -0.54, rot: 0, scale: 0.045, copies: QUAD, order: 0.3 },
-      { x: 0.3, y: -0.1, rot: PI2, scale: 0.038, copies: MIRROR_X, order: 0.45 },
-      { x: 0.18, y: 0.02, rot: PI2, scale: 0.04, copies: MIRROR_X, order: 0.65 },
-      { x: 0, y: variant === 0 ? -0.6 : 0.6, rot: 0, scale: 0.035, copies: SINGLE, order: 0.75 }
-    ],
+    variant === 0
+      ? [
+          { x: 0, y: 0, rot: 0, scale: 0.1, copies: SINGLE, order: 0.45 },
+          { x: 0.36, y: 0.1, rot: PI2, scale: 0.09, copies: MIRROR_X, order: 0.65 },
+          { x: 0.34, y: -0.22, rot: 0, scale: 0.075, copies: MIRROR_X, order: 0.75 }
+        ]
+      : [
+          { x: 0.3, y: -0.02, rot: PI2, scale: 0.08, copies: MIRROR_X, order: 0.45 },
+          { x: 0.46, y: 0.02, rot: 0, scale: 0.065, copies: MIRROR_X, order: 0.75 }
+        ],
     out,
     rng
   )
   assign(
     groups.texts,
-    [{ x: 0.36, y: 0.14, rot: 0, scale: 0.04, copies: MIRROR_X, order: 0.85 }],
+    [
+      {
+        x: 0.42,
+        y: variant === 0 ? 0.48 : -0.48,
+        rot: 0,
+        scale: 0.05,
+        copies: MIRROR_X,
+        order: 0.85
+      }
+    ],
     out,
     rng
   )
@@ -155,53 +172,38 @@ function marksBeat(groups: GlyphGroups, pkgs: Glyph[], rng: Rng, variant: number
 /** twin stacks — the reference's tall mirrored towers, grown center-out */
 function columnsBeat(groups: GlyphGroups, density: number, rng: Rng): SlotMap {
   const out: SlotMap = new Map()
-  const rows = Math.max(5, Math.round(8 * density))
+  const rows = Math.max(4, Math.round(4 * density))
   const stacks: Slot[] = []
   for (let i = 0; i < rows; i++) {
-    const y = 0.56 - (i / (rows - 1)) * 1.12
+    const y = 0.45 - (i / (rows - 1)) * 0.9
     // towers rise bottom-up — the stack grows like a building going up
-    stacks.push({ x: 0.27, y, rot: 0, scale: 0.14, copies: MIRROR_X, order: (0.56 - y) / 1.12 })
+    stacks.push({ x: 0.22, y, rot: 0, scale: 0.2, copies: MIRROR_X, order: (0.45 - y) / 0.9 })
   }
   repeat(groups.packages.slice(0, 2), stacks, out)
   assign(
     groups.texts,
-    [
-      { x: 0.13, y: -0.45, rot: PI2, scale: 0.065, copies: MIRROR_X, order: 0.85 },
-      { x: 0.13, y: -0.15, rot: PI2, scale: 0.065, copies: MIRROR_X, order: 0.35 },
-      { x: 0.13, y: 0.15, rot: PI2, scale: 0.065, copies: MIRROR_X, order: 0.35 },
-      { x: 0.13, y: 0.45, rot: PI2, scale: 0.065, copies: MIRROR_X, order: 0.85 },
-      { x: 0.48, y: 0, rot: 0, scale: 0.05, copies: MIRROR_X, order: 0.55 }
-    ],
+    [{ x: 0.48, y: 0, rot: PI2, scale: 0.045, copies: MIRROR_X, order: 0.55 }],
     out,
     rng
   )
   assign(
     groups.marks,
     [
-      { x: 0, y: 0, rot: 0, scale: 0.05, copies: SINGLE, order: 0.05 },
-      { x: 0, y: -0.4, rot: 0, scale: 0.035, copies: SINGLE, order: 0.75 },
-      { x: 0, y: 0.4, rot: 0, scale: 0.035, copies: SINGLE, order: 0.75 },
-      { x: 0, y: -0.68, rot: 0, scale: 0.03, copies: SINGLE, order: 0.95 },
-      { x: 0, y: 0.68, rot: 0, scale: 0.03, copies: SINGLE, order: 0.95 },
-      { x: 0.5, y: -0.56, rot: 0, scale: 0.04, copies: MIRROR_X, order: 0.9 },
-      { x: 0.5, y: 0.56, rot: 0, scale: 0.04, copies: MIRROR_X, order: 0.9 }
+      { x: 0, y: 0, rot: 0, scale: 0.09, copies: SINGLE, order: 0.05 },
+      { x: 0, y: -0.58, rot: 0, scale: 0.07, copies: SINGLE, order: 0.95 },
+      { x: 0, y: 0.58, rot: 0, scale: 0.07, copies: SINGLE, order: 0.95 }
     ],
     out,
     rng
   )
-  // vertical rules at the frame edge — scale contrast against the stacks
-  const rule = groups.marks.find((g) => g.id === 'mark:dash')
-  if (rule !== undefined) {
-    place(out, rule, { x: 0.62, y: 0, rot: PI2, scale: 0.4, copies: MIRROR_X, order: 0.5 })
-  }
   return out
 }
 
 /** radial ring — identical glyphs at exact tangents around a still centre */
 function ringBeat(groups: GlyphGroups, density: number, rng: Rng): SlotMap {
   const out: SlotMap = new Map()
-  const primaries = Math.max(4, Math.round(6 * density))
-  const radius = 0.42
+  const primaries = Math.max(4, Math.round(4 * density))
+  const radius = 0.4
   const slots: Slot[] = []
   for (let i = 0; i < primaries; i++) {
     const a = -PI2 + ((i + 0.5) / primaries) * Math.PI
@@ -209,7 +211,7 @@ function ringBeat(groups: GlyphGroups, density: number, rng: Rng): SlotMap {
       x: Math.cos(a) * radius,
       y: Math.sin(a) * radius,
       rot: a + PI2,
-      scale: 0.14,
+      scale: 0.19,
       copies: MIRROR_X,
       order: (i / (primaries - 1)) * 0.55
     })
@@ -218,21 +220,17 @@ function ringBeat(groups: GlyphGroups, density: number, rng: Rng): SlotMap {
   // inner satellites run as rot2 twins — a 180° fold instead of a mirror, so
   // the ring reads as rotation rather than reflection
   const inner: Slot[] = []
-  for (let i = 0; i < 3; i++) {
-    const a = -PI2 + ((i + 0.5) / 3) * Math.PI
-    inner.push({ x: Math.cos(a) * 0.16, y: Math.sin(a) * 0.16, rot: 0, scale: 0.035, copies: ROT2, order: 0.8 })
-  }
-  for (let i = 0; i < 3; i++) {
-    const a = -Math.PI / 3 + (i * Math.PI) / 3
-    inner.push({ x: Math.cos(a) * 0.28, y: Math.sin(a) * 0.28, rot: a, scale: 0.028, copies: ROT2, order: 0.85 })
+  for (let i = 0; i < 2; i++) {
+    const a = -PI2 + ((i + 0.5) / 2) * Math.PI
+    inner.push({ x: Math.cos(a) * 0.15, y: Math.sin(a) * 0.15, rot: 0, scale: 0.1, copies: ROT2, order: 0.8 })
   }
   assign(groups.marks, inner, out, rng)
   assign(
     [...groups.marks].reverse(),
     [
-      { x: 0, y: 0, rot: 0, scale: 0.05, copies: SINGLE, order: 0.9 },
-      { x: 0, y: -radius - 0.14, rot: 0, scale: 0.04, copies: SINGLE, order: 0.85 },
-      { x: 0, y: radius + 0.14, rot: 0, scale: 0.04, copies: SINGLE, order: 0.95 }
+      { x: 0, y: 0, rot: 0, scale: 0.09, copies: SINGLE, order: 0.9 },
+      { x: 0, y: -radius - 0.14, rot: 0, scale: 0.055, copies: SINGLE, order: 0.85 },
+      { x: 0, y: radius + 0.14, rot: 0, scale: 0.055, copies: SINGLE, order: 0.95 }
     ],
     out,
     rng
@@ -240,8 +238,8 @@ function ringBeat(groups: GlyphGroups, density: number, rng: Rng): SlotMap {
   assign(
     groups.texts,
     [
-      { x: 0, y: -radius - 0.08, rot: 0, scale: 0.065, copies: SINGLE, order: 0.65 },
-      { x: 0, y: radius + 0.08, rot: Math.PI, scale: 0.065, copies: SINGLE, order: 0.7 }
+      { x: 0, y: -radius - 0.09, rot: 0, scale: 0.06, copies: SINGLE, order: 0.65 },
+      { x: 0, y: radius + 0.09, rot: Math.PI, scale: 0.06, copies: SINGLE, order: 0.7 }
     ],
     out,
     rng
@@ -253,12 +251,17 @@ function ringBeat(groups: GlyphGroups, density: number, rng: Rng): SlotMap {
  *  cluster assembles: inner packages, labels, and finally the dense marks */
 function quadBeat(groups: GlyphGroups, rng: Rng): SlotMap {
   const out: SlotMap = new Map()
-  const corner = groups.packages[0]
+  // full-ink element dead centre — the hero package, not a dim speck
+  const centre = groups.packages[0]
+  if (centre !== undefined) {
+    place(out, centre, { x: 0, y: 0, rot: 0, scale: 0.17, copies: SINGLE, order: 0.5, hero: true })
+  }
+  const corner = groups.packages[1] ?? groups.packages[0]
   if (corner !== undefined) {
     place(out, corner, { x: 0.36, y: -0.36, rot: -Math.PI / 4, scale: 0.19, copies: QUAD, order: 0.25 })
   }
   assign(
-    groups.packages.slice(1),
+    groups.packages.slice(2),
     [
       { x: 0.15, y: -0.15, rot: 0, scale: 0.09, copies: QUAD, order: 0.45 },
       { x: 0.15, y: 0.15, rot: 0, scale: 0.09, copies: QUAD, order: 0.5 },
@@ -272,7 +275,7 @@ function quadBeat(groups: GlyphGroups, rng: Rng): SlotMap {
     [
       { x: 0, y: -0.17, rot: 0, scale: 0.07, copies: SINGLE, order: 0.65 },
       { x: 0, y: 0.17, rot: Math.PI, scale: 0.07, copies: SINGLE, order: 0.68 },
-      { x: 0.2, y: 0, rot: PI2, scale: 0.045, copies: MIRROR_X, order: 0.72 },
+      { x: 0.52, y: 0, rot: PI2, scale: 0.045, copies: MIRROR_X, order: 0.72 },
       { x: 0.2, y: -0.3, rot: 0, scale: 0.04, copies: MIRROR_X, order: 0.75 },
       { x: 0.2, y: 0.3, rot: 0, scale: 0.04, copies: MIRROR_X, order: 0.78 },
       { x: 0, y: -0.28, rot: 0, scale: 0.04, copies: SINGLE, order: 0.7 },
@@ -307,9 +310,9 @@ function orbitBeat(groups: GlyphGroups, rng: Rng): SlotMap {
   const out: SlotMap = new Map()
   const hero = groups.packages[0]
   if (hero !== undefined) {
-    place(out, hero, { x: 0, y: 0, rot: 0, scale: 0.22, copies: SINGLE, order: 0.05 })
+    place(out, hero, { x: 0, y: 0, rot: 0, scale: 0.3, copies: SINGLE, order: 0.05, hero: true })
   }
-  const ring = (radius: number, count: number, order0: number, copies: CopySpec): Slot[] => {
+  const ring = (radius: number, count: number, order0: number, copies: CopySpec, scale = 0.1): Slot[] => {
     const slots: Slot[] = []
     for (let i = 0; i < count; i++) {
       const a = -PI2 + ((i + 0.5) / count) * Math.PI
@@ -317,17 +320,17 @@ function orbitBeat(groups: GlyphGroups, rng: Rng): SlotMap {
         x: Math.cos(a) * radius,
         y: Math.sin(a) * radius,
         rot: a + PI2,
-        scale: 0.055,
+        scale,
         copies,
         order: order0 + i * 0.04
       })
     }
     return slots
   }
-  assign(groups.marks, [...ring(0.3, 4, 0.4, ROT2), ...ring(0.56, 6, 0.55, MIRROR_X)], out, rng)
+  assign(groups.marks, [...ring(0.25, 4, 0.4, ROT2, 0.12), ...ring(0.4, 5, 0.55, MIRROR_X, 0.13)], out, rng)
   assign(
     groups.texts,
-    [{ x: 0, y: -0.68, rot: 0, scale: 0.05, copies: SINGLE, order: 0.9 }],
+    [{ x: 0.32, y: -0.56, rot: 0, scale: 0.055, copies: MIRROR_X, order: 0.9 }],
     out,
     rng
   )
@@ -376,16 +379,19 @@ export function buildBeatMaps(
   for (let i = 0; i < ids.length; i++) {
     maps.set(i, buildOne(ids[i] as FormationId, `${ids[i]}:${i}`))
   }
-  // each formation crowns one hero — the largest package slot it holds
+  // each formation crowns one hero — authored first (orbit/quad pre-crown),
+  // otherwise the largest package slot it holds
   const glyphById = new Map<string, Glyph>()
   for (const g of [...groups.packages, ...groups.texts, ...groups.marks]) glyphById.set(g.id, g)
   for (const map of new Set(maps.values())) {
     let best: Slot | undefined
+    let crowned = false
     for (const [gid, slots] of map) {
+      for (const s of slots) if (s.hero === true) crowned = true
       if (glyphById.get(gid)?.kind !== 'package') continue
       for (const s of slots) if (best === undefined || s.scale > best.scale) best = s
     }
-    if (best !== undefined) best.hero = true
+    if (best !== undefined && !crowned) best.hero = true
   }
   // text slots are authored blind to label width — a long string overruns its
   // box and paints over neighbours. Shrink each label until it clears every
@@ -532,6 +538,48 @@ export function buildBeatMaps(
         else if (rest.length !== slots.length) map.set(gid, rest)
       }
     }
+  }
+  // synthesized marks are seasoning, not the meal — at most 30% of a
+  // formation's slots may be synthetic, and lone dashes/dots only ever read
+  // as outer punctuation. Excess converts to board shapes (board marks first,
+  // then packages); a board with none drops the slot. Runs after spacing so
+  // the cap measures what ships; a conversion keeps the slot's box, so it
+  // can't introduce collisions. The quad emblem is exempt — its marks are
+  // the ornament, not filler.
+  const boardMarks = groups.marks.filter((g) => g.id.startsWith('bmark:'))
+  const synthIds = new Set(groups.marks.filter((g) => g.id.startsWith('mark:')).map((g) => g.id))
+  const outerOnly = new Set(['mark:dash', 'mark:dot'])
+  const pool = [...boardMarks, ...groups.packages]
+  for (const [mi, map] of maps) {
+    const id = ids[mi] as FormationId
+    if (id === 'quad' || id === 'ghost') continue
+    const all = [...map.entries()].flatMap(([gid, ss]) => ss.map((s) => ({ gid, s })))
+    if (all.length === 0) continue
+    const maxR = Math.max(1e-9, ...all.map(({ s }) => Math.hypot(s.x, s.y)))
+    let pi = 0
+    const convert = (gid: string, s: Slot): void => {
+      const list = map.get(gid)
+      if (list === undefined) return
+      const rest = list.filter((x) => x !== s)
+      if (rest.length === 0) map.delete(gid)
+      else map.set(gid, rest)
+      const tgt = pool[pi++ % pool.length]
+      if (tgt === undefined) return
+      const hit = map.get(tgt.id)
+      if (hit === undefined) map.set(tgt.id, [s])
+      else hit.push(s)
+    }
+    // interior dash/dot → board shape or gone
+    for (const { gid, s } of all) {
+      if (outerOnly.has(gid) && Math.hypot(s.x, s.y) < maxR * 0.5) convert(gid, s)
+    }
+    // keep the earliest arrivals, convert the rest
+    const synths = [...map.entries()]
+      .filter(([gid]) => synthIds.has(gid))
+      .flatMap(([gid, ss]) => ss.map((s) => ({ gid, s })))
+      .sort((a, b) => a.s.order - b.s.order)
+    const alive = [...map.values()].reduce((n, ss) => n + ss.length, 0)
+    for (const { gid, s } of synths.slice(Math.floor(alive * 0.3))) convert(gid, s)
   }
   // the safe rect is wider/taller than square — spread positions a little
   // along the long axis (glyph size stays)

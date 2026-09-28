@@ -184,18 +184,27 @@ describe('placements', () => {
             )
             expect(twin, `atom (${a.x.toFixed(2)},${a.y.toFixed(2)}) lacks a symmetry twin`).toBe(true)
           }
-          // text ornament: reflections ride at 0.45 under the true copy's 0.9
+          // text ornament: reflections ride at 0.45 under a full-ink true copy
           if (glyph?.kind === 'text' && p.atoms.length > 1) {
-            expect(p.tones[0]).toBeCloseTo(0.9, 9)
+            expect(p.tones[0]).toBeCloseTo(1, 9)
             for (const t of p.tones.slice(1)) expect(t).toBeCloseTo(0.45, 9)
           }
         }
       })
 
-      it(`${name} @ ${aspect}: step 0 is lit and no run of 3+ empty steps exists`, () => {
+      it(`${name} @ ${aspect}: step 0 opens on A already mostly in — no run of 3+ empty steps`, () => {
         const tl = compile(boardModel(name), { aspect })
         expect(tl.steps).toBe(168)
-        expect(litAt(tl, 0), 'the seam mark must be lit at step 0').toBe(true)
+        // A wraps the loop boundary: it decoded in under the residue, so the
+        // first frame holds a formed cluster, not a lone seam mark
+        const a = tl.placements.filter((p) => p.formation === 0)
+        const lit = a.filter(
+          (p) => decodeAlpha(0, p.inStep, p.outStep, p.pattern, tl.steps) > 0.01
+        )
+        expect(
+          lit.length / Math.max(1, a.length),
+          `only ${lit.length}/${a.length} of A is lit at step 0`
+        ).toBeGreaterThanOrEqual(0.6)
         const run = longestDarkRun(tl)
         expect(run, `longest dark run is ${run} steps`).toBeLessThanOrEqual(2)
       })
@@ -210,12 +219,18 @@ describe('placements', () => {
         expect(ids[2]).toBe('quad')
         expect(ids[3]).toBe('ghost')
         expect(ids[4]).toBe('marks')
-        for (const f of tl.formations) {
+        // A's window wraps the loop boundary — its endPhase lands before its
+        // startPhase; every other formation runs forward in loop order
+        for (const [i, f] of tl.formations.entries()) {
           expect(f.startPhase).toBeGreaterThanOrEqual(0)
           expect(f.endPhase).toBeLessThanOrEqual(1)
-          expect(f.endPhase).toBeGreaterThan(f.startPhase)
+          expect(f.endPhase === f.startPhase).toBe(false)
+          if (i > 0) expect(f.endPhase).toBeGreaterThan(f.startPhase)
         }
-        for (let i = 1; i < tl.formations.length; i++) {
+        expect(tl.formations[0]?.startPhase, 'A must wrap the loop').toBeGreaterThan(
+          tl.formations[4]?.startPhase ?? 0
+        )
+        for (let i = 2; i < tl.formations.length; i++) {
           const prev = tl.formations[i - 1]
           const cur = tl.formations[i]
           expect(cur !== undefined && prev !== undefined && cur.startPhase > prev.startPhase).toBe(true)
@@ -223,7 +238,7 @@ describe('placements', () => {
         for (const p of tl.placements) {
           const f = tl.formations[p.formation]
           if (f === undefined) continue
-          // the seam mark wraps the loop on purpose — its inStep sits in D's band
+          // A (and any unit crossing the boundary) wraps the loop on purpose
           const wraps = p.outStep < p.inStep
           if (!wraps) {
             expect(p.inStep).toBeGreaterThanOrEqual(f.startPhase * tl.steps - 1e-9)
@@ -243,6 +258,66 @@ describe('placements', () => {
           expect(g.step).toBeGreaterThanOrEqual(0)
           expect(g.step).toBeLessThan(tl.steps)
         }
+      })
+
+      it(`${name} @ ${aspect}: A and B are board-first — synthetic filler ≤30%`, () => {
+        const tl = compile(boardModel(name), { aspect })
+        for (const fi of [0, 1]) {
+          const ps = tl.placements.filter((p) => p.formation === fi)
+          const synth = ps.filter((p) => p.glyphId.startsWith('mark:'))
+          expect(
+            synth.length / Math.max(1, ps.length),
+            `formation ${tl.formations[fi]?.id}: ${synth.length}/${ps.length} synthetic`
+          ).toBeLessThanOrEqual(0.3)
+        }
+      })
+
+      it(`${name} @ ${aspect}: A and B are packed — median edge gap ≤ 1.2× median glyph size`, () => {
+        const tl = compile(boardModel(name), { aspect })
+        const byId = new Map(tl.cast.map((g) => [g.id, g]))
+        const med = (xs: number[]): number => {
+          const sorted = [...xs].sort((a, b) => a - b)
+          return sorted[Math.floor(sorted.length / 2)] ?? 0
+        }
+        for (const fi of [0, 1]) {
+          const boxes: Array<{ x: number; y: number; hw: number; hh: number; size: number }> = []
+          for (const p of tl.placements.filter((x) => x.formation === fi)) {
+            const g = byId.get(p.glyphId)
+            if (g === undefined) continue
+            for (const a of p.atoms) {
+              const hw = g.kind === 'text' ? ((g.text?.length ?? 0) * 0.6 * a.scale) / 2 : a.scale / 2
+              boxes.push({ x: a.x, y: a.y, hw, hh: a.scale / 2, size: a.scale })
+            }
+          }
+          if (boxes.length < 2) continue
+          const nn = boxes.map((b, i) =>
+            Math.min(
+              ...boxes
+                .filter((_, j) => j !== i)
+                .map((o) => {
+                  const dx = Math.max(0, Math.abs(b.x - o.x) - b.hw - o.hw)
+                  const dy = Math.max(0, Math.abs(b.y - o.y) - b.hh - o.hh)
+                  return Math.hypot(dx, dy)
+                })
+            )
+          )
+          const ratio = med(nn) / Math.max(1e-9, med(boxes.map((b) => b.size)))
+          expect(
+            ratio,
+            `formation ${tl.formations[fi]?.id}: median edge gap is ${ratio.toFixed(2)}× median glyph size`
+          ).toBeLessThanOrEqual(1.2)
+        }
+      })
+
+      it(`${name} @ ${aspect}: the quad centre holds a full-ink hero`, () => {
+        const tl = compile(boardModel(name), { aspect })
+        const centre = tl.placements.filter(
+          (p) =>
+            p.formation === 2 &&
+            p.role === 'hero' &&
+            p.atoms.some((a) => Math.hypot(a.x, a.y) < 0.05)
+        )
+        expect(centre.length, 'no hero placement at the quad centre').toBeGreaterThanOrEqual(1)
       })
     }
   }

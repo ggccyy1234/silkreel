@@ -40,15 +40,16 @@ interface ArcBand {
 
 /** per-formation arc placement, in beats (arc table in the taste brief) */
 const ARC: Record<'A' | 'B' | 'C' | 'ghost' | 'D', ArcBand> = {
-  A: { inBeat: 1, inSpread: 2, outBeat: 7.5, outSpread: 1, cascade: 'center-out' },
+  // A wraps the loop: it decodes in under the closing residue, holds across
+  // the wrap (so frame 0 opens on a formed cluster) and dissolves as B arrives
+  A: { inBeat: 22, inSpread: 1.5, outBeat: 8, outSpread: 1, cascade: 'center-out' },
   B: { inBeat: 8, inSpread: 2, outBeat: 13.5, outSpread: 1, cascade: 'center-out' },
   C: { inBeat: 14, inSpread: 1.5, outBeat: 16, outSpread: 0.5, cascade: 'edges-in' },
   ghost: { inBeat: 16.5, inSpread: 1, outBeat: 19.5, outSpread: 0.5, cascade: 'heroes-first' },
   D: { inBeat: 20, inSpread: 1.5, outBeat: 22.5, outSpread: 0.5, cascade: 'center-out' }
 }
-/** the seam mark wraps the loop boundary alone */
-const SEAM_IN_BEAT = 22
-const SEAM_OUT_BEAT = 1.5
+
+const mod = (a: number, n: number): number => ((a % n) + n) % n
 
 const KIND_ROLE: Record<string, Tone> = { package: 'support', mark: 'punct', text: 'text' }
 
@@ -161,13 +162,15 @@ export function composeFilm(
       for (const s of slots) {
         let rank = maxDist > 0 ? Math.hypot(s.x, s.y) / maxDist : 0
         if (band.cascade === 'edges-in') rank = 1 - rank
+        // heroes anchor their window: in first, out last, never a cameo
+        if (s.hero === true) rank = 0
         const inStep = beat(band.inBeat + rank * band.inSpread)
         // last in, first out
         const outStep = beat(band.outBeat + (1 - rank) * band.outSpread)
         const atoms = expand(s.copies, { x: s.x, y: s.y, rot: s.rot, scale: s.scale, alpha: 1 })
-        // text reads as an ornament: the true copy nearly full, reflections dim
+        // text reads as an ornament: the true copy at full ink, reflections dim
         const tones =
-          glyph.kind === 'text' ? atoms.map((_, i) => (i === 0 ? 0.9 : 0.45)) : atoms.map(() => 1)
+          glyph.kind === 'text' ? atoms.map((_, i) => (i === 0 ? 1 : 0.45)) : atoms.map(() => 1)
         placements.push({
           glyphId: gid,
           atoms,
@@ -202,21 +205,7 @@ export function composeFilm(
     labelPos: geo.labelPos
   }
 
-  // the seam mark: one single punct at the centre, holding across the wrap
-  const rngSeam = makeRng(seed, 'pat:seam')
-  const seamGlyph = groups.marks[planRng.int(0, Math.max(1, groups.marks.length))]
-  if (seamGlyph !== undefined) {
-    placements.push({
-      glyphId: seamGlyph.id,
-      atoms: [{ x: 0, y: 0, rot: 0, scale: 0.06, alpha: 1 }],
-      tones: [1],
-      role: 'punct',
-      inStep: beat(SEAM_IN_BEAT),
-      outStep: beat(SEAM_OUT_BEAT) % steps,
-      pattern: rngSeam.int(0, 6),
-      formation: 4 // part of the closing residue's window
-    })
-  }
+
 
   const formationIdsArr: FormationId[] = [aId, bId, 'quad', 'ghost', 'marks']
   const formationBands: ArcBand[] = [ARC.A, ARC.B, ARC.C, ARC.ghost, ARC.D]
@@ -232,20 +221,24 @@ export function composeFilm(
     return { id, startPhase: firstIn / steps, endPhase: lastOut / steps, beat: i }
   })
 
-  // glints: every ~21 steps of a hold, one support placement dips for a step
+  // glints: every ~21 steps of a hold, one support placement dips for a step.
+  // A's hold wraps the loop, so measure hold length modulo steps and skip
+  // windows that are too short to glint or wrap into absurdity
   const glints: Array<{ placement: number; step: number }> = []
   const rngGl = makeRng(seed, 'glint')
   for (const [fi, mi] of mapIdxFor.entries()) {
     const band = bands[fi] as ArcBand
-    const holdStart = beat(band.inBeat + band.inSpread) + 5
+    const holdStart = mod(beat(band.inBeat + band.inSpread) + 5, steps)
     const holdEnd = beat(band.outBeat)
+    const holdLen = mod(holdEnd - holdStart, steps)
+    if (holdLen < BEAT_STEPS || holdLen > steps * 0.4) continue
     const supports = placements
       .map((p, i) => ({ p, i }))
       .filter(({ p }) => p.formation === mi && p.role === 'support')
-    for (let s = holdStart; s < holdEnd; s += 21) {
+    for (let off = 0; off < holdLen; off += 21) {
       const pick = supports[rngGl.int(0, supports.length)]
       if (pick === undefined) break
-      glints.push({ placement: pick.i, step: s % steps })
+      glints.push({ placement: pick.i, step: (holdStart + off) % steps })
     }
   }
 
