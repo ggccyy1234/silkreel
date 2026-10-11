@@ -3,12 +3,14 @@ import type { ResolvedConfig } from '../config'
 import type { TraceScene, TimelineWarning } from '../types'
 import { buildTraceScene } from './scene'
 
-export function compileTrace(board: BoardModel, resolved: ResolvedConfig, _seed: number): { scene: TraceScene; warnings: TimelineWarning[] } {
-  return buildTraceScene(board, resolved)
+export function compileTrace(board: BoardModel, resolved: ResolvedConfig, seed: number): { scene: TraceScene; warnings: TimelineWarning[] } {
+  return buildTraceScene(board, resolved, seed)
 }
 
 export { growthSchedule } from './graph'
 export type { GraphLink, GraphSeed, GraphSeg, GrowthResult } from './graph'
 export { pickHero } from './hero'
 export type { HeroPick } from './hero'
-export { buildTraceScene, TRACE_BEATS } from './scene'
+export { buildTraceScene, TRACE_ACTS, TRACE_BEATS } from './scene'
+export { bareName, groupNets, netKind } from './nets'
+export type { NetGroup, NetKind } from './nets'

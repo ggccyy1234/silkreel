@@ -176,6 +176,58 @@ export interface TraceLayer {
   side: 'F' | 'B' | 'inner'
   /** stride 7: x0,y0,x1,y1,widthPx,t0,t1 — (x0,y0) is where growth starts; sorted by t0 */
   segs: number[]
+  /** per seg (segs.length / 7): index into TraceScene.groups, −1 when the seg has no net */
+  groups: number[]
+}
+
+/**
+ * One casting unit of the score (a bus, a pair, a clock, a lone net). Its
+ * segs grow at one speed through [t, t + d]; pulses replay that growth front
+ * at `pulseSpeed`× speed starting at each time in `pulses`.
+ */
+export interface TraceGroup {
+  kind: 'ground' | 'power' | 'clock' | 'diff' | 'bus' | 'signal'
+  t: number
+  d: number
+  pulses: number[]
+  pulseSpeed: number
+}
+
+/** the board's physical build, resolved to colours */
+export interface TraceMaterial {
+  /** solder mask albedo (#rrggbb) */
+  mask: string
+  /** exposed-pad finish albedo */
+  finish: string
+  /** finish roughness 0..1 */
+  finishRough: number
+  /** bare laminate albedo */
+  substrate: string
+  /** px per mm at zoom 1 */
+  pxPerMm: number
+  /** board thickness, px */
+  thicknessPx: number
+}
+
+/**
+ * A 3D camera key. The board lies in its zoom-1 frame px; (x,y) is the point
+ * looked at, zoom 1 at tilt 0 reproduces the flat framing. tilt pitches the
+ * camera down toward the board's bottom edge, yaw spins about the board
+ * normal, aperture 0..1 is depth of field (0 = everything sharp).
+ */
+export interface CameraShot { t: number; x: number; y: number; zoom: number; tilt: number; yaw: number; aperture: number }
+
+/** p-ranges of the four acts' set pieces */
+export interface TraceActs {
+  ignite: [number, number]
+  heroPads: [number, number]
+  flood: [number, number]
+  signal: [number, number]
+  explode: [number, number]
+  slam: [number, number]
+  mask: [number, number]
+  silk: [number, number]
+  sweep: [number, number]
 }
 export interface TracePad {
   x: number; y: number; w: number; h: number; rot: number
@@ -214,6 +266,12 @@ export interface TraceScene {
   /** camera keys (px, ascending t), smoothstep-sampled: frame center (cx,cy) looks at, zoom about it */
   camera: CameraKey[]
   beats: TraceBeats
+  groups: TraceGroup[]
+  /** closed board-outline loops (evenodd fill = the board's area) */
+  board: FlatPath[]
+  material: TraceMaterial
+  shots: CameraShot[]
+  acts: TraceActs
 }
 
 export type CompileTimeline = (board: BoardModel, config: FilmConfig) => Timeline

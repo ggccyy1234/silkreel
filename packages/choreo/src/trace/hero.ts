@@ -3,6 +3,8 @@ import type { CastHints } from '../types'
 
 export interface HeroPick {
   ref: string
+  /** the hero sits on the back copper — the film is shot from that side */
+  back: boolean
   center: Vec2
   /** every hero pad on every copper layer — growth seeds */
   pads: Array<{ layer: string; pos: Vec2 }>
@@ -39,5 +41,5 @@ export function pickHero(board: BoardModel, hints?: CastHints): HeroPick | undef
   const center = pads.length > 0
     ? { x: pads.reduce((s, p) => s + p.pos.x, 0) / pads.length, y: pads.reduce((s, p) => s + p.pos.y, 0) / pads.length }
     : hero.pos
-  return { ref: hero.ref, center, pads }
+  return { ref: hero.ref, back: hero.layer.startsWith('B.'), center, pads }
 }

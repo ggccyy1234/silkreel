@@ -1,19 +1,66 @@
 import type { Arc, BBox, BoardModel, Pad, Vec2 } from '@silk-reel/ingest'
 import { fitBoard, safeArea } from '../layout'
 import type { ResolvedConfig } from '../config'
-import type { CameraKey, FlatPath, TraceBeats, TraceLayer, TracePad, TraceScene, TraceText, TraceVia, TraceZone, TimelineWarning } from '../types'
+import type {
+  CameraKey, CameraShot, FlatPath, Palette, TraceActs, TraceBeats, TraceGroup, TraceLayer, TraceMaterial, TracePad,
+  TraceScene, TraceText, TraceVia, TraceZone, TimelineWarning
+} from '../types'
+import { makeRng } from '../rng'
 import { growthSchedule } from './graph'
 import type { GraphLink, GraphSeg, GraphSeed } from './graph'
 import { pickHero } from './hero'
+import { groupNets } from './nets'
+import type { NetKind } from './nets'
 
+/**
+ * The score, in film phase. I ignition: the hero's pins light and the power
+ * planes flood. II signal: nets grow by role — clocks first, buses and pairs
+ * in lockstep, the rest outward. III stack: the layers lift apart and slam
+ * home. IV hero: mask pours over, silk prints, a light passes, hold.
+ */
+export const TRACE_ACTS: TraceActs = {
+  ignite: [0, 0.09],
+  heroPads: [0.012, 0.05],
+  flood: [0.04, 0.17],
+  signal: [0.075, 0.56],
+  explode: [0.585, 0.655],
+  slam: [0.712, 0.732],
+  mask: [0.75, 0.84],
+  silk: [0.82, 0.9],
+  sweep: [0.865, 0.935]
+}
+
+/** the flat fallback renderer still reads beats; they follow the acts */
 export const TRACE_BEATS: TraceBeats = {
   outline: [0, 0.1],
-  pads: [0.02, 0.24],
-  growth: [0.05, 0.72],
-  zones: [0.6, 0.76],
-  silk: [0.68, 0.84],
-  hold: [0.82, 0.96],
-  fade: [0.96, 1]
+  pads: [TRACE_ACTS.heroPads[0], 0.3],
+  growth: TRACE_ACTS.signal,
+  zones: TRACE_ACTS.flood,
+  silk: TRACE_ACTS.silk,
+  hold: [0.88, 0.97],
+  fade: [0.975, 1]
+}
+
+/** each role's start window and growth duration inside the signal act */
+const ROLE_TIME: Record<NetKind, { start: [number, number]; d: [number, number] }> = {
+  clock: { start: [0.075, 0.13], d: [0.05, 0.07] },
+  bus: { start: [0.115, 0.32], d: [0.09, 0.12] },
+  diff: { start: [0.105, 0.32], d: [0.07, 0.1] },
+  signal: { start: [0.13, 0.44], d: [0.035, 0.1] },
+  power: { start: [0.28, 0.46], d: [0.05, 0.09] },
+  ground: { start: [0.32, 0.48], d: [0.05, 0.08] }
+}
+
+const MASK_ALBEDO: Record<string, string> = {
+  green: '#0d3b22', black: '#0c0d0e', white: '#d8dbd4', blue: '#0f2a5c', red: '#5c1015',
+  yellow: '#b79a16', purple: '#3a1a55', matte: '#121314'
+}
+const FINISH: Record<string, { albedo: string; rough: number }> = {
+  enig: { albedo: '#e3bb6c', rough: 0.18 },
+  'enepig': { albedo: '#e3bb6c', rough: 0.18 },
+  hal: { albedo: '#d4d8dc', rough: 0.34 },
+  'immersion silver': { albedo: '#dfe3e6', rough: 0.2 },
+  'immersion tin': { albedo: '#c9cdd1', rough: 0.3 }
 }
 
 const DEG = Math.PI / 180
@@ -22,7 +69,6 @@ const upright = (r: number): number => {
   const m = ((r % Math.PI) + Math.PI) % Math.PI
   return m > Math.PI / 2 ? m - Math.PI : m
 }
-const SIDE_DELAY = { F: 0, inner: 0.05, B: 0.08 } as const
 const SIDE_ORDER = { inner: 0, B: 1, F: 2 } as const
 
 type Side = 'F' | 'B' | 'inner'
@@ -91,8 +137,9 @@ function contentBox(board: BoardModel): BBox {
   return { min, max }
 }
 
-export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { scene: TraceScene; warnings: TimelineWarning[] } {
+export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig, seed = 42): { scene: TraceScene; warnings: TimelineWarning[] } {
   const beats = TRACE_BEATS
+  const acts = TRACE_ACTS
   const [g0, g1] = beats.growth
   const box = contentBox(board)
   const fit = fitBoard(box, resolved.width, resolved.height, resolved.title !== undefined)
@@ -101,9 +148,19 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
     x: (box.min.x + box.max.x) / 2,
     y: (box.min.y + box.max.y) / 2
   }
+  // a hero on the back copper means the film is shot from the back: mirror
+  // the board and swap its sides, so the back reads as the face
+  const back = hero?.back === true
+  const mirrorX = box.min.x + box.max.x
+  const map = back ? (p: Vec2): Vec2 => fit.map({ x: mirrorX - p.x, y: p.y }) : fit.map
+  const sideAt = (layerId: string): Side => {
+    const s = sideOf(layerId)
+    return back ? (s === 'F' ? 'B' : s === 'B' ? 'F' : s) : s
+  }
 
   const segs: GraphSeg[] = []
   const segLen: number[] = []
+  const segNet: Array<number | undefined> = []
   const links: GraphLink[] = []
   const linkVia = new Map<string, number>()
   const padLayerSets = new Map<string, { pad: Pad; sides: Set<Side> }>()
@@ -115,6 +172,7 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
         const b = trace.points[i + 1] as Vec2
         segs.push({ layer: layerId, a, b, width: trace.width })
         segLen.push(Math.hypot(b.x - a.x, b.y - a.y))
+        segNet.push(trace.netId)
       }
     }
     for (const via of copper.vias) {
@@ -124,8 +182,8 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
     }
     for (const pad of copper.pads) {
       const rec = padLayerSets.get(pad.id)
-      if (rec !== undefined) rec.sides.add(sideOf(layerId))
-      else padLayerSets.set(pad.id, { pad, sides: new Set([sideOf(layerId)]) })
+      if (rec !== undefined) rec.sides.add(sideAt(layerId))
+      else padLayerSets.set(pad.id, { pad, sides: new Set([sideAt(layerId)]) })
     }
   }
   // through-hole pads bridge every copper layer they touch
@@ -137,45 +195,47 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
   const g = growthSchedule(segs, links, seeds, originMm)
   const md = Math.max(1e-9, g.maxDist)
 
-  // schedule by rank, not raw distance — a long tail of distant stragglers
-  // would otherwise hog the growth window while heads trickle. rank keeps
-  // the visible head count roughly constant; distance still breaks ties and
-  // preserves the outward wavefront ordering inside each rank bucket
-  const order = segs.map((_, i) => i).sort((a, b) => (g.start[a] as number) - (g.start[b] as number))
-  const rank = new Array<number>(segs.length)
-  order.forEach((segIdx, r) => {
-    rank[segIdx] = r / Math.max(1, segs.length - 1)
-  })
+  const { groups: netGroups, groupOf } = groupNets(board.nets)
+  const segGroup = segNet.map((n) => (n === undefined ? -1 : (groupOf.get(n) ?? -1)))
+  const sched = scheduleGroups(netGroups.map((ng) => ng.kind), segs, segLen, segNet, segGroup, g.start, md, seed)
+
+  // unnetted copper keeps the old rank-ordered wash, inside the signal act
+  const loose = segs.map((_, i) => i).filter((i) => segGroup[i] === -1)
+    .sort((a, b) => (g.start[a] as number) - (g.start[b] as number))
+  const looseRank = new Map(loose.map((segIdx, r) => [segIdx, r / Math.max(1, loose.length - 1)]))
 
   const rowsByLayer = new Map<string, { side: Side; rows: number[][] }>()
   const segT0 = new Array<number>(segs.length)
-  // side delays stagger sides against each other; a back-only board still starts on time
-  const delay0 = Math.min(...segs.map((s) => SIDE_DELAY[sideOf(s.layer)]))
   segs.forEach((s, i) => {
-    const side = sideOf(s.layer)
-    const u = 0.7 * (rank[i] as number) + 0.3 * Math.min(1, (g.start[i] as number) / md)
-    const t0 = Math.min(g1, g0 + u * (g1 - g0 - 0.06) + SIDE_DELAY[side] - delay0)
+    const side = sideAt(s.layer)
+    let t0: number
+    let t1: number
+    const timed = sched.segTime[i]
+    if (timed !== undefined) {
+      ;[t0, t1] = timed
+    } else {
+      const u = 0.7 * (looseRank.get(i) ?? 0) + 0.3 * Math.min(1, (g.start[i] as number) / md)
+      t0 = Math.min(g1, ROLE_TIME.signal.start[0] + u * (ROLE_TIME.signal.start[1] - ROLE_TIME.signal.start[0]))
+      t1 = Math.min(g1, t0 + Math.max(0.004, Math.min(0.06, Math.pow((segLen[i] as number) / md, 0.85) * (g1 - g0))))
+    }
     segT0[i] = t0
-    const dur = Math.max(0.004, Math.min(0.12 * (g1 - g0), Math.pow((segLen[i] as number) / md, 0.85) * (g1 - g0)))
-    const t1 = Math.min(g1, t0 + dur)
     const ends = g.flipped[i] === true ? [s.b, s.a] : [s.a, s.b]
-    const a = fit.map(ends[0] as Vec2)
-    const b = fit.map(ends[1] as Vec2)
+    const a = map(ends[0] as Vec2)
+    const b = map(ends[1] as Vec2)
     let rec = rowsByLayer.get(s.layer)
     if (rec === undefined) {
       rec = { side, rows: [] }
       rowsByLayer.set(s.layer, rec)
     }
-    rec.rows.push([a.x, a.y, b.x, b.y, Math.max(0.9, s.width * fit.scale), t0, t1])
+    rec.rows.push([a.x, a.y, b.x, b.y, Math.max(0.9, s.width * fit.scale), t0, t1, segGroup[i] as number])
   })
   const layers: TraceLayer[] = [...rowsByLayer.entries()]
     .map(([id, rec]) => ({ id, side: rec.side, rows: rec.rows }))
     .sort((x, y) => SIDE_ORDER[x.side] - SIDE_ORDER[y.side])
-    .map(({ id, side, rows }) => ({
-      id,
-      side,
-      segs: rows.sort((x, y) => (x[5] as number) - (y[5] as number)).flat()
-    }))
+    .map(({ id, side, rows }) => {
+      rows.sort((x, y) => (x[5] as number) - (y[5] as number))
+      return { id, side, segs: rows.flatMap((r) => r.slice(0, 7)), groups: rows.map((r) => r[7] as number) }
+    })
 
   const [p0] = beats.pads
   const pads: TracePad[] = []
@@ -186,39 +246,62 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
   // a pad pops when the growth wavefront touches it — the earliest t0 of a
   // seg ending inside the pad, a beat early; pads no copper reaches keep a
   // distance-ordered pop squeezed into the growth window
-  const touchedT = (pad: Pad): number => {
-    const r = Math.max(pad.size.x, pad.size.y) / 2 + 0.05
+  // seg endpoints in a 1 mm grid: pads and vias look up who touches them
+  const CELL = 1
+  const ends = new Map<string, number[]>()
+  const cellKey = (x: number, y: number): string => `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`
+  segs.forEach((s, i) => {
+    for (const q of [s.a, s.b]) {
+      const k = cellKey(q.x, q.y)
+      const list = ends.get(k)
+      if (list === undefined) ends.set(k, [i])
+      else list.push(i)
+    }
+  })
+  /** earliest t0 of a seg with an end within r of pos */
+  const earliestAt = (pos: Vec2, r: number): number => {
     let best = Infinity
-    for (let i = 0; i < segs.length; i++) {
-      const s = segs[i] as GraphSeg
-      const ta = Math.hypot(s.a.x - pad.pos.x, s.a.y - pad.pos.y) <= r
-      const tb = Math.hypot(s.b.x - pad.pos.x, s.b.y - pad.pos.y) <= r
-      if ((ta || tb) && (segT0[i] as number) < best) best = segT0[i] as number
+    const n = Math.ceil(r / CELL)
+    const cx = Math.floor(pos.x / CELL)
+    const cy = Math.floor(pos.y / CELL)
+    for (let dx = -n; dx <= n; dx++) {
+      for (let dy = -n; dy <= n; dy++) {
+        for (const i of ends.get(`${cx + dx},${cy + dy}`) ?? []) {
+          const s = segs[i] as GraphSeg
+          if ((Math.hypot(s.a.x - pos.x, s.a.y - pos.y) <= r || Math.hypot(s.b.x - pos.x, s.b.y - pos.y) <= r) && (segT0[i] as number) < best) {
+            best = segT0[i] as number
+          }
+        }
+      }
     }
     return best
   }
+  const touchedT = (pad: Pad): number => earliestAt(pad.pos, Math.max(pad.size.x, pad.size.y) / 2 + 0.05)
   // mounting holes sit in copper layers but are really drills — plated:false
   // marks them; oversized pads draw as rings either way so they never blob
   const npth = board.drill.filter((d) => !d.plated)
   const drillOnly = (pad: Pad): boolean =>
     npth.some((d) => Math.hypot(d.pos.x - pad.pos.x, d.pos.y - pad.pos.y) < 0.05)
   const pxMin = Math.min(resolved.width, resolved.height)
+  const [hp0, hp1] = acts.heroPads
   for (const { pad, sides } of padLayerSets.values()) {
     const d = Math.hypot(pad.pos.x - originMm.x, pad.pos.y - originMm.y)
     const isHero = hero !== undefined && pad.footprintRef === hero.ref
-    const touch = touchedT(pad)
+    const touch = isHero ? Infinity : touchedT(pad)
+    // the hero's pins light in one sweep around the package, pin 1 corner first
+    const sweep = (Math.atan2(pad.pos.y - originMm.y, pad.pos.x - originMm.x) / (2 * Math.PI) + 1.375) % 1
     const t = isHero
-      ? p0
+      ? hp0 + sweep * (hp1 - hp0)
       : Number.isFinite(touch)
         ? Math.min(g1, Math.max(p0, touch - 0.01))
         : g0 + (d / padDMax) * (g1 - g0 - 0.06)
-    const m = fit.map(pad.pos)
+    const m = map(pad.pos)
     pads.push({
       x: m.x,
       y: m.y,
       w: Math.max(1.5, pad.size.x * fit.scale),
       h: Math.max(1.5, pad.size.y * fit.scale),
-      rot: pad.rot * DEG + (fit.rotated ? Math.PI / 2 : 0),
+      rot: (back ? -pad.rot : pad.rot) * DEG + (fit.rotated ? Math.PI / 2 : 0),
       shape: padShape(pad),
       t,
       side: sides.size > 1 ? 'both' : ([...sides][0] === 'F' ? 'F' : 'B'),
@@ -235,19 +318,27 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
     for (const via of copper.vias) {
       if (seenVia.has(via.id)) continue
       seenVia.add(via.id)
-      const lt = g.linkTime[linkVia.get(via.id) ?? -1] ?? Infinity
-      const t = Number.isFinite(lt) ? g0 + Math.pow(Math.min(1, lt / md), 0.85) * (g1 - g0 - 0.06) : g0
-      const m = fit.map(via.pos)
+      // a via lights when the first seg leaving it starts growing
+      let t = earliestAt(via.pos, Math.max(0.05, via.dia / 2) + 0.05)
+      if (!Number.isFinite(t)) {
+        const lt = g.linkTime[linkVia.get(via.id) ?? -1] ?? Infinity
+        t = Number.isFinite(lt) ? g0 + Math.pow(Math.min(1, lt / md), 0.85) * (g1 - g0 - 0.06) : g0
+      }
+      const m = map(via.pos)
       vias.push({ x: m.x, y: m.y, r: Math.max(0.9, (via.dia / 2) * fit.scale), t })
     }
   }
   vias.sort((a, b) => a.t - b.t)
 
-  const [z0, z1] = beats.zones
-  const zoneSpans: Array<{ layer: Side; pts: Vec2[]; d: number }> = []
+  // power and ground pours flood in act I; a signal pour arrives with its net
+  const [z0, z1] = acts.flood
+  const zoneSpans: Array<{ layer: Side; pts: Vec2[]; d: number; group: number }> = []
   let zoneDMax = 1e-9
   for (const [layerId, copper] of copperEntries) {
     for (const zone of copper.zones) {
+      const gi = zone.netId === undefined ? -1 : (groupOf.get(zone.netId) ?? -1)
+      const kind = gi < 0 ? 'ground' : (netGroups[gi] as { kind: NetKind }).kind
+      const group = kind === 'ground' || kind === 'power' ? -1 : gi
       for (const fill of zone.fills) {
         if (fill.length < 3) continue
         let cx = 0
@@ -260,43 +351,44 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
         cy /= fill.length
         const d = Math.hypot(cx - originMm.x, cy - originMm.y)
         zoneDMax = Math.max(zoneDMax, d)
-        zoneSpans.push({ layer: sideOf(layerId), pts: fill, d })
+        zoneSpans.push({ layer: sideAt(layerId), pts: fill, d, group })
       }
     }
   }
   const zones: TraceZone[] = zoneSpans.map((z) => {
-    const s = z.d / zoneDMax
-    const t0z = z0 + s * (z1 - z0) * 0.6
-    const path = flat(z.pts, fit.map)
+    const path = flat(z.pts, map)
     path.push(path[0] as number, path[1] as number)
-    return { fill: path, side: z.layer, t0: t0z, t1: z0 + s * (z1 - z0) * 0.6 + (z1 - z0) * 0.4 }
+    const grp = sched.groups[z.group]
+    if (grp !== undefined) return { fill: path, side: z.layer, t0: grp.t, t1: grp.t + grp.d }
+    const s = z.d / zoneDMax
+    return { fill: path, side: z.layer, t0: z0 + s * (z1 - z0) * 0.6, t1: z0 + s * (z1 - z0) * 0.6 + (z1 - z0) * 0.4 }
   })
 
   const outline: FlatPath[] = []
   if (board.outline.length > 0) {
     for (const path of board.outline) {
       if (path.points.length < 2) continue
-      const f = flat(path.points, fit.map)
+      const f = flat(path.points, map)
       if (path.closed) f.push(f[0] as number, f[1] as number)
       outline.push(f)
     }
   }
   if (outline.length === 0) {
     const { min, max } = board.bbox
-    outline.push(flat([min, { x: max.x, y: min.y }, max, { x: min.x, y: max.y }, min], fit.map))
+    outline.push(flat([min, { x: max.x, y: min.y }, max, { x: min.x, y: max.y }, min], map))
   }
 
   const [s0, s1] = beats.silk
   const silkRaw: Array<{ path: FlatPath; y: number }> = []
   for (const [layerId, silk] of Object.entries(board.silkscreen)) {
-    if (sideOf(layerId) === 'inner') continue
+    if (sideAt(layerId) !== 'F') continue
     for (const line of silk.lines) {
       if (line.points.length < 2) continue
-      const f = flat(line.points, fit.map)
+      const f = flat(line.points, map)
       silkRaw.push({ path: f, y: meanY(f) })
     }
     for (const arc of silk.arcs) {
-      const f = flat(arcPoints(arc), fit.map)
+      const f = flat(arcPoints(arc), map)
       silkRaw.push({ path: f, y: meanY(f) })
     }
   }
@@ -309,12 +401,12 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
 
   const textRaw: Array<{ text: TraceText; y: number }> = []
   for (const [layerId, silk] of Object.entries(board.silkscreen)) {
-    if (sideOf(layerId) === 'inner') continue
+    if (sideAt(layerId) !== 'F') continue
     for (const text of silk.texts) {
-      if (text.mirrored) continue
+      if (text.mirrored !== back) continue
       const value = text.value.trim()
       if (value.length < 1 || value.length > 24) continue
-      const m = fit.map(text.pos)
+      const m = map(text.pos)
       textRaw.push({
         y: m.y,
         text: {
@@ -323,7 +415,7 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
           y: m.y,
           size: Math.max(9, text.height * fit.scale),
           // keep text upright: rot is mod π so a flipped board never draws it upside-down
-          rot: upright(text.rot * DEG + (fit.rotated ? Math.PI / 2 : 0)),
+          rot: upright((back ? -text.rot : text.rot) * DEG + (fit.rotated ? Math.PI / 2 : 0)),
           t: 0
         }
       })
@@ -336,11 +428,11 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
   }))
 
   const drills = board.drill.map((d) => {
-    const m = fit.map(d.pos)
+    const m = map(d.pos)
     return { x: m.x, y: m.y, r: Math.max(0.8, (d.dia / 2) * fit.scale) }
   })
 
-  const origin = hero !== undefined ? fit.map(hero.center) : { x: resolved.width / 2, y: resolved.height / 2 }
+  const origin = hero !== undefined ? map(hero.center) : { x: resolved.width / 2, y: resolved.height / 2 }
   const warnings: TimelineWarning[] = []
   if (segs.length === 0) warnings.push({ code: 'trace-no-copper', message: 'board has no copper segments to grow' })
   if (hero === undefined) warnings.push({ code: 'trace-no-hero', message: 'no hero footprint; growth ordered from board center' })
@@ -356,11 +448,219 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig): { 
       silkStrokes,
       texts,
       origin,
-      camera: cameraTrack(box, resolved, fit.map, layers, origin),
-      beats
+      camera: cameraTrack(box, resolved, map, layers, origin),
+      beats,
+      groups: sched.groups,
+      board: boardLoops(board).map((loop) => flat(loop, map)),
+      material: material(board, resolved.palette, fit.scale),
+      shots: shotList(resolved, origin, sched.lead === undefined ? undefined : map(sched.lead), map({
+        x: (box.min.x + box.max.x) / 2,
+        y: (box.min.y + box.max.y) / 2
+      })),
+      acts
     },
     warnings
   }
+}
+
+const BEAT = 1 / 24
+
+interface Schedule {
+  groups: TraceGroup[]
+  /** per seg [t0, t1], undefined for segs outside any group */
+  segTime: Array<[number, number] | undefined>
+  /** the far end of the lead bus or pair, mm — where the tracking shot heads */
+  lead: Vec2 | undefined
+}
+
+/**
+ * Each casting unit gets one start time and duration from its role's
+ * window, ordered outward from the hero. Inside a unit every net is
+ * normalised to that same window, so a bus's members leave together and
+ * arrive together no matter how long each runs — length-matched lines
+ * land on the same frame, which is what the designer built them for.
+ */
+function scheduleGroups(
+  kinds: NetKind[],
+  segs: GraphSeg[],
+  segLen: number[],
+  segNet: Array<number | undefined>,
+  segGroup: number[],
+  start: number[],
+  md: number,
+  seed: number
+): Schedule {
+  const netMin = new Map<number, number>()
+  const netMax = new Map<number, number>()
+  const far = new Map<number, Vec2>()
+  const gMin = new Array<number>(kinds.length).fill(Infinity)
+  const gMax = new Array<number>(kinds.length).fill(-Infinity)
+  const gSegs = new Array<number>(kinds.length).fill(0)
+  segs.forEach((s, i) => {
+    const net = segNet[i]
+    const gi = segGroup[i] as number
+    if (net === undefined || gi < 0) return
+    const a = start[i] as number
+    const b = a + (segLen[i] as number)
+    netMin.set(net, Math.min(netMin.get(net) ?? Infinity, a))
+    if (b > (netMax.get(net) ?? -Infinity)) {
+      netMax.set(net, b)
+      far.set(net, { x: (s.a.x + s.b.x) / 2, y: (s.a.y + s.b.y) / 2 })
+    }
+    gMin[gi] = Math.min(gMin[gi] as number, a)
+    gMax[gi] = Math.max(gMax[gi] as number, b)
+    gSegs[gi] = (gSegs[gi] as number) + 1
+  })
+
+  const rng = makeRng(seed, 'trace-pulses')
+  const groups: TraceGroup[] = kinds.map((kind) => ({ kind, t: ROLE_TIME[kind].start[0], d: ROLE_TIME[kind].d[0], pulses: [], pulseSpeed: 1 }))
+  const snap = (t: number, q: number): number => Math.round(t / q) * q
+  for (const kind of Object.keys(ROLE_TIME) as NetKind[]) {
+    const mine = kinds.map((k, i) => i).filter((i) => kinds[i] === kind && (gSegs[i] as number) > 0)
+      .sort((a, b) => (gMin[a] as number) - (gMin[b] as number))
+    const { start: [s0, s1], d: [d0, d1] } = ROLE_TIME[kind]
+    mine.forEach((gi, r) => {
+      const u = 0.6 * (mine.length > 1 ? r / (mine.length - 1) : 0) + 0.4 * Math.min(1, (gMin[gi] as number) / md)
+      const span = (gMax[gi] as number) - (gMin[gi] as number)
+      const d = d0 + (d1 - d0) * Math.min(1, span / (0.6 * md))
+      // the cast parts start on the half-beat; background nets don't
+      let t = s0 + u * (s1 - s0)
+      if (kind !== 'signal') t = snap(t, BEAT / 2)
+      t = Math.min(t, TRACE_ACTS.signal[1] - d)
+      const grp = groups[gi] as TraceGroup
+      grp.t = t
+      grp.d = d
+      const done = t + d
+      // the hero act is still: pulses stop as the mask begins to pour
+      const last = TRACE_ACTS.mask[0] - BEAT / 2
+      if (kind === 'clock') {
+        grp.pulseSpeed = 1.8
+        for (let p = snap(done + BEAT, BEAT); p < last; p += BEAT * 2) grp.pulses.push(p)
+      } else if (kind === 'bus') {
+        // every bus fires on the same bar lines: the board breathes in time
+        grp.pulseSpeed = 1.4
+        for (const p of [10, 13, 16].map((b) => b * BEAT)) if (p > done + BEAT / 2) grp.pulses.push(p)
+      } else if (kind === 'diff') {
+        grp.pulseSpeed = 1.5
+        for (let p = snap(done + BEAT, BEAT); p < last; p += BEAT * 4) grp.pulses.push(p)
+      } else if (kind === 'signal' && rng.next() < 0.18 && done + BEAT < last) {
+        grp.pulseSpeed = 1.2
+        grp.pulses.push(snap(rng.range(done + BEAT, last), BEAT / 2))
+      }
+    })
+  }
+
+  const segTime = segs.map((_, i): [number, number] | undefined => {
+    const net = segNet[i]
+    const grp = groups[segGroup[i] as number]
+    if (net === undefined || grp === undefined) return undefined
+    const lo = netMin.get(net) as number
+    const span = Math.max(1e-6, (netMax.get(net) as number) - lo)
+    const a = ((start[i] as number) - lo) / span
+    const b = ((start[i] as number) + (segLen[i] as number) - lo) / span
+    return [grp.t + a * grp.d, grp.t + Math.min(1, b) * grp.d]
+  })
+
+  // the lead: the first bus (else pair, else clock) to leave the hero
+  let lead: Vec2 | undefined
+  for (const kind of ['bus', 'diff', 'clock'] as NetKind[]) {
+    const first = kinds.map((k, i) => i).filter((i) => kinds[i] === kind && (gSegs[i] as number) > 0)
+      .sort((a, b) => (groups[a] as TraceGroup).t - (groups[b] as TraceGroup).t)[0]
+    if (first === undefined) continue
+    const ends = [...far.entries()].filter(([net]) => segNet.some((n, i) => n === net && segGroup[i] === first)).map(([, p]) => p)
+    if (ends.length === 0) continue
+    lead = { x: ends.reduce((s, p) => s + p.x, 0) / ends.length, y: ends.reduce((s, p) => s + p.y, 0) / ends.length }
+    break
+  }
+  return { groups, segTime, lead }
+}
+
+/**
+ * Edge.Cuts arrives as loose lines and arcs; chain them end to end into
+ * closed loops so the board's area can be filled (evenodd keeps cutouts).
+ */
+function boardLoops(board: BoardModel): Vec2[][] {
+  const loops: Vec2[][] = []
+  const open: Vec2[][] = []
+  for (const path of board.outline) {
+    if (path.points.length < 2) continue
+    if (path.closed) loops.push([...path.points])
+    else open.push([...path.points])
+  }
+  const near = (a: Vec2, b: Vec2): boolean => Math.hypot(a.x - b.x, a.y - b.y) < 0.02
+  while (open.length > 0) {
+    const chain = open.pop() as Vec2[]
+    for (let grew = true; grew;) {
+      grew = false
+      for (let i = 0; i < open.length; i++) {
+        const piece = open[i] as Vec2[]
+        const head = chain[0] as Vec2
+        const tail = chain[chain.length - 1] as Vec2
+        const p0 = piece[0] as Vec2
+        const p1 = piece[piece.length - 1] as Vec2
+        if (near(tail, p0)) chain.push(...piece.slice(1))
+        else if (near(tail, p1)) chain.push(...[...piece].reverse().slice(1))
+        else if (near(head, p1)) chain.unshift(...piece.slice(0, -1))
+        else if (near(head, p0)) chain.unshift(...[...piece].reverse().slice(0, -1))
+        else continue
+        open.splice(i, 1)
+        grew = true
+        break
+      }
+    }
+    if (chain.length >= 3 && near(chain[0] as Vec2, chain[chain.length - 1] as Vec2)) loops.push(chain)
+  }
+  if (loops.length > 0) return loops
+  const { min, max } = board.bbox
+  return [[min, { x: max.x, y: min.y }, max, { x: min.x, y: max.y }]]
+}
+
+/** the board's own mask and finish under the copper palette; the stylised palettes tint them */
+function material(board: BoardModel, palette: Palette, pxPerMm: number): TraceMaterial {
+  const trueColour = palette.copper === '#d08a4c'
+  const mask = board.stackup.maskColor?.toLowerCase()
+  const finishKey = board.stackup.finish?.toLowerCase() ?? ''
+  const finish = Object.entries(FINISH).find(([k]) => finishKey.startsWith(k))?.[1]
+  return {
+    mask: trueColour
+      ? (mask === undefined ? MASK_ALBEDO.black as string : (mask.startsWith('#') ? mask : (MASK_ALBEDO[mask] ?? MASK_ALBEDO.green as string)))
+      : mixHex(palette.bg, palette.copperDim, 0.45),
+    finish: trueColour ? (finish?.albedo ?? '#e8a878') : palette.copper,
+    finishRough: finish?.rough ?? 0.24,
+    substrate: trueColour ? '#2b2617' : mixHex(palette.bg, palette.copperDim, 0.3),
+    pxPerMm,
+    thicknessPx: board.stackup.thickness * pxPerMm
+  }
+}
+
+function mixHex(a: string, b: string, t: number): string {
+  const c = (h: string, i: number): number => Number.parseInt(h.slice(1 + 2 * i, 3 + 2 * i), 16)
+  return `#${[0, 1, 2].map((i) => Math.round(c(a, i) + (c(b, i) - c(a, i)) * t).toString(16).padStart(2, '0')).join('')}`
+}
+
+/**
+ * The shot list. I: a low macro on the hero, shallow focus, drifting.
+ * II: track out along the lead bus as it grows, rack to the whole board.
+ * III: crane up and orbit for the stack. IV: settle top-down — the poster.
+ */
+function shotList(resolved: ResolvedConfig, hero: Vec2, lead: Vec2 | undefined, centre: Vec2): CameraShot[] {
+  const D = Math.PI / 180
+  const W = resolved.width
+  const H = resolved.height
+  const home = { x: W / 2, y: H / 2 }
+  const to = lead ?? centre
+  const lerp = (a: Vec2, b: Vec2, t: number): Vec2 => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+  const a = TRACE_ACTS
+  return [
+    { t: 0, ...hero, zoom: 4.4, tilt: 62 * D, yaw: -22 * D, aperture: 1 },
+    { t: a.ignite[1] + 0.03, ...lerp(hero, to, 0.15), zoom: 3.6, tilt: 57 * D, yaw: -14 * D, aperture: 0.7 },
+    { t: 0.32, ...lerp(hero, to, 0.8), zoom: 2.4, tilt: 44 * D, yaw: 2 * D, aperture: 0.35 },
+    { t: 0.5, ...lerp(to, centre, 0.85), zoom: 1.3, tilt: 30 * D, yaw: 12 * D, aperture: 0.25 },
+    { t: a.explode[0], ...lerp(centre, home, 0.5), zoom: 1.12, tilt: 50 * D, yaw: 26 * D, aperture: 0.08 },
+    { t: a.slam[0], ...lerp(centre, home, 0.5), zoom: 1.2, tilt: 55 * D, yaw: 38 * D, aperture: 0.08 },
+    { t: 0.81, ...home, zoom: 1, tilt: 0, yaw: 0, aperture: 0 },
+    { t: 1, ...home, zoom: 1.035, tilt: 0, yaw: 0, aperture: 0 }
+  ]
 }
 
 /**

@@ -24,32 +24,32 @@ describe('approved trace schedule', () => {
     expect(scene.beats).toMatchInlineSnapshot(`
       {
         "fade": [
-          0.96,
+          0.975,
           1,
         ],
         "growth": [
-          0.05,
-          0.72,
+          0.075,
+          0.56,
         ],
         "hold": [
-          0.82,
-          0.96,
+          0.88,
+          0.97,
         ],
         "outline": [
           0,
           0.1,
         ],
         "pads": [
-          0.02,
-          0.24,
+          0.012,
+          0.3,
         ],
         "silk": [
-          0.68,
-          0.84,
+          0.82,
+          0.9,
         ],
         "zones": [
-          0.6,
-          0.76,
+          0.04,
+          0.17,
         ],
       }
     `)
@@ -60,11 +60,11 @@ describe('approved trace schedule', () => {
       .map((t) => Math.round(t * 1e4) / 1e4)
     expect(t0s).toMatchInlineSnapshot(`
       [
-        0.05,
-        0.0501,
-        0.0502,
-        0.0503,
-        0.0504,
+        0.0833,
+        0.0833,
+        0.0833,
+        0.0833,
+        0.0833,
       ]
     `)
   })

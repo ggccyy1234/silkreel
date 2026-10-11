@@ -5,6 +5,7 @@ import type { BoardModel } from '@silk-reel/ingest'
 
 const emptyBoard = (): BoardModel => ({
   source: { format: 'kicad', files: [], boardName: 'empty' },
+  stackup: { thickness: 1.6 },
   bbox: { min: { x: 0, y: 0 }, max: { x: 10, y: 10 } },
   outline: [],
   layers: [],

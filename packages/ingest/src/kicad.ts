@@ -12,6 +12,7 @@ import type {
   PadShape,
   Path,
   SilkLayer,
+  Stackup,
   Trace,
   Vec2,
   Via,
@@ -721,6 +722,7 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
 
   return {
     source: { format: 'kicad', files: [fileName], boardName: boardNameOf(fileName) },
+    stackup: parseStackup(root),
     bbox: { min: { x: bbox.minX, y: bbox.minY }, max: { x: bbox.maxX, y: bbox.maxY } },
     outline,
     layers,
@@ -732,6 +734,26 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     stats,
     warnings
   }
+}
+
+function parseStackup(root: SExprNode[]): Stackup {
+  const general = firstListNamed(root, 'general')
+  const th = general ? firstListNamed(general, 'thickness') : undefined
+  const thickness = Number.parseFloat(th ? (atomsAfterHead(th)[0] ?? '') : '')
+  const setup = firstListNamed(root, 'setup')
+  const stack = setup ? firstListNamed(setup, 'stackup') : undefined
+  let maskColor: string | undefined
+  let finish: string | undefined
+  if (stack !== undefined) {
+    for (const layer of listsNamed(stack, 'layer')) {
+      if (atomsAfterHead(layer)[0] !== 'F.Mask') continue
+      const color = firstListNamed(layer, 'color')
+      if (color !== undefined) maskColor = atomsAfterHead(color)[0]
+    }
+    const fin = firstListNamed(stack, 'copper_finish')
+    if (fin !== undefined) finish = atomsAfterHead(fin)[0]
+  }
+  return { thickness: Number.isFinite(thickness) && thickness > 0 ? thickness : 1.6, maskColor, finish }
 }
 
 function countUniquePads(records: { key: string }[]): number {

@@ -133,8 +133,19 @@ export interface BoardSource {
   boardName: string
 }
 
+/** the physical build, from (general) and (setup (stackup)) when declared */
+export interface Stackup {
+  /** board thickness, mm */
+  thickness: number
+  /** solder mask colour as declared ("Green", "Black", "White", or a #hex) */
+  maskColor?: string | undefined
+  /** surface finish ("ENIG", "HAL lead-free", "None") */
+  finish?: string | undefined
+}
+
 export interface BoardModel {
   source: BoardSource
+  stackup: Stackup
   bbox: BBox
   outline: Path[]
   layers: Layer[]

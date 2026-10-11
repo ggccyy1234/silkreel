@@ -39,12 +39,15 @@ Deterministic tests pass on videos that look like slop. A change to anything vis
 ## Styleframes: compare against the reference, not just yourself
 
 - `npx tsx scripts/styleframes.mts --style glyph --boards icebreaker,glasgow --aspect 4:5 --at 0.02,0.3,0.62,0.8 [--animatic] [--smooth]` dumps per-phase stills of each board next to the same-phase still of the private reference, plus optional half-size animatics, into `review/styleframes/<style>-<stamp>/index.html` with an `intent.md` to fill.
+- `npx tsx scripts/trace-stills.mts glasgow,icebreaker 4:5 0.06,0.3,0.66,0.92` renders lit-trace stills at those phases plus one sheet per board into `review/trace-stills/` (about 2s a still). This is the fast look-loop for the trace renderer; a full video takes 1–2 min.
 - `npx tsx scripts/taste.mts <video.mp4> [--ref <ref.mp4>] [--out <dir>]` writes `taste.html`: synced side-by-side playback, shared scrub, frame step (arrows), A/B flip (f), and a 240px native-pixel loupe. If no `--ref`, it uses `reference.mp4` beside the video or re-extracts it from git.
 
 ## Gotchas
 
 - Imports inside `packages/render` must not carry `.js` extensions (the Remotion bundler resolves `.ts`/`.tsx` directly).
 - The post pass renders on its own WebGL canvas and returns it; the visible canvas stays 2d so the fallback path works when WebGL2 or shader compilation fails.
+- Trace renders through `trace-gl.ts` (lit 3D plate, perspective camera, DOF, HDR bloom, 5-subframe motion blur when rendering, 1 in the studio). `trace-maps.ts` rasterises board-space data maps (copper/pad/energy, silk/hole/area, stack layers) for only the region the camera sees. `trace-draw.ts` is the flat fallback when WebGL2 is missing. The score lives in `choreo/src/trace/scene.ts` (`TRACE_ACTS`, `ROLE_TIME`, `shotList`); net roles come from `trace/nets.ts`.
+- A hero footprint on the back copper flips the trace film to the back side (mirrored, sides swapped), e.g. StickHub.
 - Alpha formats need `transparent: true`; the queue and CLI set it automatically. GIFs render without grain and at ≤720px wide (`renderFilm` does both).
 - Never pixel-hash post-processed frames in tests. GPU output differs across machines, so test the 2D draw through `test-recorder.ts`.
 - `fixtures/reference/pcbanimation.mp4` is another artist's work. Keep it as a private comparison only; never ship it.

@@ -52,7 +52,7 @@ describe('drawTraceFrame', () => {
   it('dims everything below 0.3 alpha during the final fade', () => {
     const timeline = traceTimeline('glasgow.kicad_pcb')
     const rec = currentRecorder()
-    drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.99))
+    drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.995))
     const alphas = rec.calls.filter((c) => c.method === 'set:globalAlpha').map((c) => c.args[0] as number)
     expect(alphas.length).toBeGreaterThan(0)
     for (const a of alphas) expect(a).toBeLessThan(0.3)
@@ -61,9 +61,9 @@ describe('drawTraceFrame', () => {
   it('fades the drill constellation in during the outline beat', () => {
     const timeline = traceTimeline('glasgow.kicad_pcb')
     const rec = currentRecorder()
-    // p=0.015: outline drawing, pads/zones/copper not started — only drills and
-    // a head on each of the longest outline strokes fill
-    drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.015))
+    // p=0.008: outline drawing, hero pins/zones/copper not started — only drills
+    // and a head on each of the longest outline strokes fill
+    drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.008))
     const fills = callsOf('fill').length
     const arcs = callsOf('arc').length
     expect(fills).toBe(timeline.scene.drills.length + Math.min(OUTLINE_HEADS, timeline.scene.outline.length))

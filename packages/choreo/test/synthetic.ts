@@ -72,6 +72,7 @@ export function syntheticBoardFrom(elements: SyntheticElement[]): BoardModel {
   }
   return {
     source: { format: 'kicad', files: ['synthetic.kicad_pcb'], boardName: 'synthetic' },
+    stackup: { thickness: 1.6 },
     bbox: {
       min: { x: Number.isFinite(minX) ? minX - 1 : 0, y: Number.isFinite(minY) ? minY - 1 : 0 },
       max: { x: Number.isFinite(maxX) ? maxX + 1 : 10, y: Number.isFinite(maxY) ? maxY + 1 : 10 }
