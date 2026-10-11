@@ -2,14 +2,16 @@ import type { Arc, BBox, BoardModel, Pad, Vec2 } from '@silk-reel/ingest'
 import { fitBoard, safeArea } from '../layout'
 import type { ResolvedConfig } from '../config'
 import type {
-  CameraKey, CameraShot, FlatPath, Palette, TraceActs, TraceBeats, TraceGroup, TraceLayer, TraceMaterial, TracePad,
-  TraceScene, TraceText, TraceVia, TraceZone, TimelineWarning
+  CameraKey, CameraShot, FlatPath, Palette, TraceActs, TraceBeats, TraceCallout, TraceGroup, TraceLayer, TraceMaterial,
+  TracePad, TracePart, TraceScene, TraceText, TraceVia, TraceZone, TimelineWarning
 } from '../types'
 import { makeRng } from '../rng'
+import { fitZoom } from './camera'
 import { growthSchedule } from './graph'
 import type { GraphLink, GraphSeg, GraphSeed } from './graph'
 import { pickHero } from './hero'
-import { groupNets } from './nets'
+import { bareName, groupNets } from './nets'
+import { extractParts } from './parts'
 import type { NetKind } from './nets'
 
 /**
@@ -20,14 +22,17 @@ import type { NetKind } from './nets'
  */
 export const TRACE_ACTS: TraceActs = {
   ignite: [0, 0.09],
-  heroPads: [0.012, 0.05],
-  flood: [0.04, 0.17],
-  signal: [0.075, 0.56],
-  explode: [0.585, 0.655],
-  slam: [0.712, 0.732],
-  mask: [0.75, 0.84],
-  silk: [0.82, 0.9],
-  sweep: [0.865, 0.935]
+  land: [0, 0.032],
+  heroPads: [0.032, 0.07],
+  flood: [0.05, 0.17],
+  signal: [0.075, 0.5],
+  explode: [0.515, 0.575],
+  slam: [0.64, 0.662],
+  mask: [0.69, 0.765],
+  cure: [0.768, 0.79],
+  silk: [0.785, 0.835],
+  place: [0.825, 0.89],
+  sweep: [0.9, 0.955]
 }
 
 /** the flat fallback renderer still reads beats; they follow the acts */
@@ -37,18 +42,18 @@ export const TRACE_BEATS: TraceBeats = {
   growth: TRACE_ACTS.signal,
   zones: TRACE_ACTS.flood,
   silk: TRACE_ACTS.silk,
-  hold: [0.88, 0.97],
+  hold: [0.9, 0.975],
   fade: [0.975, 1]
 }
 
 /** each role's start window and growth duration inside the signal act */
 const ROLE_TIME: Record<NetKind, { start: [number, number]; d: [number, number] }> = {
-  clock: { start: [0.075, 0.13], d: [0.05, 0.07] },
-  bus: { start: [0.115, 0.32], d: [0.09, 0.12] },
-  diff: { start: [0.105, 0.32], d: [0.07, 0.1] },
-  signal: { start: [0.13, 0.44], d: [0.035, 0.1] },
-  power: { start: [0.28, 0.46], d: [0.05, 0.09] },
-  ground: { start: [0.32, 0.48], d: [0.05, 0.08] }
+  clock: { start: [0.075, 0.12], d: [0.05, 0.07] },
+  bus: { start: [0.11, 0.28], d: [0.09, 0.12] },
+  diff: { start: [0.1, 0.28], d: [0.07, 0.1] },
+  signal: { start: [0.12, 0.4], d: [0.035, 0.09] },
+  power: { start: [0.25, 0.4], d: [0.05, 0.09] },
+  ground: { start: [0.28, 0.42], d: [0.05, 0.08] }
 }
 
 const MASK_ALBEDO: Record<string, string> = {
@@ -437,6 +442,93 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig, see
   if (segs.length === 0) warnings.push({ code: 'trace-no-copper', message: 'board has no copper segments to grow' })
   if (hero === undefined) warnings.push({ code: 'trace-no-hero', message: 'no hero footprint; growth ordered from board center' })
 
+  // --- parts: bodies on the visible face; the hero lands first, the rest are placed in act IV
+  const heroPx = origin
+  const rotOf = (deg: number): number => (back ? -deg : deg) * DEG + (fit.rotated ? Math.PI / 2 : 0)
+  const partsMm = extractParts(board).filter((pt) => pt.back === back)
+  const heroPart = partsMm.find((pt) => pt.ref === hero?.ref)
+  const dists = partsMm.map((pt) => Math.hypot(pt.pos.x - originMm.x, pt.pos.y - originMm.y))
+  const order = partsMm.map((_, i) => i).sort((a, b) => (dists[a] as number) - (dists[b] as number))
+  const rankOf = new Map(order.map((idx, r) => [idx, r / Math.max(1, order.length - 1)]))
+  const parts: TracePart[] = partsMm.map((pt, i) => {
+    const m = map(pt.pos)
+    const isHero = pt === heroPart
+    const label = pt.kind === 'ic' && pt.value !== undefined ? pt.value.replace(/_/g, '-').toUpperCase().slice(0, 22) : undefined
+    return {
+      x: m.x, y: m.y, w: pt.w * fit.scale, h: pt.h * fit.scale, rot: rotOf(pt.rot), z: pt.z * fit.scale,
+      kind: pt.kind,
+      t: isHero ? acts.land[1] : acts.place[0] + (rankOf.get(i) ?? 0) * (acts.place[1] - acts.place[0] - 0.012),
+      label,
+      pitch: pt.kind === 'conn' && pt.pitch > 0 ? pt.pitch * fit.scale : undefined,
+      hero: isHero
+    }
+  })
+
+  // --- the stack, top first: front copper, inner layers, back
+  const topSide = layers.some((l) => l.side === 'F') ? 'F' : (layers[layers.length - 1]?.side ?? 'F')
+  const stackOrder = [
+    ...layers.filter((l) => l.side === topSide),
+    ...layers.filter((l) => l.side !== topSide && l.side === 'inner'),
+    ...layers.filter((l) => l.side !== topSide && l.side !== 'inner')
+  ]
+  const boardArea = boardLoops(board).reduce((s, loop) => s + Math.abs(area(loop)), 0)
+  const netName = new Map(board.nets.map((n) => [n.id, bareName(n.name)]))
+  const stackLabels = stackOrder.map((l) => {
+    const zs = board.copper[l.id]?.zones ?? []
+    let best: { net: string; a: number } | undefined
+    const byNet = new Map<string, number>()
+    for (const z of zs) {
+      const a = z.fills.reduce((s, f) => s + Math.abs(area(f)), 0)
+      const key = z.netId === undefined ? 'pour' : (netName.get(z.netId) ?? 'pour')
+      byNet.set(key, (byNet.get(key) ?? 0) + a)
+    }
+    for (const [net, a] of byNet) if (best === undefined || a > best.a) best = { net, a }
+    const role = best !== undefined && best.a > 0.3 * boardArea ? `${best.net} plane` : 'signal'
+    return `${l.id} · ${role}`
+  })
+  const minWH = Math.min(resolved.width, resolved.height)
+  const stack = { gap: Math.min(0.15 * minWH, (0.42 * minWH) / Math.max(1, stackOrder.length - 1)), labels: stackLabels }
+
+  // --- callouts and the lead's wavefront
+  const callouts: TraceCallout[] = []
+  if (hero !== undefined) {
+    const value = board.footprints.find((f) => f.ref === hero.ref)?.value
+    callouts.push({ t0: acts.heroPads[0], t1: 0.105, x: heroPx.x, y: heroPx.y, text: hero.ref, sub: value })
+  }
+  const leadGrp = sched.lead === undefined ? undefined : sched.groups[sched.lead.group]
+  const leadFar = sched.lead === undefined ? undefined : map(sched.lead.far)
+  const track: Array<{ t: number; x: number; y: number }> = []
+  if (sched.lead !== undefined && leadGrp !== undefined && leadFar !== undefined) {
+    const gi = sched.lead.group
+    for (let t = leadGrp.t; t <= leadGrp.t + leadGrp.d + 1e-9; t += leadGrp.d / 8) {
+      let sx = 0
+      let sy = 0
+      let n = 0
+      for (const l of layers) {
+        l.groups.forEach((g, i) => {
+          if (g !== gi) return
+          const o = i * 7
+          const t0 = l.segs[o + 5] as number
+          const t1 = l.segs[o + 6] as number
+          if (t < t0 || t > t1) return
+          const f = (t - t0) / Math.max(1e-9, t1 - t0)
+          sx += (l.segs[o] as number) + ((l.segs[o + 2] as number) - (l.segs[o] as number)) * f
+          sy += (l.segs[o + 1] as number) + ((l.segs[o + 3] as number) - (l.segs[o + 1] as number)) * f
+          n++
+        })
+      }
+      if (n > 0) track.push({ t, x: sx / n, y: sy / n })
+    }
+    const members = (netGroups[gi]?.netIds ?? []).map((id) => netName.get(id) ?? '').filter((s) => s.length > 0)
+    const kind = leadGrp.kind
+    const text = kind === 'bus' && members.length > 1 ? `${members[0]} – ${members[members.length - 1]}` : members.join(' / ')
+    const sub = kind === 'bus' ? `${members.length} lines · land together` : kind === 'diff' ? 'differential pair · in lockstep' : kind === 'clock' ? 'clock' : 'signal'
+    const arrive = leadGrp.t + leadGrp.d
+    callouts.push({ t0: arrive - 0.012, t1: arrive + 0.06, x: leadFar.x, y: leadFar.y, text, sub })
+  }
+
+  const loopsPx = boardLoops(board).map((loop) => flat(loop, map))
+  const centre = map({ x: (box.min.x + box.max.x) / 2, y: (box.min.y + box.max.y) / 2 })
   return {
     scene: {
       outline,
@@ -451,16 +543,33 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig, see
       camera: cameraTrack(box, resolved, map, layers, origin),
       beats,
       groups: sched.groups,
-      board: boardLoops(board).map((loop) => flat(loop, map)),
+      board: loopsPx,
       material: material(board, resolved.palette, fit.scale),
-      shots: shotList(resolved, origin, sched.lead === undefined ? undefined : map(sched.lead), map({
-        x: (box.min.x + box.max.x) / 2,
-        y: (box.min.y + box.max.y) / 2
-      })),
-      acts
+      shots: shotList(resolved, {
+        hero: heroPx,
+        heroSize: heroPart === undefined ? 0.08 * minWH : Math.max(heroPart.w, heroPart.h) * fit.scale,
+        lead: leadGrp === undefined || leadFar === undefined ? undefined : { far: leadFar, t: leadGrp.t, d: leadGrp.d, track },
+        centre,
+        loops: loopsPx,
+        stackHeight: stack.gap * Math.max(0, stackOrder.length - 1) + Math.max(0, ...parts.map((pt) => pt.z))
+      }),
+      acts,
+      parts,
+      callouts,
+      stack
     },
     warnings
   }
+}
+
+function area(loop: Vec2[]): number {
+  let s = 0
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i] as Vec2
+    const b = loop[(i + 1) % loop.length] as Vec2
+    s += a.x * b.y - b.x * a.y
+  }
+  return s / 2
 }
 
 const BEAT = 1 / 24
@@ -469,8 +578,8 @@ interface Schedule {
   groups: TraceGroup[]
   /** per seg [t0, t1], undefined for segs outside any group */
   segTime: Array<[number, number] | undefined>
-  /** the far end of the lead bus or pair, mm — where the tracking shot heads */
-  lead: Vec2 | undefined
+  /** the lead unit and its far end (mm) — where the tracking shot heads */
+  lead: { group: number; far: Vec2 } | undefined
 }
 
 /**
@@ -539,7 +648,7 @@ function scheduleGroups(
       } else if (kind === 'bus') {
         // every bus fires on the same bar lines: the board breathes in time
         grp.pulseSpeed = 1.4
-        for (const p of [10, 13, 16].map((b) => b * BEAT)) if (p > done + BEAT / 2) grp.pulses.push(p)
+        for (const p of [9, 11, 14.5].map((b) => b * BEAT)) if (p > done + BEAT / 2) grp.pulses.push(p)
       } else if (kind === 'diff') {
         grp.pulseSpeed = 1.5
         for (let p = snap(done + BEAT, BEAT); p < last; p += BEAT * 4) grp.pulses.push(p)
@@ -561,15 +670,19 @@ function scheduleGroups(
     return [grp.t + a * grp.d, grp.t + Math.min(1, b) * grp.d]
   })
 
-  // the lead: the first bus (else pair, else clock) to leave the hero
-  let lead: Vec2 | undefined
-  for (const kind of ['bus', 'diff', 'clock'] as NetKind[]) {
-    const first = kinds.map((k, i) => i).filter((i) => kinds[i] === kind && (gSegs[i] as number) > 0)
-      .sort((a, b) => (groups[a] as TraceGroup).t - (groups[b] as TraceGroup).t)[0]
+  // the lead: the first bus (else pair, else clock, else the longest net) to
+  // leave the hero — the tracking shot rides it and the camera waits for it
+  // where it lands
+  let lead: Schedule['lead']
+  const byStart = (kind: NetKind): number | undefined => kinds.map((k, i) => i).filter((i) => kinds[i] === kind && (gSegs[i] as number) > 0)
+    .sort((a, b) => (groups[a] as TraceGroup).t - (groups[b] as TraceGroup).t)[0]
+  const longest = kinds.map((k, i) => i).filter((i) => (gSegs[i] as number) > 0)
+    .sort((a, b) => ((gMax[b] as number) - (gMin[b] as number)) - ((gMax[a] as number) - (gMin[a] as number)))[0]
+  for (const first of [byStart('bus'), byStart('diff'), byStart('clock'), longest]) {
     if (first === undefined) continue
     const ends = [...far.entries()].filter(([net]) => segNet.some((n, i) => n === net && segGroup[i] === first)).map(([, p]) => p)
     if (ends.length === 0) continue
-    lead = { x: ends.reduce((s, p) => s + p.x, 0) / ends.length, y: ends.reduce((s, p) => s + p.y, 0) / ends.length }
+    lead = { group: first, far: { x: ends.reduce((s, p) => s + p.x, 0) / ends.length, y: ends.reduce((s, p) => s + p.y, 0) / ends.length } }
     break
   }
   return { groups, segTime, lead }
@@ -621,46 +734,143 @@ function material(board: BoardModel, palette: Palette, pxPerMm: number): TraceMa
   const mask = board.stackup.maskColor?.toLowerCase()
   const finishKey = board.stackup.finish?.toLowerCase() ?? ''
   const finish = Object.entries(FINISH).find(([k]) => finishKey.startsWith(k))?.[1]
+  const maskHex: string = trueColour
+    ? (mask === undefined ? '#0c0d0e' : (mask.startsWith('#') ? mask : (MASK_ALBEDO[mask] ?? '#0d3b22')))
+    : mixHex(palette.bg, palette.copperDim, 0.45)
+  // white boards print black legends; everything else prints white
+  const silk = luma(maskHex) > 0.5 ? '#1b1c1e' : '#eeeee8'
   return {
-    mask: trueColour
-      ? (mask === undefined ? MASK_ALBEDO.black as string : (mask.startsWith('#') ? mask : (MASK_ALBEDO[mask] ?? MASK_ALBEDO.green as string)))
-      : mixHex(palette.bg, palette.copperDim, 0.45),
+    mask: maskHex,
     finish: trueColour ? (finish?.albedo ?? '#e8a878') : palette.copper,
     finishRough: finish?.rough ?? 0.24,
     substrate: trueColour ? '#2b2617' : mixHex(palette.bg, palette.copperDim, 0.3),
+    silk,
+    energyWarm: trueColour ? '#ffc98a' : palette.head,
+    energyCool: trueColour ? '#9fd6ff' : mixHex(palette.head, palette.silk, 0.5),
     pxPerMm,
     thicknessPx: board.stackup.thickness * pxPerMm
   }
 }
 
-function mixHex(a: string, b: string, t: number): string {
-  const c = (h: string, i: number): number => Number.parseInt(h.slice(1 + 2 * i, 3 + 2 * i), 16)
-  return `#${[0, 1, 2].map((i) => Math.round(c(a, i) + (c(b, i) - c(a, i)) * t).toString(16).padStart(2, '0')).join('')}`
+function luma(hex: string): number {
+  const c = (i: number): number => Number.parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16) / 255
+  return 0.2126 * c(0) + 0.7152 * c(1) + 0.0722 * c(2)
+}
+
+interface ShotInput {
+  hero: Vec2
+  /** hero body's long side, px */
+  heroSize: number
+  lead: { far: Vec2; t: number; d: number; track: Array<{ t: number; x: number; y: number }> } | undefined
+  centre: Vec2
+  loops: FlatPath[]
+  /** tallest the scene gets: the exploded stack plus parts, px */
+  stackHeight: number
 }
 
 /**
- * The shot list. I: a low macro on the hero, shallow focus, drifting.
- * II: track out along the lead bus as it grows, rack to the whole board.
- * III: crane up and orbit for the stack. IV: settle top-down — the poster.
+ * The shot list: seven shots, cut on the beat.
+ *  1 macro — the hero chip lands on its glowing pads, shallow focus, slow push
+ *  2 track — ride the lead unit's wavefront as it leaves the hero
+ *  3 land  — cut to where it lands and wait for it: the signature beat
+ *  4 wide  — the whole board fills in, a slow orbit
+ *  5 crane — up and around for the stack, framed to fit it, through the slam
+ *  6 hero  — cut on the impact to a held three-quarter: mask, cure, silk, parts
+ *  7 beauty — a slow arc and push into the final poster
+ * Every framing is solved against the board's real extent, so long boards
+ * and tall frames fill the shot instead of floating in it.
  */
-function shotList(resolved: ResolvedConfig, hero: Vec2, lead: Vec2 | undefined, centre: Vec2): CameraShot[] {
+function shotList(resolved: ResolvedConfig, si: ShotInput): CameraShot[] {
   const D = Math.PI / 180
   const W = resolved.width
   const H = resolved.height
-  const home = { x: W / 2, y: H / 2 }
-  const to = lead ?? centre
-  const lerp = (a: Vec2, b: Vec2, t: number): Vec2 => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
   const a = TRACE_ACTS
-  return [
-    { t: 0, ...hero, zoom: 4.4, tilt: 62 * D, yaw: -22 * D, aperture: 1 },
-    { t: a.ignite[1] + 0.03, ...lerp(hero, to, 0.15), zoom: 3.6, tilt: 57 * D, yaw: -14 * D, aperture: 0.7 },
-    { t: 0.32, ...lerp(hero, to, 0.8), zoom: 2.4, tilt: 44 * D, yaw: 2 * D, aperture: 0.35 },
-    { t: 0.5, ...lerp(to, centre, 0.85), zoom: 1.3, tilt: 30 * D, yaw: 12 * D, aperture: 0.25 },
-    { t: a.explode[0], ...lerp(centre, home, 0.5), zoom: 1.12, tilt: 50 * D, yaw: 26 * D, aperture: 0.08 },
-    { t: a.slam[0], ...lerp(centre, home, 0.5), zoom: 1.2, tilt: 55 * D, yaw: 38 * D, aperture: 0.08 },
-    { t: 0.81, ...home, zoom: 1, tilt: 0, yaw: 0, aperture: 0 },
-    { t: 1, ...home, zoom: 1.035, tilt: 0, yaw: 0, aperture: 0 }
+  const lerp = (p: Vec2, q: Vec2, t: number): Vec2 => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t })
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const loop of si.loops) {
+    for (let i = 0; i + 1 < loop.length; i += 2) {
+      x0 = Math.min(x0, loop[i] as number)
+      x1 = Math.max(x1, loop[i] as number)
+      y0 = Math.min(y0, loop[i + 1] as number)
+      y1 = Math.max(y1, loop[i + 1] as number)
+    }
+  }
+  const mid = { x: (x0 + x1) / 2, y: (y0 + y1) / 2 }
+  const corners = (z: number): Array<[number, number, number]> => [[x0, y0, z], [x1, y0, z], [x0, y1, z], [x1, y1, z]]
+  const flatPts = corners(0)
+  const stackPts = [...corners(0), ...corners(si.stackHeight)]
+  // a board much longer than the frame lies on the diagonal for its hero shot
+  const bAspect = (x1 - x0) / Math.max(1, y1 - y0)
+  const fAspect = W / H
+  const skew = Math.abs(Math.log(bAspect / fAspect))
+  const heroYaw = (skew > 0.9 ? 30 : 16) * D * (bAspect > fAspect ? 1 : -1)
+  const fit = (shot: Omit<CameraShot, 't' | 'zoom' | 'cut'>, pts: Array<[number, number, number]>, m = 1): number =>
+    fitZoom(shot, pts, W, H, 0.84 * m, 0.8 * m)
+
+  // 1 macro: the hero body fills about a third of the frame height
+  const macroZoom = Math.min(7, Math.max(2.2, (0.26 * H) / Math.max(1, si.heroSize)))
+  const shots: CameraShot[] = [
+    { t: 0, ...si.hero, zoom: macroZoom, tilt: 58 * D, yaw: -24 * D, aperture: 0.85 },
+    { t: 0.1, ...si.hero, zoom: macroZoom * 1.14, tilt: 55 * D, yaw: -15 * D, aperture: 0.8 }
   ]
+  const lead = si.lead
+  const arrive = lead === undefined ? 0.26 : Math.min(0.42, Math.max(0.2, lead.t + lead.d))
+  // 2 track: lead the action by a fifth, low and close
+  const trackTilt = 50 * D
+  const trackZoom = Math.min(3.4, Math.max(1.8, macroZoom * 0.6))
+  const t2 = 0.1
+  const t3 = arrive - 0.045
+  if (lead !== undefined && lead.track.length >= 2) {
+    const keys = lead.track.filter((k) => k.t >= t2 && k.t <= t3)
+    const head = (t: number): Vec2 => {
+      const tr = lead.track
+      let k = 0
+      while (k + 1 < tr.length && (tr[k + 1] as { t: number }).t <= t) k++
+      const p = tr[k] as { t: number; x: number; y: number }
+      const q = tr[Math.min(k + 1, tr.length - 1)] as { t: number; x: number; y: number }
+      const u = q.t > p.t ? Math.min(1, Math.max(0, (t - p.t) / (q.t - p.t))) : 0
+      return { x: p.x + (q.x - p.x) * u, y: p.y + (q.y - p.y) * u }
+    }
+    const ahead = (t: number): Vec2 => lerp(head(t), lead.far, 0.2)
+    shots.push({ t: t2 + 0.001, ...ahead(t2), zoom: trackZoom, tilt: trackTilt, yaw: -10 * D, aperture: 0.32, cut: true })
+    for (const k of keys.filter((_, i) => i % 2 === 1)) shots.push({ t: k.t, ...ahead(k.t), zoom: trackZoom, tilt: trackTilt, yaw: -10 * D + 16 * D * ((k.t - t2) / (t3 - t2)), aperture: 0.32 })
+    shots.push({ t: t3 - 0.001, ...ahead(t3), zoom: trackZoom * 0.94, tilt: trackTilt, yaw: 6 * D, aperture: 0.32 })
+    // 3 land: wait at the destination, push in a touch as it arrives
+    const far = lead.far
+    shots.push({ t: t3, ...far, zoom: trackZoom * 1.15, tilt: 40 * D, yaw: 22 * D, aperture: 0.55, cut: true })
+    shots.push({ t: arrive + 0.05, ...far, zoom: trackZoom * 1.28, tilt: 38 * D, yaw: 25 * D, aperture: 0.55 })
+  } else {
+    shots.push({ t: t2 + 0.001, ...lerp(si.hero, si.centre, 0.4), zoom: trackZoom, tilt: trackTilt, yaw: -6 * D, aperture: 0.32, cut: true })
+    shots.push({ t: arrive + 0.05, ...lerp(si.hero, si.centre, 0.7), zoom: trackZoom * 0.85, tilt: 44 * D, yaw: 12 * D, aperture: 0.4 })
+  }
+  // 4 wide: the whole board fills in under a slow orbit
+  const t4 = arrive + 0.051
+  const wide0 = { ...mid, tilt: 34 * D, yaw: 6 * D, aperture: 0.16 }
+  const wide1 = { ...mid, tilt: 30 * D, yaw: 16 * D, aperture: 0.1 }
+  shots.push({ t: t4, ...wide0, zoom: fit(wide0, flatPts) * 1.18, cut: true })
+  shots.push({ t: a.signal[1], ...wide1, zoom: fit(wide1, flatPts) * 1.04 })
+  // 5 crane: framed to hold the whole exploded stack, orbiting through the slam
+  const crane0 = { ...mid, tilt: 54 * D, yaw: 30 * D, aperture: 0.06 }
+  const crane1 = { ...mid, tilt: 57 * D, yaw: 40 * D, aperture: 0.06 }
+  shots.push({ t: a.explode[1], ...crane0, zoom: fit(crane0, stackPts, 1.08) })
+  shots.push({ t: a.slam[1], ...crane1, zoom: fit(crane1, stackPts, 1.08) * 1.04 })
+  // 6 hero: cut on the impact to a held three-quarter
+  const hero0 = { ...mid, tilt: 36 * D, yaw: heroYaw, aperture: 0.05 }
+  const hz = fit(hero0, flatPts, 1.06)
+  shots.push({ t: a.slam[1] + 0.004, ...hero0, zoom: hz, cut: true })
+  shots.push({ t: a.place[1], ...hero0, zoom: hz * 1.03 })
+  // 7 beauty: a slow arc and push into the poster
+  const beauty = { ...mid, tilt: 30 * D, yaw: heroYaw * 0.55, aperture: 0.04 }
+  shots.push({ t: 1, ...beauty, zoom: fit(beauty, flatPts, 1.0) * 1.03 })
+  return shots
+}
+
+function mixHex(a: string, b: string, t: number): string {
+  const c = (h: string, i: number): number => Number.parseInt(h.slice(1 + 2 * i, 3 + 2 * i), 16)
+  return `#${[0, 1, 2].map((i) => Math.round(c(a, i) + (c(b, i) - c(a, i)) * t).toString(16).padStart(2, '0')).join('')}`
 }
 
 /**

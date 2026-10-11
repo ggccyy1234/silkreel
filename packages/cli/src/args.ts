@@ -8,13 +8,16 @@ import type { OutputFormat } from '@silk-reel/render-api'
 export const USAGE = `usage: silk-reel <board.kicad_pcb> [-o out.mp4] [--style trace|glyph]
   [--aspect 4:5|1:1|9:16|16:9] [--palette mono|copper|blueprint|phosphor] [--accent #rrggbb]
   [--title "Name"] [--version v1.0] [--seed N] [--tempo 1] [--density 1]
-  [--format mp4|gif|webm-alpha|prores-alpha]`
+  [--format mp4|gif|webm-alpha|prores-alpha] [--draft] [--no-audio]`
 
 export interface CliArgs {
   input: string
   out: string
   config: FilmConfig
   format: OutputFormat
+  /** one motion-blur sample and lighter maps: a fast look, not a release */
+  draft: boolean
+  audio: boolean
 }
 
 function oneOf<T extends string>(flag: string, value: string | undefined, allowed: readonly T[]): T | undefined {
@@ -45,7 +48,9 @@ export function parseCliArgs(argv: string[]): CliArgs {
       seed: { type: 'string' },
       tempo: { type: 'string' },
       density: { type: 'string' },
-      format: { type: 'string' }
+      format: { type: 'string' },
+      draft: { type: 'boolean' },
+      'no-audio': { type: 'boolean' }
     }
   })
   const input = positionals[0]
@@ -82,5 +87,5 @@ export function parseCliArgs(argv: string[]): CliArgs {
   const out =
     values.out ??
     path.join(path.dirname(input), `${path.basename(input, '.kicad_pcb')}-${style}-${aspect.replace(':', 'x')}.${FORMAT_EXT[format]}`)
-  return { input, out, config, format }
+  return { input, out, config, format, draft: values.draft === true, audio: values['no-audio'] !== true }
 }

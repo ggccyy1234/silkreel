@@ -1,24 +1,42 @@
-import type { CameraShot, TraceTimeline } from '@silk-reel/choreo'
-import { createMaps, drawMaps } from './trace-maps'
+import { makeCam, norm, project, sampleShot } from '@silk-reel/choreo'
+import type { Cam, TraceTimeline } from '@silk-reel/choreo'
+import { createMaps, drawMaps, partDrop } from './trace-maps'
 import type { MapSet, Region } from './trace-maps'
 
 /**
- * The lit trace renderer. The board is a physical plate under a real
- * perspective camera: copper has a profile and a metal's reflection, mask
- * is a glossy dielectric over it, silk is matte ink, the finish is the
- * board's own gold or tin. Energy is the only thing above white, so it is
- * the only thing that blooms.
+ * The lit trace renderer. The board is a physical plate on a dark studio
+ * floor under a real perspective camera: copper has sharp shoulders and a
+ * metal's reflection, mask is a glossy dielectric that pours on, silk is
+ * matte ink, the finish is the board's own gold or tin, and the parts are
+ * bodies with weight. Energy is the only thing above white, so it is the
+ * only thing that blooms.
  *
  * Per frame: draw board-space data maps (trace-maps) for the region the
- * camera sees → render planes into an HDR buffer for each motion-blur
- * subframe → depth of field → bloom + lens streak → tone map + grade.
+ * camera sees → render floor, stack, board and parts into an HDR buffer per
+ * motion-blur subframe → depth of field → bloom + lens streak → grade.
  */
+export interface Annotation {
+  /** anchor (the thing labelled) and label position, frame px */
+  ax: number; ay: number; lx: number; ly: number
+  text: string
+  sub?: string | undefined
+  alpha: number
+  align: 'left' | 'right'
+}
+
 export interface TraceGL {
   render(tl: TraceTimeline, frame: number): HTMLCanvasElement
+  /** the captions of the last rendered frame, in screen space */
+  annotations(): Annotation[]
   dispose(): void
 }
 
-const FOV = (30 * Math.PI) / 180
+export interface TraceQuality {
+  /** motion-blur samples per frame */
+  subframes: number
+  /** data-map resolution, × the frame */
+  mapScale: number
+}
 
 const VS_PLANE = `#version 300 es
 uniform mat4 uVP; uniform vec4 uRegion; uniform float uZ;
@@ -33,8 +51,10 @@ void main(){
 
 const LIGHTING = `
 uniform vec3 uCam; uniform vec3 uKey; uniform vec3 uKeyCol; uniform vec3 uFill;
+uniform vec3 uRim; uniform vec3 uRimCol;
 uniform vec3 uBoxN; uniform float uBoxPos; uniform float uBoxGain;
 const float PI = 3.14159265;
+float sq(float x){ return x * x; }
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
   return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
@@ -42,77 +62,113 @@ vec3 envLight(vec3 R, float rough){
   float w = 0.05 + rough * 0.55;
   float d = dot(R, uBoxN) - uBoxPos;
   float box = exp(-d * d / (w * w)) * smoothstep(-0.15, 0.35, R.z) * (0.09 / w);
-  float sky = 0.012 + 0.03 * smoothstep(-0.3, 1.0, R.z);
-  return vec3(sky) + uKeyCol * box * uBoxGain;
+  // a cool studio sky above, black below, and a long overhead strip light:
+  // big metal (pours, planes, cans) needs something bright to reflect
+  vec3 sky = vec3(0.010, 0.013, 0.018) + vec3(0.02, 0.026, 0.034) * smoothstep(-0.2, 1.0, R.z);
+  float strip = exp(-sq((R.x * 0.8 + R.y * 0.6) / (0.22 + rough * 0.5))) * smoothstep(0.35, 0.85, R.z);
+  return sky + vec3(0.2, 0.22, 0.25) * strip + uKeyCol * box * uBoxGain;
+}
+float ggx(vec3 N, vec3 V, vec3 L, float rough){
+  vec3 H = normalize(L + V);
+  float NoL = max(dot(N, L), 0.0), NoV = max(dot(N, V), 1e-3), NoH = max(dot(N, H), 0.0);
+  float a = max(rough * rough, 0.003); float a2 = a * a;
+  float dd = NoH * NoH * (a2 - 1.0) + 1.0; float D = a2 / (PI * dd * dd);
+  float k = a * 0.5; float Vis = 0.25 / ((NoL * (1.0 - k) + k) * (NoV * (1.0 - k) + k));
+  return D * Vis * NoL;
 }
 vec3 shade(vec3 N, vec3 V, vec3 albedo, float metal, float rough, float f0d){
-  vec3 L = normalize(uKey); vec3 H = normalize(L + V);
-  float NoL = max(dot(N, L), 0.0), NoV = max(dot(N, V), 1e-3), NoH = max(dot(N, H), 0.0), VoH = max(dot(V, H), 0.0);
+  vec3 L = normalize(uKey);
+  float NoL = max(dot(N, L), 0.0), NoV = max(dot(N, V), 1e-3);
   vec3 f0 = mix(vec3(f0d), albedo, metal);
-  float a = max(rough * rough, 0.003);
-  vec3 F = f0 + (1.0 - f0) * pow(1.0 - VoH, 5.0);
-  float a2 = a * a; float dd = NoH * NoH * (a2 - 1.0) + 1.0; float D = a2 / (PI * dd * dd);
-  float k = a * 0.5; float Vis = 0.25 / ((NoL * (1.0 - k) + k) * (NoV * (1.0 - k) + k));
-  vec3 spec = D * Vis * F * NoL * uKeyCol;
+  vec3 H = normalize(L + V);
+  vec3 F = f0 + (1.0 - f0) * pow(1.0 - max(dot(V, H), 0.0), 5.0);
+  vec3 spec = ggx(N, V, L, rough) * F * uKeyCol;
+  // the rim: a cool light from behind that only catches edges and bevels
+  vec3 Lr = normalize(uRim);
+  vec3 Fr = f0 + (1.0 - f0) * pow(1.0 - NoV, 5.0);
+  vec3 rim = ggx(N, V, Lr, max(rough, 0.18)) * Fr * uRimCol * smoothstep(0.02, 0.35, 1.0 - N.z);
   vec3 diff = albedo * (1.0 - metal) * (NoL * uKeyCol + uFill) / PI * 2.0;
-  vec3 Fe = f0 + (1.0 - f0) * pow(1.0 - NoV, 5.0);
-  vec3 refl = envLight(reflect(-V, N), rough) * mix(Fe, albedo * 0.9 + 0.1, metal);
-  return diff + spec + refl;
+  vec3 refl = envLight(reflect(-V, N), rough) * mix(Fr, albedo * 0.9 + 0.1, metal);
+  return diff + spec + rim + refl;
 }`
 
 const FS_TOP = `#version 300 es
 precision highp float;
 in vec2 vUv; in vec3 vW; out vec4 o;
-uniform sampler2D tTop; uniform sampler2D tSurf; uniform vec2 uTexel;
-uniform vec3 uCopper; uniform vec3 uFinish; uniform vec3 uMask; uniform vec3 uSub; uniform vec3 uSilk; uniform vec3 uHead;
-uniform float uFinishRough; uniform float uMaskFront; uniform float uMaskSoft; uniform float uMaskOn;
+uniform sampler2D tTop; uniform sampler2D tSurf; uniform sampler2D tFx; uniform vec2 uTexel;
+uniform vec3 uCopper; uniform vec3 uFinish; uniform vec3 uMask; uniform vec3 uSub; uniform vec3 uSilk;
+uniform vec3 uWarm; uniform vec3 uCool;
+uniform float uFinishRough; uniform float uMaskFront; uniform float uMaskSoft; uniform float uMaskOn; uniform float uMaskLuma;
+uniform float uCure; uniform float uCured;
 uniform float uSubAlpha; uniform float uEnergy; uniform float uSlam; uniform float uPxPerMm; uniform float uBump;
 uniform vec2 uSweepDir; uniform vec3 uSweep; // (position px along dir, half-width px, gain)
 ${LIGHTING}
-vec2 grad(sampler2D t, int ch, float s, float lod){
+float hcu(vec2 uv, float lod){ return smoothstep(0.2, 0.8, textureLod(tTop, uv, lod).r); }
+vec2 gradH(float s, float lod){
+  vec2 dx = vec2(uTexel.x * s, 0.0), dy = vec2(0.0, uTexel.y * s);
+  return vec2(hcu(vUv + dx, lod) - hcu(vUv - dx, lod), hcu(vUv + dy, lod) - hcu(vUv - dy, lod));
+}
+vec2 gradC(sampler2D t, int ch, float s, float lod){
   vec2 dx = vec2(uTexel.x * s, 0.0), dy = vec2(0.0, uTexel.y * s);
   return vec2(textureLod(t, vUv + dx, lod)[ch] - textureLod(t, vUv - dx, lod)[ch],
               textureLod(t, vUv + dy, lod)[ch] - textureLod(t, vUv - dy, lod)[ch]);
 }
 void main(){
   if (vUv.x < 0.0 || vUv.y < 0.0 || vUv.x > 1.0 || vUv.y > 1.0) discard;
-  vec4 a = texture(tTop, vUv); vec4 s = texture(tSurf, vUv);
-  float cu = a.r, pad = a.g, en = a.b, silk = s.r, hole = s.g, area = s.b;
-  if (area < 0.002 && cu < 0.002 && en < 0.002) discard;
+  vec4 a = texture(tTop, vUv); vec4 s = texture(tSurf, vUv); vec4 fx = texture(tFx, vUv);
+  float cu = a.r, pad = a.g, warm = a.b, silk = s.r, hole = s.g, area = s.b, cool = fx.r, shadow = fx.g;
+  if (area < 0.002 && cu < 0.002 && warm < 0.002 && cool < 0.002) discard;
   vec3 V = normalize(uCam - vW);
   vec2 mm = vec2(vW.x, -vW.y) / uPxPerMm;
-  vec2 g = grad(tTop, 0, 1.5, 0.6) * uBump;
-  vec2 gs = grad(tSurf, 0, 1.2, 0.3) * uBump * 0.6;
-  vec3 Ncu = normalize(vec3(-g.x, g.y, 1.0));
-  // laminate: glass weave under resin
+  // sharp shoulders, flat tops: a fine gradient for the edge, a broad one for the bevel
+  vec2 g = (gradH(0.9, 0.0) * 0.75 + gradH(2.5, 1.2) * 0.35) * uBump;
+  vec2 gs = gradC(tSurf, 0, 1.2, 0.3) * uBump * 0.6;
+  // brushed copper: fine directional grain and a few scratches
+  float grain = vnoise(mm * vec2(70.0, 2.5)) - 0.5;
+  float scratch = smoothstep(0.92, 1.0, vnoise(mm * vec2(4.0, 140.0)));
+  vec3 Ncu = normalize(vec3(-g.x + grain * 0.04, g.y, 1.0));
   float weave = 0.5 + 0.5 * sin(mm.x * 11.0) * sin(mm.y * 11.0 + 1.3);
   vec3 subAlb = uSub * (0.8 + 0.35 * weave);
   vec3 baseSub = shade(vec3(0, 0, 1), V, subAlb, 0.0, 0.6, 0.04);
   float ox = vnoise(mm * 0.7) * 0.6 + vnoise(mm * 3.1) * 0.4;
-  vec3 baseCu = shade(Ncu, V, uCopper * (0.86 + 0.24 * ox), 1.0, 0.22 + 0.12 * ox, 0.04);
-  vec3 basePad = shade(Ncu, V, uFinish * (0.95 + 0.08 * ox), 1.0, uFinishRough, 0.04);
+  vec3 baseCu = shade(Ncu, V, uCopper * (0.86 + 0.24 * ox), 1.0, 0.2 + 0.1 * ox + 0.12 * scratch, 0.04);
+  vec3 basePad = shade(Ncu, V, uFinish * (0.9 + 0.08 * ox), 1.0, max(uFinishRough, 0.22), 0.04);
   vec3 col = mix(baseSub, baseCu, cu);
   col = mix(col, basePad, pad);
-  // mask pours down the board: a glossy coat that follows the copper relief
+  // the mask pours down the board: a wet front, then a glossy coat that cures to satin.
+  // it clears every pad by a lip, and follows the copper relief beneath
   float py = -vW.y;
-  float masked = uMaskOn * smoothstep(uMaskFront, uMaskFront - uMaskSoft, py) * (1.0 - pad) * (1.0 - hole);
-  vec3 Nm = normalize(vec3(-g.x * 0.55, g.y * 0.55, 1.0));
-  // mask reads lighter over copper and darker over bare laminate
-  vec3 maskAlb = mix(uMask * 0.62, min(uMask * 0.9 + uCopper * 0.06, vec3(0.8)), cu);
-  vec3 maskC = shade(Nm, V, maskAlb, 0.0, 0.12, 0.05);
+  float padNear = textureLod(tTop, vUv, 1.4).g;
+  float clearance = smoothstep(0.04, 0.22, padNear);
+  float poured = smoothstep(uMaskFront, uMaskFront - uMaskSoft * 0.3, py);
+  float masked = uMaskOn * poured * (1.0 - max(pad, clearance)) * (1.0 - hole);
+  float wet = uMaskOn * exp(-sq((py - (uMaskFront - uMaskSoft * 0.22)) / (uMaskSoft * 0.14)));
+  vec2 lip = gradC(tTop, 1, 2.0, 1.4) * uBump * 0.8 * uMaskOn;
+  // under the coat the relief softens: traces read as gentle ridges, not engraved lines
+  vec3 Nm = normalize(vec3(-g.x * 0.28 + lip.x, g.y * 0.28 - lip.y + wet * 0.35, 1.0));
+  // dark masks read lighter over copper, white mask warms a touch
+  float lift = mix(1.45, 1.03, uMaskLuma);
+  float sink = mix(0.78, 0.95, uMaskLuma);
+  vec3 maskAlb = mix(uMask * sink, min(uMask * lift + uCopper * mix(0.05, 0.02, uMaskLuma), vec3(0.82)), cu);
+  vec3 maskC = shade(Nm, V, maskAlb, 0.0, mix(0.05, mix(0.11, 0.16, uCured), 1.0 - wet), 0.05);
   col = mix(col, maskC, masked);
   vec3 Ns = normalize(vec3(-gs.x, gs.y, 1.0));
-  col = mix(col, shade(Ns, V, uSilk, 0.0, 0.7, 0.04), silk);
+  col = mix(col, shade(Ns, V, uSilk, 0.0, 0.7, 0.04), silk * (0.4 + 0.6 * poured * uMaskOn));
   col = mix(col, vec3(0.0015), hole * (1.0 - pad));
-  // light: the only thing brighter than white
-  col += uHead * (pow(en, 1.4) * uEnergy + uSlam * cu * 0.45);
+  // parts shade the board around their bodies
+  col *= 1.0 - 0.8 * clamp(shadow, 0.0, 1.0);
+  // light: the only thing brighter than white. warm for power, cool for data
+  col += uWarm * pow(warm, 1.4) * uEnergy + uCool * pow(cool, 1.4) * uEnergy * 1.15;
+  // the slam: a white-hot rim on every copper edge for a few frames
+  col += mix(uWarm, vec3(1.0), 0.5) * uSlam * clamp(length(g) * 3.0, 0.0, 1.0) * 3.0;
+  // UV cure: a violet pass hardens the coat
+  float cureBand = exp(-sq((py - uCure) / (uMaskSoft * 0.5))) * step(0.0, uCure);
+  col += vec3(0.42, 0.26, 0.95) * cureBand * masked * 0.4;
   // the hero light: a band passing across, caught by every glossy surface
-  float band = exp(-pow((dot(vec2(vW.x, py), uSweepDir) - uSweep.x) / uSweep.y, 2.0)) * uSweep.z;
+  float band = exp(-sq((dot(vec2(vW.x, py), uSweepDir) - uSweep.x) / uSweep.y)) * uSweep.z;
   float gloss = 0.1 * masked * (0.4 + cu) + max(cu * (1.0 - masked), 0.6 * pad) + 0.08 * silk;
   col += vec3(1.0, 0.96, 0.9) * band * gloss * area;
-  float edge = uMaskOn * exp(-pow((py - uMaskFront) / max(1.0, uMaskSoft * 0.12), 2.0)) * area;
-  col += vec3(1.0, 0.98, 0.95) * edge * 0.9;
-  float alpha = clamp(max(area * uSubAlpha * (1.0 - hole * (1.0 - pad)), max(max(cu, pad), en)), 0.0, 1.0);
+  float alpha = clamp(max(area * uSubAlpha * (1.0 - hole * (1.0 - pad)), max(max(cu, pad), max(warm, cool))), 0.0, 1.0);
   o = vec4(col * alpha, alpha);
 }`
 
@@ -120,37 +176,67 @@ const FS_LAYER = `#version 300 es
 precision highp float;
 in vec2 vUv; in vec3 vW; out vec4 o;
 uniform sampler2D tStack; uniform sampler2D tStackE; uniform vec2 uTexel; uniform int uCh;
-uniform vec3 uCopper; uniform vec3 uHead; uniform float uEnergy; uniform float uAlpha; uniform float uBump;
+uniform vec3 uCopper; uniform vec3 uCool; uniform float uEnergy; uniform float uAlpha; uniform float uBump; uniform float uSlam;
 ${LIGHTING}
 void main(){
   if (vUv.x < 0.0 || vUv.y < 0.0 || vUv.x > 1.0 || vUv.y > 1.0) discard;
   float cu = texture(tStack, vUv)[uCh]; float en = texture(tStackE, vUv)[uCh];
   if (cu < 0.003 && en < 0.003) discard;
-  vec2 dx = vec2(uTexel.x * 1.5, 0.0), dy = vec2(0.0, uTexel.y * 1.5);
-  vec2 g = vec2(textureLod(tStack, vUv + dx, 0.6)[uCh] - textureLod(tStack, vUv - dx, 0.6)[uCh],
-                textureLod(tStack, vUv + dy, 0.6)[uCh] - textureLod(tStack, vUv - dy, 0.6)[uCh]) * uBump;
+  vec2 dx = vec2(uTexel.x * 1.2, 0.0), dy = vec2(0.0, uTexel.y * 1.2);
+  vec2 g = vec2(textureLod(tStack, vUv + dx, 0.4)[uCh] - textureLod(tStack, vUv - dx, 0.4)[uCh],
+                textureLod(tStack, vUv + dy, 0.4)[uCh] - textureLod(tStack, vUv - dy, 0.4)[uCh]) * uBump;
   vec3 V = normalize(uCam - vW);
-  vec3 col = shade(normalize(vec3(-g.x, g.y, 1.0)), V, uCopper * 0.92, 1.0, 0.26, 0.04);
-  // floating copper catches the room: a warm ambient keeps each layer legible
-  col += uCopper * 0.09;
-  col += uHead * pow(en, 1.4) * uEnergy;
-  float a = clamp(max(cu, en) * uAlpha, 0.0, 1.0);
+  // traces are solid copper; planes (drawn faint) are a translucent film
+  float solid = smoothstep(0.45, 0.85, cu);
+  vec3 col = shade(normalize(vec3(-g.x, g.y, 1.0)), V, uCopper * 0.92, 1.0, mix(0.4, 0.24, solid), 0.04);
+  col += uCopper * mix(0.03, 0.08, solid);
+  col += uCool * pow(en, 1.4) * uEnergy;
+  col += vec3(1.0) * uSlam * clamp(length(g) * 3.0, 0.0, 1.0) * 2.0;
+  float a = clamp(max(mix(cu * 0.55, cu, solid), en) * uAlpha, 0.0, 1.0);
   o = vec4(col * a, a);
 }`
 
 const FS_GLASS = `#version 300 es
 precision highp float;
 in vec2 vUv; in vec3 vW; out vec4 o;
-uniform sampler2D tSurf; uniform vec2 uTexel; uniform vec3 uSub; uniform vec3 uHead; uniform float uAlpha;
+uniform sampler2D tSurf; uniform vec3 uSub; uniform vec3 uCool; uniform float uAlpha;
 void main(){
   if (vUv.x < 0.0 || vUv.y < 0.0 || vUv.x > 1.0 || vUv.y > 1.0) discard;
   float area = texture(tSurf, vUv).b;
   float blur = textureLod(tSurf, vUv, 3.0).b;
   float rim = clamp(abs(area - blur) * 3.0, 0.0, 1.0);
-  float a = (area * 0.2 + rim * 0.5) * uAlpha;
+  float a = (area * 0.14 + rim * 0.35) * uAlpha;
   if (a < 0.002) discard;
-  vec3 col = uSub * 0.6 + uHead * rim * 0.5;
+  vec3 col = uSub * 0.5 + uCool * rim * 0.25;
   o = vec4(col * a, a);
+}`
+
+const FS_FLOOR = `#version 300 es
+precision highp float;
+in vec2 vUv; in vec3 vW; out vec4 o;
+uniform sampler2D tSurf; uniform sampler2D tTop; uniform sampler2D tFx; uniform vec4 uMap;
+uniform vec2 uCentre; uniform float uSpread; uniform vec3 uWarm; uniform vec3 uCool; uniform vec3 uKeyDir;
+uniform float uShock; uniform float uShockR; uniform float uLift;
+float sq(float x){ return x * x; }
+void main(){
+  vec2 p = vec2(vW.x, -vW.y);
+  float d = length(p - uCentre);
+  // a pool of studio light falling off into black
+  vec3 col = vec3(0.012, 0.014, 0.018) * exp(-d * d / (2.0 * uSpread * uSpread)) + vec3(0.0015);
+  vec2 uv = (p - uMap.xy) / uMap.zw;
+  vec2 suv = uv + uKeyDir.xy * vec2(1.0, -1.0) * (0.006 + uLift * 0.02);
+  if (suv.x > 0.0 && suv.y > 0.0 && suv.x < 1.0 && suv.y < 1.0) {
+    // the board's contact shadow, softer as the stack lifts off
+    float sh = textureLod(tSurf, suv, mix(4.5, 6.5, uLift)).b;
+    col *= 1.0 - 0.92 * clamp(sh * 1.3, 0.0, 1.0);
+  }
+  if (uv.x > 0.0 && uv.y > 0.0 && uv.x < 1.0 && uv.y < 1.0) {
+    // energy spills onto the floor around the board
+    col += uWarm * textureLod(tTop, uv, 6.5).b * 0.35 + uCool * textureLod(tFx, uv, 6.5).r * 0.45;
+  }
+  // the slam's shockwave rolls out across the floor
+  col += mix(uCool, vec3(1.0), 0.4) * uShock * exp(-sq((d - uShockR) / (uSpread * 0.45))) * 0.05;
+  o = vec4(col, 1.0);
 }`
 
 const VS_WALL = `#version 300 es
@@ -167,48 +253,176 @@ void main(){
 const FS_WALL = `#version 300 es
 precision highp float;
 in vec3 vW; in vec3 vN; in float vF; out vec4 o;
-uniform vec3 uSub; uniform vec3 uCopper; uniform float uLayers; uniform float uAlpha; uniform float uPxPerMm;
+uniform vec3 uSub; uniform vec3 uCopper; uniform vec3 uMask; uniform float uLayers; uniform float uMaskOn;
 ${LIGHTING}
 void main(){
   vec3 V = normalize(uCam - vW);
   vec3 N = dot(vN, V) < 0.0 ? -vN : vN;
-  // the cross-section: laminate with a copper line at every layer
+  // the cross-section: laminate with a copper line at every layer, mask on both faces
   float band = 0.0;
   for (float i = 0.0; i < 6.0; i += 1.0) {
     if (i >= uLayers) break;
     float li = uLayers > 1.0 ? i / (uLayers - 1.0) : 0.0;
-    band = max(band, exp(-pow((vF - li) / 0.035, 2.0)));
+    band = max(band, exp(-sq((vF - li) / 0.03)));
   }
   float fibre = 0.5 + 0.5 * sin(vF * 70.0);
   vec3 lam = shade(N, V, uSub * (1.2 + 0.4 * fibre), 0.0, 0.7, 0.04);
   vec3 cu = shade(N, V, uCopper, 1.0, 0.3, 0.04);
   vec3 col = mix(lam, cu, band);
-  o = vec4(col * uAlpha, uAlpha);
+  float face = uMaskOn * max(smoothstep(0.06, 0.0, vF), smoothstep(0.94, 1.0, vF));
+  col = mix(col, shade(N, V, uMask, 0.0, 0.15, 0.05), face);
+  o = vec4(col, 1.0);
+}`
+
+const VS_PART = `#version 300 es
+in vec4 aBox;   // plane x, y, w, h
+in vec4 aMeta;  // rot, height px, kind, landing time
+in vec4 aLabel; // atlas cell (col,row), has label, hero
+uniform mat4 uVP; uniform float uP; uniform float uBase; uniform float uLift;
+out vec3 vW; out vec3 vN; out vec3 vL; flat out vec4 vMeta; flat out vec4 vLabel; flat out vec2 vSize;
+const vec3 C[8] = vec3[8](vec3(-.5,-.5,0), vec3(.5,-.5,0), vec3(.5,.5,0), vec3(-.5,.5,0),
+                          vec3(-.5,-.5,1), vec3(.5,-.5,1), vec3(.5,.5,1), vec3(-.5,.5,1));
+const int I[36] = int[36](4,5,6, 4,6,7, 0,2,1, 0,3,2, 0,1,5, 0,5,4, 1,2,6, 1,6,5, 2,3,7, 2,7,6, 3,0,4, 3,4,7);
+const vec3 FN[6] = vec3[6](vec3(0,0,1), vec3(0,0,-1), vec3(0,-1,0), vec3(1,0,0), vec3(0,1,0), vec3(-1,0,0));
+float drop(float t, float p, float hero){
+  float dur = hero > 0.5 ? 0.032 : 0.014;
+  float u = (p - (t - dur)) / dur;
+  if (u <= 0.0) return 1.0;
+  if (u >= 1.0) return 0.0;
+  return 1.0 - u * u;
+}
+void main(){
+  vec3 c = C[I[gl_VertexID]];
+  vec3 n = FN[gl_VertexID / 6];
+  float dr = drop(aMeta.w, uP, aLabel.w);
+  float hidden = step(0.999, dr);
+  // landed parts settle with a small bounce; the hero falls from higher
+  float since = uP - aMeta.w;
+  float bounce = since > 0.0 ? 0.06 * sin(since * 900.0) * exp(-since * 260.0) : 0.0;
+  // the hero starts in frame, hovering; everything else drops from just above
+  float fall = dr * aMeta.y * (aLabel.w > 0.5 ? 5.0 : 9.0) + abs(bounce) * aMeta.y;
+  float cr = cos(aMeta.x), sr = sin(aMeta.x);
+  vec2 lp = vec2(c.x * aBox.z, c.y * aBox.w);
+  vec2 pp = aBox.xy + vec2(lp.x * cr - lp.y * sr, lp.x * sr + lp.y * cr);
+  vW = vec3(pp.x, -pp.y, uBase + uLift + fall + c.z * aMeta.y);
+  vec2 nn = vec2(n.x * cr - n.y * sr, n.x * sr + n.y * cr);
+  vN = vec3(nn.x, -nn.y, n.z);
+  vL = c;
+  vMeta = aMeta;
+  vLabel = aLabel;
+  vSize = aBox.zw;
+  gl_Position = hidden > 0.5 ? vec4(2.0, 2.0, 2.0, 1.0) : uVP * vec4(vW, 1.0);
+}`
+
+const FS_PART = `#version 300 es
+precision highp float;
+in vec3 vW; in vec3 vN; in vec3 vL; flat in vec4 vMeta; flat in vec4 vLabel; flat in vec2 vSize; out vec4 o;
+uniform sampler2D tAtlas; uniform vec2 uCell; uniform vec3 uFinish; uniform vec3 uWarm; uniform float uLedOn;
+${LIGHTING}
+void main(){
+  vec3 V = normalize(uCam - vW);
+  int kind = int(vMeta.z + 0.5);
+  vec3 N = normalize(vN);
+  // softened edges: bend the normal toward the nearest edge so every box catches a rim
+  vec2 e = abs(vL.xy) * 2.0;
+  float edge = smoothstep(0.86, 1.0, max(e.x, e.y));
+  float top = step(0.5, vN.z);
+  if (top > 0.5) {
+    vec2 dirL = vec2(e.x > e.y ? sign(vL.x) : 0.0, e.x > e.y ? 0.0 : sign(vL.y));
+    float cr = cos(vMeta.x), sr = sin(vMeta.x);
+    vec2 dw = vec2(dirL.x * cr - dirL.y * sr, dirL.x * sr + dirL.y * cr);
+    N = normalize(N + vec3(dw.x, -dw.y, 0.0) * edge * 0.9);
+  }
+  vec3 alb = vec3(0.022); float metal = 0.0; float rough = 0.42; vec3 emit = vec3(0.0);
+  float along = vSize.x >= vSize.y ? vL.x : vL.y;
+  float cap = smoothstep(0.34, 0.37, abs(along));
+  if (kind == 0) {            // ic: black epoxy, a pin-1 dimple, a laser-etched marking
+    alb = vec3(0.028, 0.028, 0.03); rough = 0.5;
+    if (top > 0.5) {
+      vec2 q = vL.xy + 0.5;
+      float dimple = 1.0 - smoothstep(0.035, 0.05, length((q - vec2(0.13, 0.13)) * vSize / max(vSize.x, vSize.y)));
+      alb = mix(alb, vec3(0.012), dimple); rough = mix(rough, 0.2, dimple);
+      if (vLabel.z > 0.5) {
+        // the marking runs along the long side, at the atlas cell's 4:1 aspect
+        bool wide = vSize.x >= vSize.y;
+        vec2 t = wide ? q : vec2(q.y, 1.0 - q.x);
+        float longS = max(vSize.x, vSize.y), shortS = min(vSize.x, vSize.y);
+        float hFrac = min(0.5, 0.78 * longS / 4.0 / shortS);
+        float wFrac = hFrac * shortS * 4.0 / longS;
+        vec2 tc = vec2((t.x - 0.5) / wFrac + 0.5, (t.y - 0.5) / hFrac + 0.5);
+        if (vLabel.z > 1.5) tc = 1.0 - tc;
+        if (tc.x > 0.0 && tc.x < 1.0 && tc.y > 0.0 && tc.y < 1.0) {
+          float m = texture(tAtlas, (vLabel.xy + tc) * uCell).r;
+          alb = mix(alb, vec3(0.16, 0.16, 0.165), m); rough = mix(rough, 0.75, m);
+        }
+      }
+    }
+  } else if (kind == 1) {     // resistor: black top, white ceramic sides, tin ends
+    alb = top > 0.5 ? vec3(0.02) : vec3(0.55, 0.53, 0.5); rough = 0.55;
+    alb = mix(alb, uFinish * 0.9 + 0.1, cap); metal = cap; rough = mix(rough, 0.3, cap);
+  } else if (kind == 2) {     // MLCC: tan ceramic, tin ends
+    alb = vec3(0.33, 0.24, 0.15); rough = 0.6;
+    alb = mix(alb, uFinish * 0.9 + 0.1, cap); metal = cap; rough = mix(rough, 0.3, cap);
+  } else if (kind == 3) {     // inductor
+    alb = vec3(0.05, 0.05, 0.055); rough = 0.5;
+    alb = mix(alb, uFinish * 0.9 + 0.1, cap); metal = cap;
+  } else if (kind == 4) {     // diode: black with a silver cathode band
+    alb = vec3(0.025); rough = 0.45;
+    float band = smoothstep(0.24, 0.27, along) * (1.0 - smoothstep(0.33, 0.36, along));
+    alb = mix(alb, vec3(0.5), band);
+  } else if (kind == 5) {     // LED: milky lens that lights in the hero
+    alb = vec3(0.7, 0.7, 0.66); rough = 0.2;
+    emit = uWarm * uLedOn * 0.45 * (0.5 + 0.5 * top);
+  } else if (kind == 6) {     // crystal: a metal can
+    alb = vec3(0.72, 0.73, 0.75); metal = 1.0; rough = 0.22;
+  } else if (kind == 7) {     // connector: black plastic, a grid of gold pins on top
+    alb = vec3(0.03, 0.03, 0.032); rough = 0.55;
+    if (top > 0.5 && vLabel.z > 0.5) {
+      vec2 lpx = vL.xy * vSize;
+      vec2 cell = abs(fract(lpx / vLabel.z + 0.5) - 0.5) * 2.0;
+      float pin = (1.0 - smoothstep(0.32, 0.4, max(cell.x, cell.y))) * step(max(abs(vL.x) * vSize.x - vSize.x * 0.5 + vLabel.z * 0.5, abs(vL.y) * vSize.y - vSize.y * 0.5 + vLabel.z * 0.5), 0.0);
+      alb = mix(alb, uFinish * 0.85 + vec3(0.05, 0.04, 0.0), pin); metal = pin; rough = mix(rough, 0.25, pin);
+    }
+  } else if (kind == 8) {     // switch: steel cap on a black base
+    alb = top > 0.5 ? vec3(0.62, 0.63, 0.65) : vec3(0.03); metal = top; rough = 0.3;
+  } else if (kind == 9) {     // electrolytic: aluminium top, dark sleeve
+    alb = top > 0.5 ? vec3(0.7, 0.71, 0.72) : vec3(0.02, 0.04, 0.12); metal = top; rough = top > 0.5 ? 0.28 : 0.35;
+  } else {
+    alb = vec3(0.05, 0.05, 0.055); rough = 0.5;
+  }
+  vec3 col = shade(N, V, alb, metal, rough, 0.045) + emit;
+  // the underside hugs the board: ambient occlusion at the foot of every wall
+  col *= mix(0.45, 1.0, smoothstep(0.0, 0.35, vL.z));
+  o = vec4(col, 1.0);
 }`
 
 const VS_VIA = `#version 300 es
 in vec3 aVia; // plane x, plane y, radius px
 uniform mat4 uVP; uniform vec3 uRight; uniform float uZTop; uniform float uZBot;
-out float vU; out float vV; flat out float vSeed;
+out float vU; out float vV; flat out float vSeed; flat out float vAlong;
+uniform vec4 uExt;
 void main(){
   float u = float(gl_VertexID & 1), v = float(gl_VertexID >> 1);
   vU = u; vV = v;
   vSeed = fract(sin(dot(aVia.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  vAlong = clamp(((aVia.x - uExt.x) / uExt.z) * 0.7 + ((aVia.y - uExt.y) / uExt.w) * 0.3, 0.0, 1.0);
   vec3 w = vec3(aVia.x, -aVia.y, mix(uZBot, uZTop, v)) + uRight * (u - 0.5) * max(aVia.z * 1.6, 2.0);
   gl_Position = uVP * vec4(w, 1.0);
 }`
 
 const FS_VIA = `#version 300 es
 precision highp float;
-in float vU; in float vV; flat in float vSeed; out vec4 o;
-uniform vec3 uHead; uniform float uGlow; uniform float uPhase;
+in float vU; in float vV; flat in float vSeed; flat in float vAlong; out vec4 o;
+uniform vec3 uCool; uniform float uGlow; uniform float uWave;
+float sq(float x){ return x * x; }
 void main(){
   float core = pow(1.0 - abs(vU * 2.0 - 1.0), 3.0);
-  // a faint barrel, and on some vias a bead of light dropping through the stack
-  float lit = step(0.72, fract(vSeed * 7.13));
-  float ph = fract(uPhase + vSeed);
-  float bead = lit * exp(-pow((1.0 - vV - ph) / 0.05, 2.0));
-  o = vec4(uHead * core * uGlow * (0.025 + 2.0 * bead), 0.0);
+  // traffic: a wave crosses the board and, as it passes each via, a bead of
+  // light drops through the stack from the top layer to the bottom
+  float lit = step(0.45, vSeed);
+  float ph = (uWave - vAlong * 0.7) * 1.6;
+  float bead = lit * step(0.0, ph) * step(ph, 1.0) * exp(-sq((1.0 - vV) - ph) / 0.006);
+  o = vec4(uCool * core * uGlow * (0.02 + 2.4 * bead), 0.0);
 }`
 
 const VS_QUAD = `#version 300 es
@@ -240,8 +454,11 @@ void main(){
     float r = sqrt(fi / float(N)) * c;
     float a = fi * 2.39996;
     vec2 q = uv + vec2(cos(a), sin(a)) * r / uRes;
-    float w = smoothstep(r - 1.5, r + 0.5, coc(q) + 1.0);
-    acc += texture(t, q) * w; wsum += w;
+    vec4 s = texture(t, q);
+    // highlights dominate their disc and its rim: real bokeh, not gaussian mush
+    float l = max(s.r, max(s.g, s.b));
+    float w = smoothstep(r - 1.5, r + 0.5, coc(q) + 1.0) * (1.0 + 3.0 * smoothstep(1.2, 4.0, l)) * (1.0 + 0.6 * smoothstep(0.6, 1.0, r / c));
+    acc += s * w; wsum += w;
   }
   o = acc / max(wsum, 1e-3);
 }`
@@ -284,7 +501,9 @@ void main(){
   vec3 glow = texture(tBloom, uv).rgb * uBloom + texture(tStreak, uv).rgb * uStreak * uStreakTint;
   c += glow;
   c = aces(c * uExposure);
+  // a gentle toe keeps the blacks black and the mids open
   c = pow(c, vec3(1.0 / 2.2));
+  c = smoothstep(0.0, 1.0, c * 0.96 + 0.02) * 0.92 + c * 0.08;
   float a = 1.0;
   if (uTransparent) {
     a = clamp(base.a + dot(glow, vec3(0.3)), 0.0, 1.0);
@@ -374,95 +593,6 @@ export function linear(hex: string): [number, number, number] {
   return [c(0), c(1), c(2)]
 }
 
-// ---------------------------------------------------------------- camera
-
-type V3 = [number, number, number]
-const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-const dot = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
-const norm = (a: V3): V3 => {
-  const l = Math.hypot(a[0], a[1], a[2]) || 1
-  return [a[0] / l, a[1] / l, a[2] / l]
-}
-
-export interface Cam {
-  pos: V3
-  f: V3
-  r: V3
-  u: V3
-  dist: number
-  tanX: number
-  tanY: number
-  vp: Float32Array
-  aperture: number
-}
-
-const SHOT_KEYS = ['x', 'y', 'zoom', 'tilt', 'yaw', 'aperture'] as const
-
-/**
- * Monotone cubic through the shot keys: the camera glides through a key
- * when the move continues, and settles on it when the move turns around.
- */
-export function sampleShot(shots: CameraShot[], p: number): Omit<CameraShot, 't'> {
-  const out = { x: 0, y: 0, zoom: 1, tilt: 0, yaw: 0, aperture: 0 }
-  if (shots.length === 0) return out
-  let k = 0
-  while (k + 1 < shots.length && (shots[k + 1] as CameraShot).t <= p) k++
-  const a = shots[k] as CameraShot
-  const b = shots[Math.min(k + 1, shots.length - 1)] as CameraShot
-  const h = b.t - a.t
-  const u = h > 0 ? Math.min(1, Math.max(0, (p - a.t) / h)) : 0
-  for (const key of SHOT_KEYS) {
-    const slope = (i: number): number => {
-      const prev = shots[i - 1]
-      const cur = shots[i] as CameraShot
-      const next = shots[i + 1]
-      if (prev === undefined || next === undefined) return 0
-      const d0 = (cur[key] - prev[key]) / Math.max(1e-6, cur.t - prev.t)
-      const d1 = (next[key] - cur[key]) / Math.max(1e-6, next.t - cur.t)
-      return d0 * d1 <= 0 ? 0 : (2 * d0 * d1) / (d0 + d1)
-    }
-    const m0 = slope(k) * h
-    const m1 = slope(Math.min(k + 1, shots.length - 1)) * h
-    const u2 = u * u
-    const u3 = u2 * u
-    out[key] = (2 * u3 - 3 * u2 + 1) * a[key] + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * b[key] + (u3 - u2) * m1
-  }
-  return out
-}
-
-export function makeCam(shot: Omit<CameraShot, 't'>, W: number, H: number): Cam {
-  const tanY = Math.tan(FOV / 2)
-  const tanX = tanY * (W / H)
-  const dist = H / 2 / tanY / Math.max(0.05, shot.zoom)
-  const T: V3 = [shot.x, -shot.y, 0]
-  const st = Math.sin(shot.tilt)
-  const pos: V3 = [T[0] + dist * st * Math.sin(shot.yaw), T[1] - dist * st * Math.cos(shot.yaw), dist * Math.cos(shot.tilt)]
-  const f = norm(sub(T, pos))
-  const r: V3 = [Math.cos(shot.yaw), Math.sin(shot.yaw), 0]
-  const u = norm(cross(r, f))
-  const near = dist * 0.02
-  const far = dist * 20
-  const view = [
-    r[0], u[0], -f[0], 0,
-    r[1], u[1], -f[1], 0,
-    r[2], u[2], -f[2], 0,
-    -dot(r, pos), -dot(u, pos), dot(f, pos), 1
-  ]
-  const py = 1 / tanY
-  const px = 1 / tanX
-  const proj = [px, 0, 0, 0, 0, py, 0, 0, 0, 0, (far + near) / (near - far), -1, 0, 0, (2 * far * near) / (near - far), 0]
-  const vp = new Float32Array(16)
-  for (let c = 0; c < 4; c++) {
-    for (let rr = 0; rr < 4; rr++) {
-      let s = 0
-      for (let k = 0; k < 4; k++) s += (proj[k * 4 + rr] as number) * (view[c * 4 + k] as number)
-      vp[c * 4 + rr] = s
-    }
-  }
-  return { pos, f, r, u, dist, tanX, tanY, vp, aperture: shot.aperture }
-}
-
 /** where the camera's view meets the plane z = zPlane, as a plane-px bbox */
 function footprint(cam: Cam, zPlane: number): Region {
   let x0 = Infinity
@@ -489,9 +619,42 @@ function footprint(cam: Cam, zPlane: number): Region {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
 }
 
-// ---------------------------------------------------------------- renderer
+const KIND_ID: Record<string, number> = { ic: 0, res: 1, cap: 2, ind: 3, diode: 4, led: 5, xtal: 6, conn: 7, switch: 8, can: 9, other: 10 }
 
-export function createTraceGL(width: number, height: number, subframes: number): TraceGL | undefined {
+const ease = (x: number): number => {
+  const t = Math.min(1, Math.max(0, x))
+  return t * t * (3 - 2 * t)
+}
+const backOut = (x: number): number => {
+  const t = Math.min(1, Math.max(0, x)) - 1
+  return 1 + t * t * (2.4 * t + 1.4)
+}
+
+/**
+ * Each layer's lift (0 rest .. 1 full) through the stack act: a cascade off
+ * the top, a spring settle, a float, an anticipation rise, an accelerating
+ * fall and a small rebound after impact.
+ */
+export function layerLift(p: number, i: number, n: number, ex: [number, number], slam: [number, number]): number {
+  const stagger = 0.007
+  const dur = ex[1] - ex[0] - stagger * Math.max(0, n - 1)
+  let e = backOut((p - ex[0] - i * stagger) / Math.max(0.01, dur))
+  if (p < ex[0]) return 0
+  if (p > ex[1] && p < slam[0]) e += 0.015 * Math.sin((p - ex[1]) * 90 + i * 1.7)
+  const pre = 0.014
+  if (p >= slam[0] - pre && p < slam[0]) e *= 1 + 0.08 * ease((p - (slam[0] - pre)) / pre)
+  if (p >= slam[0]) {
+    const u = Math.min(1, (p - slam[0]) / (slam[1] - slam[0]))
+    e = 1.08 * (1 - Math.pow(u, 2.2))
+    if (u >= 1) {
+      const t = p - slam[1]
+      e = Math.max(0, 0.03 * Math.sin(t * 700) * Math.exp(-t * 320))
+    }
+  }
+  return Math.max(0, e)
+}
+
+export function createTraceGL(width: number, height: number, quality: TraceQuality): TraceGL | undefined {
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -510,7 +673,9 @@ export function createTraceGL(width: number, height: number, subframes: number):
     top: link(g, VS_PLANE, FS_TOP),
     layer: link(g, VS_PLANE, FS_LAYER),
     glass: link(g, VS_PLANE, FS_GLASS),
+    floor: link(g, VS_PLANE, FS_FLOOR),
     wall: link(g, VS_WALL, FS_WALL),
+    part: link(g, VS_PART, FS_PART),
     via: link(g, VS_VIA, FS_VIA),
     copy: link(g, VS_QUAD, FS_COPY),
     dof: link(g, VS_QUAD, FS_DOF),
@@ -528,23 +693,25 @@ export function createTraceGL(width: number, height: number, subframes: number):
   g.pixelStorei(g.UNPACK_COLORSPACE_CONVERSION_WEBGL, g.NONE)
   g.pixelStorei(g.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
 
-  // map resolution: ~1.6× the frame, under the 4096 texture cap
-  const k = Math.min(1.6, 4096 / Math.max(width, height))
+  const k = Math.min(quality.mapScale, 4096 / Math.max(width, height))
   const MW = Math.round(width * k)
   const MH = Math.round(height * k)
   const maps: MapSet = createMaps(MW, MH)
-  const mapTex = [0, 1, 2, 3].map(() => {
+  const mkTex = (mip: boolean): WebGLTexture => {
     const t = g.createTexture()
     g.bindTexture(g.TEXTURE_2D, t)
-    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR_MIPMAP_LINEAR)
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, mip ? g.LINEAR_MIPMAP_LINEAR : g.LINEAR)
     g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR)
     g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE)
     g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE)
-    if (aniso !== null) g.texParameterf(g.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, 8)
+    if (mip && aniso !== null) g.texParameterf(g.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, 8)
     return t
-  })
+  }
+  // top, surf, fx, stack, stackE, atlas
+  const mapTex = [0, 1, 2, 3, 4].map(() => mkTex(true))
+  const atlasTex = mkTex(true)
 
-  const target = (w: number, h: number): Target => {
+  const target = (w: number, h: number, depth: boolean): Target => {
     const tex = g.createTexture()
     g.bindTexture(g.TEXTURE_2D, tex)
     g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR)
@@ -555,17 +722,23 @@ export function createTraceGL(width: number, height: number, subframes: number):
     const fbo = g.createFramebuffer()
     g.bindFramebuffer(g.FRAMEBUFFER, fbo)
     g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, tex, 0)
+    if (depth) {
+      const rb = g.createRenderbuffer()
+      g.bindRenderbuffer(g.RENDERBUFFER, rb)
+      g.renderbufferStorage(g.RENDERBUFFER, g.DEPTH_COMPONENT24, w, h)
+      g.framebufferRenderbuffer(g.FRAMEBUFFER, g.DEPTH_ATTACHMENT, g.RENDERBUFFER, rb)
+    }
     return { tex, fbo, w, h }
   }
-  const scene = target(width, height)
-  const accum = target(width, height)
-  const dof = target(width, height)
+  const scene = target(width, height, true)
+  const accum = target(width, height, true)
+  const dof = target(width, height, false)
   const pyramid: Target[] = []
-  for (let i = 0, w = Math.ceil(width / 2), h = Math.ceil(height / 2); i < 6; i++, w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) pyramid.push(target(w, h))
+  for (let i = 0, w = Math.ceil(width / 2), h = Math.ceil(height / 2); i < 6; i++, w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) pyramid.push(target(w, h, false))
   const sw = Math.ceil(width / 4)
   const sh = Math.ceil(height / 4)
-  const streakA = target(sw, sh)
-  const streakB = target(sw, sh)
+  const streakA = target(sw, sh, false)
+  const streakB = target(sw, sh, false)
 
   const bind = (t: Target | null): void => {
     g.bindFramebuffer(g.FRAMEBUFFER, t?.fbo ?? null)
@@ -575,15 +748,23 @@ export function createTraceGL(width: number, height: number, subframes: number):
     g.activeTexture(g.TEXTURE0 + unit)
     g.bindTexture(g.TEXTURE_2D, t)
   }
-  const quad = (): void => { g.drawArrays(g.TRIANGLES, 0, 3); }
+  const quad = (): void => {
+    g.drawArrays(g.TRIANGLES, 0, 3)
+  }
 
-  // per-timeline geometry: board walls and vias
+  // per-timeline geometry: board walls, vias, parts and their markings
   let builtFor: TraceTimeline | undefined
-  let wallBuf: WebGLBuffer | undefined
+  const wallBuf = g.createBuffer()
+  const viaBuf = g.createBuffer()
+  const partBuf = g.createBuffer()
   let wallCount = 0
-  let viaBuf: WebGLBuffer | undefined
   let viaCount = 0
+  let partCount = 0
   let extent: Region = { x: 0, y: 0, w: width, h: height }
+  const CELL_W = 256
+  const CELL_H = 64
+  const ATLAS_COLS = 8
+  const ATLAS_ROWS = 16
   const build = (tl: TraceTimeline): void => {
     if (builtFor === tl) return
     builtFor = tl
@@ -611,14 +792,49 @@ export function createTraceGL(width: number, height: number, subframes: number):
     }
     const m = 0.06 * Math.max(x1 - x0, y1 - y0)
     extent = Number.isFinite(x0) ? { x: x0 - m, y: y0 - m, w: x1 - x0 + 2 * m, h: y1 - y0 + 2 * m } : { x: 0, y: 0, w: width, h: height }
-    wallBuf ??= g.createBuffer()
     g.bindBuffer(g.ARRAY_BUFFER, wallBuf)
     g.bufferData(g.ARRAY_BUFFER, new Float32Array(walls), g.STATIC_DRAW)
     wallCount = walls.length / 4
-    viaBuf ??= g.createBuffer()
     g.bindBuffer(g.ARRAY_BUFFER, viaBuf)
     g.bufferData(g.ARRAY_BUFFER, new Float32Array(s.vias.flatMap((v) => [v.x, v.y, v.r])), g.STATIC_DRAW)
     viaCount = s.vias.length
+    // markings: one atlas cell per labelled part
+    const atlas = document.createElement('canvas')
+    atlas.width = CELL_W * ATLAS_COLS
+    atlas.height = CELL_H * ATLAS_ROWS
+    const actx = atlas.getContext('2d') as CanvasRenderingContext2D
+    actx.fillStyle = '#000'
+    actx.fillRect(0, 0, atlas.width, atlas.height)
+    actx.fillStyle = '#fff'
+    actx.textAlign = 'center'
+    actx.textBaseline = 'middle'
+    let cell = 0
+    const inst: number[] = []
+    for (const part of s.parts) {
+      let col = 0
+      let row = 0
+      let has = 0
+      if (part.label !== undefined && cell < ATLAS_COLS * ATLAS_ROWS) {
+        col = cell % ATLAS_COLS
+        row = Math.floor(cell / ATLAS_COLS)
+        const size = Math.min(34, (CELL_W * 0.92) / Math.max(1, part.label.length) * 1.7)
+        actx.font = `600 ${size}px ui-monospace, Menlo, monospace`
+        actx.fillText(part.label, col * CELL_W + CELL_W / 2, row * CELL_H + CELL_H / 2)
+        // a marking reads left to right across the frame: flip it if its baseline runs backwards
+        const dirX = part.w >= part.h ? Math.cos(part.rot) : -Math.sin(part.rot)
+        has = dirX < -0.01 ? 2 : 1
+        cell++
+      }
+      // connectors carry their pin pitch where ICs carry their marking flag
+      const third = part.kind === 'conn' ? (part.pitch ?? 0) : has
+      inst.push(part.x, part.y, part.w, part.h, part.rot, part.z, KIND_ID[part.kind] ?? 10, part.t, col, row, third, part.hero === true ? 1 : 0)
+    }
+    g.bindTexture(g.TEXTURE_2D, atlasTex)
+    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, atlas)
+    g.generateMipmap(g.TEXTURE_2D)
+    g.bindBuffer(g.ARRAY_BUFFER, partBuf)
+    g.bufferData(g.ARRAY_BUFFER, new Float32Array(inst), g.STATIC_DRAW)
+    partCount = s.parts.length
   }
 
   /** the region to rasterise: what the camera sees of the board (both stack ends) */
@@ -626,11 +842,12 @@ export function createTraceGL(width: number, height: number, subframes: number):
     let r: Region | undefined
     for (const z of zs) {
       const f = footprint(cam, z)
-      r = r === undefined ? f : (() => {
+      if (r === undefined) r = f
+      else {
         const xa = Math.min(r.x, f.x)
         const ya = Math.min(r.y, f.y)
-        return { x: xa, y: ya, w: Math.max(r.x + r.w, f.x + f.w) - xa, h: Math.max(r.y + r.h, f.y + f.h) - ya }
-      })()
+        r = { x: xa, y: ya, w: Math.max(r.x + r.w, f.x + f.w) - xa, h: Math.max(r.y + r.h, f.y + f.h) - ya }
+      }
     }
     const f = r as Region
     const xa = Math.max(f.x, extent.x)
@@ -639,7 +856,6 @@ export function createTraceGL(width: number, height: number, subframes: number):
     const yb = Math.min(f.y + f.h, extent.y + extent.h)
     let w = Math.max(8, xb - xa)
     let h = Math.max(8, yb - ya)
-    // match the map's aspect so texels stay square
     const aspect = MW / MH
     let x = xa
     let y = ya
@@ -662,19 +878,25 @@ export function createTraceGL(width: number, height: number, subframes: number):
   }
 
   const lighting = (prog: Prog, cam: Cam, p: number, sweep: number): void => {
-    // a low key raking across the board, drifting through the film
+    // a warm key raking low across the board, a cool rim from behind the camera's line
     const az = -2.35 + p * 1.1
     const el = 0.52
+    const back = norm([-cam.f[0], -cam.f[1], 0])
     prog.v3('uCam', cam.pos)
       .f('uKey', Math.cos(az) * Math.cos(el), Math.sin(az) * Math.cos(el), Math.sin(el))
-      .f('uKeyCol', 3.1, 2.9, 2.6)
-      .f('uFill', 0.05, 0.055, 0.065)
+      .f('uKeyCol', 3.0, 2.72, 2.35)
+      .f('uFill', 0.03, 0.045, 0.07)
+      .f('uRim', -back[0] * 0.9, -back[1] * 0.9, 0.42)
+      .f('uRimCol', 1.3, 1.65, 2.2)
       .f('uBoxN', 0.6, -0.8, 0)
-      .f('uBoxPos', -0.9 + sweep * 1.8)
+      .f('uBoxPos', -0.9 + Math.min(1, Math.max(0, sweep)) * 1.8)
       .f('uBoxGain', 0.38)
   }
 
+  let lastAnnotations: Annotation[] = []
+
   return {
+    annotations: () => lastAnnotations,
     render(tl: TraceTimeline, frame: number): HTMLCanvasElement {
       if (g.isContextLost()) return canvas
       build(tl)
@@ -683,30 +905,23 @@ export function createTraceGL(width: number, height: number, subframes: number):
       const H = height
       const p = frame / tl.totalFrames
       const acts = s.acts
-      const ease = (x: number): number => {
-        const t = Math.min(1, Math.max(0, x))
-        return t * t * (3 - 2 * t)
-      }
       const span = (a: [number, number]): number => ease((p - a[0]) / (a[1] - a[0]))
-      // the stack: lift out with a long ease, slam home with an accelerating fall
-      const lift = 1 - Math.pow(1 - Math.min(1, Math.max(0, (p - acts.explode[0]) / (acts.explode[1] - acts.explode[0]))), 3)
-      const fall = Math.min(1, Math.max(0, (p - acts.slam[0]) / (acts.slam[1] - acts.slam[0])))
-      const explode = p < acts.explode[0] ? 0 : p < acts.slam[0] ? lift : Math.max(0, 1 - fall * fall)
+      const nLayers = Math.max(1, s.layers.length)
+      const lifts = Array.from({ length: nLayers }, (_, i) => layerLift(p, i, nLayers, acts.explode, acts.slam))
+      const explode = Math.max(...lifts)
+      // the stack rises off the bottom layer: the top climbs highest
+      const zOf = (i: number): number => s.stack.gap * (lifts[i] as number) * (nLayers - 1 - i)
       const sinceSlam = p - acts.slam[1]
-      const slam = sinceSlam >= 0 ? Math.exp(-sinceSlam * 90) : 0
+      const slam = sinceSlam >= 0 ? Math.exp(-sinceSlam * 260) : 0
       const fade = 1 - span([0.975, 1])
       const sweep = (p - acts.sweep[0]) / (acts.sweep[1] - acts.sweep[0])
+      const minWH = Math.min(W, H)
 
-      const nLayers = Math.max(1, s.layers.length)
-      const S = 0.17 * Math.min(W, H) * explode
-      const zOf = (i: number): number => S * ((nLayers - 1) / 2 - i)
-
-      // camera at the frame centre for the maps, and for depth of field
       const shake = (q: number): { dx: number; dy: number } => {
         const t = q - acts.slam[1]
         if (t < 0) return { dx: 0, dy: 0 }
-        const a = Math.exp(-t * 60) * 0.006 * Math.min(W, H)
-        return { dx: a * Math.sin(t * 900), dy: a * Math.cos(t * 1130) }
+        const amp = Math.exp(-t * 55) * 0.009 * minWH
+        return { dx: amp * Math.sin(t * 900), dy: amp * Math.cos(t * 1130) }
       }
       const camAt = (q: number): Cam => {
         const shot = sampleShot(s.shots, q)
@@ -714,26 +929,32 @@ export function createTraceGL(width: number, height: number, subframes: number):
         return makeCam({ ...shot, x: shot.x + sh.dx, y: shot.y + sh.dy }, W, H)
       }
       const cam = camAt(p)
-      const region = regionFor(cam, explode > 0.001 ? [zOf(0), zOf(nLayers - 1)] : [0])
       const withStack = explode > 0.001
+      const region = regionFor(cam, withStack ? [zOf(0), 0] : [0])
       drawMaps(maps, tl, p, region, withStack)
       upload(0, maps.top)
       upload(1, maps.surf)
+      upload(2, maps.fx)
       if (withStack) {
-        upload(2, maps.stack)
-        upload(3, maps.stackE)
+        upload(3, maps.stack)
+        upload(4, maps.stackE)
       }
 
       const pal = tl.palette
       const m = s.material
-      const head = linear(pal.head)
+      const warmC = linear(m.energyWarm)
+      const coolC = linear(m.energyCool)
       const copper = linear(pal.copper)
       const texel = [1 / MW, 1 / MH] as const
       const regionV = [region.x, region.y, region.w, region.h] as const
       const maskSpan = span(acts.mask)
       const maskOn = p >= acts.mask[0] ? 1 : 0
-      const soft = 0.08 * extent.h
+      const soft = 0.07 * extent.h
       const maskFront = extent.y - soft + maskSpan * (extent.h + 2 * soft)
+      const cureU = (p - acts.cure[0]) / (acts.cure[1] - acts.cure[0])
+      const cureY = cureU >= 0 && cureU <= 1 ? extent.y - soft + cureU * (extent.h + 2 * soft) : -1e9
+      const maskLin = linear(m.mask)
+      const maskLuma = 0.2126 * maskLin[0] + 0.7152 * maskLin[1] + 0.0722 * maskLin[2]
       const energyGain = 3.2
       const sweepDir = norm([1, 0.55, 0])
       const corners = [[extent.x, extent.y], [extent.x + extent.w, extent.y], [extent.x, extent.y + extent.h], [extent.x + extent.w, extent.y + extent.h]]
@@ -742,70 +963,124 @@ export function createTraceGL(width: number, height: number, subframes: number):
       const sHi = Math.max(...corners)
       const sweepW = 0.05 * (sHi - sLo)
       const sweepV = [sLo - sweepW * 2 + Math.min(1, Math.max(0, sweep)) * (sHi - sLo + sweepW * 4), sweepW, sweep > 0 && sweep < 1 ? 0.32 : 0] as const
+      const centre = { x: extent.x + extent.w / 2, y: extent.y + extent.h / 2 }
+      const diag = Math.hypot(extent.w, extent.h)
+      const floorZ = -Math.max(1.5, m.thicknessPx * 1.4) - 0.5
+      const keyAz = -2.35 + p * 1.1
 
       const drawScene = (c: Cam): void => {
-        g.disable(g.DEPTH_TEST)
         g.enable(g.BLEND)
         g.blendFunc(g.ONE, g.ONE_MINUS_SRC_ALPHA)
         g.clearColor(0, 0, 0, 0)
-        g.clear(g.COLOR_BUFFER_BIT)
+        g.clearDepth(1)
+        // clear respects the depth mask: open it, or last frame's depth survives
+        g.depthMask(true)
+        g.clear(g.COLOR_BUFFER_BIT | g.DEPTH_BUFFER_BIT)
+        g.disable(g.DEPTH_TEST)
+        g.depthMask(false)
         g.bindVertexArray(vao)
+        // the studio floor: light pool, contact shadow, spill and shockwave
+        if (!tl.transparent) {
+          tex(0, mapTex[1] as WebGLTexture)
+          tex(1, mapTex[0] as WebGLTexture)
+          tex(2, mapTex[2] as WebGLTexture)
+          const fr = diag * 3
+          P.floor.use().m4('uVP', c.vp).f('uRegion', centre.x - fr, centre.y - fr, fr * 2, fr * 2).f('uZ', floorZ)
+            .i('tSurf', 0).i('tTop', 1).i('tFx', 2).f('uMap', ...regionV).f('uCentre', centre.x, centre.y).f('uSpread', diag * 0.75)
+            .v3('uWarm', warmC).v3('uCool', coolC).f('uKeyDir', Math.cos(keyAz), Math.sin(keyAz), 0)
+            .f('uShock', slam > 0.001 ? Math.exp(-sinceSlam * 40) : 0).f('uShockR', diag * 0.45 + sinceSlam * diag * 9).f('uLift', explode)
+          g.drawArrays(g.TRIANGLE_STRIP, 0, 4)
+        }
         if (withStack) {
           // bottom of the stack first; glass sheets between the copper layers
           for (let i = nLayers - 1; i >= 1; i--) {
             const ch = lowerChannel(s, i)
-            tex(0, mapTex[2] as WebGLTexture)
-            tex(1, mapTex[3] as WebGLTexture)
+            tex(0, mapTex[3] as WebGLTexture)
+            tex(1, mapTex[4] as WebGLTexture)
             P.layer.use().m4('uVP', c.vp).f('uRegion', ...regionV).f('uZ', zOf(i)).i('tStack', 0).i('tStackE', 1)
-              .f('uTexel', ...texel).i('uCh', ch).v3('uCopper', copper).v3('uHead', head).f('uEnergy', energyGain)
-              .f('uAlpha', Math.min(1, explode * 3)).f('uBump', 1.4)
+              .f('uTexel', ...texel).i('uCh', ch).v3('uCopper', copper).v3('uCool', coolC).f('uEnergy', energyGain)
+              .f('uAlpha', Math.min(1, explode * 3)).f('uBump', 1.4).f('uSlam', slam)
             lighting(P.layer, c, p, sweep)
             g.drawArrays(g.TRIANGLE_STRIP, 0, 4)
             tex(0, mapTex[1] as WebGLTexture)
             P.glass.use().m4('uVP', c.vp).f('uRegion', ...regionV).f('uZ', (zOf(i) + zOf(i - 1)) / 2).i('tSurf', 0)
-              .f('uTexel', ...texel).v3('uSub', linear(m.substrate)).v3('uHead', head).f('uAlpha', explode)
+              .v3('uSub', linear(m.substrate)).v3('uCool', coolC).f('uAlpha', explode)
             g.drawArrays(g.TRIANGLE_STRIP, 0, 4)
           }
-        } else if (wallCount > 0 && wallBuf !== undefined) {
+          if (viaCount > 0) {
+            // vias stand up as light between the layers; traffic drops through them
+            g.blendFunc(g.ONE, g.ONE)
+            g.bindBuffer(g.ARRAY_BUFFER, viaBuf)
+            const loc = g.getAttribLocation(P.via.p, 'aVia')
+            g.enableVertexAttribArray(loc)
+            g.vertexAttribPointer(loc, 3, g.FLOAT, false, 0, 0)
+            g.vertexAttribDivisor(loc, 1)
+            P.via.use().m4('uVP', c.vp).v3('uRight', c.r).f('uZTop', zOf(0)).f('uZBot', zOf(nLayers - 1))
+              .v3('uCool', coolC).f('uGlow', explode).f('uWave', (p - acts.explode[1]) / (acts.slam[0] - acts.explode[1]))
+              .f('uExt', extent.x, extent.y, extent.w, extent.h)
+            g.drawArraysInstanced(g.TRIANGLE_STRIP, 0, 4, viaCount)
+            g.vertexAttribDivisor(loc, 0)
+            g.disableVertexAttribArray(loc)
+            g.blendFunc(g.ONE, g.ONE_MINUS_SRC_ALPHA)
+          }
+        } else if (wallCount > 0) {
           // the board's edge: laminate with a copper line per layer
+          g.enable(g.DEPTH_TEST)
+          g.depthMask(true)
           g.bindBuffer(g.ARRAY_BUFFER, wallBuf)
           const loc = g.getAttribLocation(P.wall.p, 'aWall')
           g.enableVertexAttribArray(loc)
           g.vertexAttribPointer(loc, 4, g.FLOAT, false, 0, 0)
-          P.wall.use().m4('uVP', c.vp).f('uThick', Math.max(2, m.thicknessPx * 1.4)).f('uZ', 0)
-            .v3('uSub', linear(m.substrate)).v3('uCopper', copper).f('uLayers', nLayers).f('uAlpha', 1).f('uPxPerMm', m.pxPerMm)
+          P.wall.use().m4('uVP', c.vp).f('uThick', Math.max(1.5, m.thicknessPx * 1.4)).f('uZ', 0)
+            .v3('uSub', linear(m.substrate)).v3('uCopper', copper).v3('uMask', maskLin).f('uLayers', nLayers).f('uMaskOn', span(acts.mask))
           lighting(P.wall, c, p, sweep)
           g.drawArrays(g.TRIANGLES, 0, wallCount)
           g.disableVertexAttribArray(loc)
         }
+        g.enable(g.DEPTH_TEST)
+        g.depthFunc(g.LEQUAL)
+        g.depthMask(true)
         tex(0, mapTex[0] as WebGLTexture)
         tex(1, mapTex[1] as WebGLTexture)
-        P.top.use().m4('uVP', c.vp).f('uRegion', ...regionV).f('uZ', zOf(0)).i('tTop', 0).i('tSurf', 1)
-          .f('uTexel', ...texel).v3('uCopper', copper).v3('uFinish', linear(m.finish)).v3('uMask', linear(m.mask))
-          .v3('uSub', linear(m.substrate)).v3('uSilk', linear('#f1f0ea')).v3('uHead', head)
-          .f('uFinishRough', m.finishRough).f('uMaskFront', maskFront).f('uMaskSoft', soft).f('uMaskOn', maskOn)
+        tex(2, mapTex[2] as WebGLTexture)
+        P.top.use().m4('uVP', c.vp).f('uRegion', ...regionV).f('uZ', zOf(0)).i('tTop', 0).i('tSurf', 1).i('tFx', 2)
+          .f('uTexel', ...texel).v3('uCopper', copper).v3('uFinish', linear(m.finish)).v3('uMask', maskLin)
+          .v3('uSub', linear(m.substrate)).v3('uSilk', linear(m.silk)).v3('uWarm', warmC).v3('uCool', coolC)
+          .f('uFinishRough', m.finishRough).f('uMaskFront', maskFront).f('uMaskSoft', soft).f('uMaskOn', maskOn).f('uMaskLuma', Math.pow(maskLuma, 1 / 2.2))
+          .f('uCure', cureY).f('uCured', p >= acts.cure[1] ? 1 : 0)
           .f('uSubAlpha', 1 - explode * 0.88).f('uEnergy', energyGain).f('uSlam', slam).f('uPxPerMm', m.pxPerMm).f('uBump', 1.6)
           .f('uSweepDir', sweepDir[0], sweepDir[1]).f('uSweep', ...sweepV)
         lighting(P.top, c, p, sweep)
         g.drawArrays(g.TRIANGLE_STRIP, 0, 4)
-        if (withStack && viaCount > 0 && viaBuf !== undefined) {
-          // vias stand up as light between the layers, brightest on the bus beats
-          g.blendFunc(g.ONE, g.ONE)
-          g.bindBuffer(g.ARRAY_BUFFER, viaBuf)
-          const loc = g.getAttribLocation(P.via.p, 'aVia')
-          g.enableVertexAttribArray(loc)
-          g.vertexAttribPointer(loc, 3, g.FLOAT, false, 0, 0)
-          g.vertexAttribDivisor(loc, 1)
-          P.via.use().m4('uVP', c.vp).v3('uRight', c.r).f('uZTop', zOf(0)).f('uZBot', zOf(nLayers - 1))
-            .v3('uHead', head).f('uGlow', explode).f('uPhase', (p - acts.explode[0]) * 9)
-          g.drawArraysInstanced(g.TRIANGLE_STRIP, 0, 4, viaCount)
-          g.vertexAttribDivisor(loc, 0)
-          g.disableVertexAttribArray(loc)
+        if (partCount > 0) {
+          // bodies: opaque, depth-tested, riding the top layer (and lifting above it in the stack)
+          g.disable(g.BLEND)
+          g.bindBuffer(g.ARRAY_BUFFER, partBuf)
+          const stride = 12 * 4
+          const locs = ['aBox', 'aMeta', 'aLabel'].map((n) => g.getAttribLocation(P.part.p, n))
+          locs.forEach((loc, i) => {
+            g.enableVertexAttribArray(loc)
+            g.vertexAttribPointer(loc, 4, g.FLOAT, false, stride, i * 16)
+            g.vertexAttribDivisor(loc, 1)
+          })
+          tex(0, atlasTex)
+          P.part.use().m4('uVP', c.vp).f('uP', p).f('uBase', zOf(0)).f('uLift', s.stack.gap * explode * 0.7)
+            .i('tAtlas', 0).f('uCell', 1 / ATLAS_COLS, 1 / ATLAS_ROWS).v3('uFinish', linear(m.finish)).v3('uWarm', warmC)
+            .f('uLedOn', span([acts.place[1], acts.place[1] + 0.03]))
+          lighting(P.part, c, p, sweep)
+          g.drawArraysInstanced(g.TRIANGLES, 0, 36, partCount)
+          for (const loc of locs) {
+            g.vertexAttribDivisor(loc, 0)
+            g.disableVertexAttribArray(loc)
+          }
+          g.enable(g.BLEND)
         }
+        g.disable(g.DEPTH_TEST)
+        g.depthMask(false)
       }
 
       // motion blur: the camera samples a 180° shutter; maps hold per frame
-      const n = Math.max(1, subframes)
+      const n = Math.max(1, quality.subframes)
       const shutter = 0.5 / tl.totalFrames
       if (n === 1) {
         bind(accum)
@@ -876,19 +1151,81 @@ export function createTraceGL(width: number, height: number, subframes: number):
       tex(2, sa.tex)
       const bg = tl.transparent ? [0, 0, 0] : linear(pal.bg).map((v) => Math.pow(v, 1 / 2.2))
       P.final.use().i('tCol', 0).i('tBloom', 1).i('tStreak', 2)
-        .f('uBloom', 0.7 * pal.bloom + 0.2).f('uStreak', 0.12).v3('uStreakTint', head)
-        .f('uExposure', 1.15 * fade).f('uCA', 0.0012).f('uFrame', frame).i('uGrain', tl.transparent ? 0 : 1)
+        .f('uBloom', 0.7 * pal.bloom + 0.2).f('uStreak', 0.12).v3('uStreakTint', coolC)
+        .f('uExposure', 1.32 * fade).f('uCA', 0.0012).f('uFrame', frame).i('uGrain', tl.transparent ? 0 : 1)
         .i('uTransparent', tl.transparent ? 1 : 0).v3('uBg', bg).f('uVignette', 0.32)
       g.clearColor(0, 0, 0, 0)
       g.clear(g.COLOR_BUFFER_BIT)
       quad()
       g.finish()
+
+      lastAnnotations = annotate(tl, cam, p, zOf, nLayers, explode, extent, fade)
       return canvas
     },
     dispose(): void {
       g.getExtension('WEBGL_lose_context')?.loseContext()
     }
   }
+}
+
+/**
+ * Screen-space captions: the hero part as it lands, the lead unit where it
+ * arrives, and each layer's name while the stack hangs apart.
+ */
+function annotate(
+  tl: TraceTimeline, cam: Cam, p: number, zOf: (i: number) => number, n: number, explode: number, ext: Region, fade: number
+): Annotation[] {
+  const W = tl.width
+  const H = tl.height
+  const s = tl.scene
+  const out: Annotation[] = []
+  const toPx = (x: number, y: number, z: number): { x: number; y: number; ok: boolean } => {
+    const q = project(cam, x, y, z)
+    return { x: (q.x * 0.5 + 0.5) * W, y: (1 - (q.y * 0.5 + 0.5)) * H, ok: q.w > 0 && Math.abs(q.x) < 1.1 && Math.abs(q.y) < 1.1 }
+  }
+  const lead = 0.06 * Math.min(W, H)
+  for (const c of s.callouts) {
+    if (p < c.t0 || p > c.t1) continue
+    const alpha = Math.min(ease((p - c.t0) / 0.01), ease((c.t1 - p) / 0.012)) * fade
+    if (alpha <= 0.01) continue
+    // a part's caption hangs off its corner, never across its marking
+    const part = s.parts.find((pt) => Math.hypot(pt.x - c.x, pt.y - c.y) < Math.max(pt.w, pt.h) * 0.5)
+    const corners = part === undefined
+      ? [[c.x, c.y]]
+      : [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([sx, sy]) => {
+          const lx = (sx as number) * part.w * 0.5
+          const ly = (sy as number) * part.h * 0.5
+          return [part.x + lx * Math.cos(part.rot) - ly * Math.sin(part.rot), part.y + lx * Math.sin(part.rot) + ly * Math.cos(part.rot)]
+        })
+    const pts = corners.map(([x, y]) => toPx(x as number, y as number, part?.z ?? 0)).filter((q) => q.ok)
+    // anchor on the part's topmost corner; the label rises clear above its whole outline
+    const a = [...pts].sort((u, v) => u.y - v.y)[0]
+    if (a === undefined) continue
+    const y0 = Math.min(...pts.map((q) => q.y))
+    const right = a.x < W * 0.6
+    const lx = a.x + (right ? lead * 0.5 : -lead * 0.5)
+    const ly = Math.max(H * 0.07, y0 - lead * 0.8)
+    out.push({ ax: a.x, ay: a.y, lx, ly, text: c.text, sub: c.sub, alpha, align: right ? 'left' : 'right' })
+  }
+  if (explode > 0.55) {
+    const alpha = ease((explode - 0.55) / 0.35) * fade
+    for (let i = 0; i < n; i++) {
+      const label = s.stack.labels[i]
+      if (label === undefined) continue
+      // pin each label to the side edge of its layer with room for the words beside it
+      const ends = [toPx(ext.x + ext.w * 0.94, ext.y + ext.h * 0.5, zOf(i)), toPx(ext.x + ext.w * 0.06, ext.y + ext.h * 0.5, zOf(i))]
+        .filter((q) => q.ok)
+        .sort((x, y) => y.x - x.x)
+      const r = ends[0]
+      const l = ends[ends.length - 1]
+      let pick: { a: { x: number; y: number }; dir: 1 | -1 } | undefined
+      if (r !== undefined && r.x < W * 0.6) pick = { a: r, dir: 1 }
+      else if (l !== undefined && l.x > W * 0.4) pick = { a: l, dir: -1 }
+      if (pick === undefined) continue
+      out.push({ ax: pick.a.x, ay: pick.a.y, lx: pick.a.x + pick.dir * lead, ly: pick.a.y, text: label, alpha, align: pick.dir > 0 ? 'left' : 'right' })
+    }
+  }
+  return out
 }
 
 /**
@@ -900,9 +1237,10 @@ function lowerChannel(s: TraceTimeline['scene'], idx: number): number {
   const topSide = s.layers.some((l) => l.side === 'F') ? 'F' : (s.layers[s.layers.length - 1]?.side ?? 'F')
   const lower = s.layers.filter((l) => l.side !== topSide)
   const inner = lower.filter((l) => l.side === 'inner')
-  // stack order below the top: inner layers, then the back
   const ordered = [...inner, ...lower.filter((l) => l.side !== 'inner')]
   const layer = ordered[idx - 1]
   if (layer === undefined) return 2
   return layer.side === 'B' ? 2 : (inner.indexOf(layer) % 2 === 0 ? 0 : 1)
 }
+
+export { partDrop }

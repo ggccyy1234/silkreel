@@ -6,20 +6,58 @@ import type { Scene } from './film'
 import { createPost } from './post'
 import type { Post } from './post'
 import { createTraceGL } from './trace-gl'
-import type { TraceGL } from './trace-gl'
+import type { Annotation, TraceGL, TraceQuality } from './trace-gl'
 import { drawTitle } from './title'
-import { useFont } from './font'
+import { FONT, useFont } from './font'
+
+export type RenderQuality = 'draft' | 'final'
 
 export interface FilmProps {
   timeline: Timeline
   grain?: boolean
+  /** final: full motion blur and map resolution; draft: one sample, lighter maps (studio preview, quick renders) */
+  quality?: RenderQuality
   children?: React.ReactNode
 }
 
-/** motion-blur subframes: full shutter for renders, one sample for live preview */
-const SUBFRAMES = 5
+const QUALITY: Record<RenderQuality, TraceQuality> = {
+  final: { subframes: 5, mapScale: 1.6 },
+  draft: { subframes: 1, mapScale: 1.25 }
+}
 
-export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, children }) => {
+/** thin leader lines and small caps: captions that sit on the film, not over it */
+export function drawAnnotations(ctx: CanvasRenderingContext2D, anns: Annotation[], W: number, H: number): void {
+  const u = Math.min(W, H) / 1080
+  for (const a of anns) {
+    ctx.save()
+    ctx.globalAlpha = a.alpha
+    ctx.strokeStyle = 'rgba(236,240,244,0.75)'
+    ctx.fillStyle = 'rgba(236,240,244,0.95)'
+    ctx.lineWidth = Math.max(1, 1.2 * u)
+    ctx.beginPath()
+    ctx.arc(a.ax, a.ay, 3 * u, 0, Math.PI * 2)
+    ctx.stroke()
+    const dir = a.align === 'left' ? 1 : -1
+    ctx.beginPath()
+    ctx.moveTo(a.ax + dir * 3 * u, a.ay)
+    ctx.lineTo(a.lx, a.ly)
+    ctx.lineTo(a.lx + dir * 26 * u, a.ly)
+    ctx.stroke()
+    ctx.textAlign = a.align
+    ctx.textBaseline = 'alphabetic'
+    const x = a.lx + dir * 32 * u
+    ctx.font = `600 ${Math.round(19 * u)}px ${FONT}`
+    ctx.fillText(a.text.toUpperCase(), x, a.ly + 6 * u)
+    if (a.sub !== undefined) {
+      ctx.globalAlpha = a.alpha * 0.6
+      ctx.font = `${Math.round(14 * u)}px ${FONT}`
+      ctx.fillText(a.sub, x, a.ly + 26 * u)
+    }
+    ctx.restore()
+  }
+}
+
+export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, quality, children }) => {
   useFont()
   const frame = useCurrentFrame()
   const { width, height } = useVideoConfig()
@@ -35,15 +73,14 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, childr
     c.height = timeline.height
     return c
   }, [timeline])
+  // the live preview is always draft; renders default to final
+  const level: RenderQuality = getRemotionEnvironment().isRendering ? (quality ?? 'final') : 'draft'
 
   // pick the pipeline once per mounted canvas: the lit trace renderer, else
   // the flat 2d draw through the webgl2 post pass, else plain 2d
   React.useLayoutEffect(() => {
     postRef.current = createPost() ?? null
-    if (timeline.style === 'trace') {
-      const sub = getRemotionEnvironment().isRendering ? SUBFRAMES : 1
-      traceRef.current = createTraceGL(timeline.width, timeline.height, sub) ?? null
-    }
+    if (timeline.style === 'trace') traceRef.current = createTraceGL(timeline.width, timeline.height, QUALITY[level]) ?? null
     readyRef.current = true
     return () => {
       postRef.current?.dispose()
@@ -52,7 +89,7 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, childr
       traceRef.current = null
       readyRef.current = false
     }
-  }, [timeline.style, timeline.width, timeline.height])
+  }, [timeline.style, timeline.width, timeline.height, level])
 
   React.useLayoutEffect(() => {
     const canvas = canvasRef.current
@@ -63,6 +100,7 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, childr
       const out = traceRef.current.render(timeline, frame)
       target.clearRect(0, 0, canvas.width, canvas.height)
       target.drawImage(out, 0, 0)
+      drawAnnotations(target, traceRef.current.annotations(), canvas.width, canvas.height)
       const p = frame / timeline.totalFrames
       const fade = 1 - Math.min(1, Math.max(0, (p - timeline.scene.beats.fade[0]) / (timeline.scene.beats.fade[1] - timeline.scene.beats.fade[0])))
       drawTitle(target, timeline, p, fade)

@@ -2,8 +2,10 @@ import { bundle } from '@remotion/bundler'
 import { renderMedia, selectComposition } from '@remotion/renderer'
 import type { OpenGlRenderer } from '@remotion/renderer'
 import type { FilmInputProps } from '@silk-reel/render'
+import type { TraceTimeline } from '@silk-reel/choreo'
 import { execFile } from 'node:child_process'
-import { rename, rm } from 'node:fs/promises'
+import { rename, rm, writeFile } from 'node:fs/promises'
+import { encodeWav, traceScore } from './score-audio.js'
 import os from 'node:os'
 import { promisify } from 'node:util'
 
@@ -37,6 +39,8 @@ export interface RenderFilmOptions {
   format?: OutputFormat
   /** output scale factor; GIFs default to a 720px-wide cap */
   scale?: number
+  /** the synthesised score under a trace film (default on; GIFs never carry audio) */
+  audio?: boolean
   onProgress?: (pct: number) => void
 }
 
@@ -78,7 +82,37 @@ export async function renderFilm(options: RenderFilmOptions): Promise<RenderFilm
     }
   })
   if (format === 'mp4') await normalizeMp4(options.outputLocation)
+  const timeline = options.inputProps.timeline
+  if (format !== 'gif' && timeline.style === 'trace' && options.audio !== false) await muxScore(options.outputLocation, format, timeline)
   return { bundleLocation, outputLocation: options.outputLocation }
+}
+
+const AUDIO_CODEC: Record<Exclude<OutputFormat, 'gif'>, string[]> = {
+  mp4: ['-c:a', 'aac', '-b:a', '192k'],
+  'webm-alpha': ['-c:a', 'libopus', '-b:a', '160k'],
+  'prores-alpha': ['-c:a', 'pcm_s16le']
+}
+
+/** lay the film's synthesised score under the picture, replacing any silent track */
+async function muxScore(outputLocation: string, format: Exclude<OutputFormat, 'gif'>, timeline: TraceTimeline): Promise<void> {
+  const wav = `${outputLocation}.score.wav`
+  const ext = outputLocation.slice(outputLocation.lastIndexOf('.'))
+  const muxed = `${outputLocation}.muxed${ext}`
+  try {
+    const { left, right, sampleRate } = traceScore(timeline)
+    await writeFile(wav, encodeWav(left, right, sampleRate))
+    await execFileAsync('ffmpeg', [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', outputLocation, '-i', wav,
+      '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', ...AUDIO_CODEC[format], '-shortest',
+      ...(format === 'mp4' ? ['-movflags', '+faststart'] : []),
+      muxed
+    ])
+    await rename(muxed, outputLocation)
+  } finally {
+    await rm(wav, { force: true })
+    await rm(muxed, { force: true })
+  }
 }
 
 async function normalizeMp4(outputLocation: string): Promise<void> {

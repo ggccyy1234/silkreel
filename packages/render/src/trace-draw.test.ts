@@ -94,7 +94,7 @@ describe('drawTraceFrame', () => {
     const early = callsOf('fillText').map((c) => c.args[0] as string)
     expect(early.some((t) => 'Qzx Glasgow'.startsWith(t) && t.length > 0)).toBe(false)
     rec.reset()
-    drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.9))
+    drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.94))
     const texts = callsOf('fillText').map((c) => c.args[0] as string)
     expect(texts.some((t) => 'Qzx Glasgow'.startsWith(t) && t.length > 0)).toBe(true)
   })

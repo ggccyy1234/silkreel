@@ -2,7 +2,8 @@ import './test-recorder.js'
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from '@silk-reel/choreo'
 import type { CameraShot, FilmConfig, TraceTimeline } from '@silk-reel/choreo'
-import { linear, makeCam, sampleShot } from './trace-gl.js'
+import { makeCam, sampleShot } from '@silk-reel/choreo'
+import { layerLift, linear } from './trace-gl.js'
 import { drawMaps } from './trace-maps.js'
 import type { MapSet } from './trace-maps.js'
 import { asCtx, RecordingCtx } from './test-recorder.js'
@@ -51,6 +52,30 @@ describe('camera', () => {
     for (let p = 0; p <= 1; p += 0.01) expect(sampleShot(shots, p).x).toBeLessThanOrEqual(100 + 1e-6)
   })
 
+  it('a cut holds the outgoing shot until the cut, then jumps', () => {
+    const shots: CameraShot[] = [
+      { t: 0, x: 0, y: 0, zoom: 1, tilt: 0, yaw: 0, aperture: 0 },
+      { t: 0.5, x: 500, y: 0, zoom: 3, tilt: 0, yaw: 0, aperture: 0, cut: true },
+      { t: 1, x: 600, y: 0, zoom: 3, tilt: 0, yaw: 0, aperture: 0 }
+    ]
+    expect(sampleShot(shots, 0.49).x).toBeCloseTo(0, 6)
+    expect(sampleShot(shots, 0.5).x).toBeCloseTo(500, 6)
+    expect(sampleShot(shots, 0.75).x).toBeGreaterThan(500)
+  })
+
+  it('the stack cascades off the top, rises before the slam and lands flat', () => {
+    const ex: [number, number] = [0.5, 0.56]
+    const slam: [number, number] = [0.62, 0.64]
+    expect(layerLift(0.49, 0, 4, ex, slam)).toBe(0)
+    // the top layer leaves first
+    expect(layerLift(0.505, 0, 4, ex, slam)).toBeGreaterThan(layerLift(0.505, 3, 4, ex, slam))
+    // anticipation: just before the fall the stack rises past its hold
+    expect(layerLift(0.6195, 0, 4, ex, slam)).toBeGreaterThan(layerLift(0.59, 0, 4, ex, slam))
+    // impact: flat
+    expect(layerLift(0.64, 0, 4, ex, slam)).toBeLessThan(0.01)
+    expect(layerLift(0.7, 0, 4, ex, slam)).toBeLessThan(0.001)
+  })
+
   it('linear() undoes the sRGB curve', () => {
     expect(linear('#ffffff')).toEqual([1, 1, 1])
     expect(linear('#000000')).toEqual([0, 0, 0])
@@ -72,7 +97,7 @@ describe('board maps', () => {
     const surf = fake()
     const st = fake()
     const se = fake()
-    const maps: MapSet = { top: top.canvas, surf: surf.canvas, stack: st.canvas, stackE: se.canvas }
+    const maps: MapSet = { top: top.canvas, surf: surf.canvas, fx: fake().canvas, stack: st.canvas, stackE: se.canvas }
     drawMaps(maps, tl, p, { x: 0, y: 0, w: W, h: W * 1280 / 1024 }, stack)
     return { top: top.rec, surf: surf.rec, stack: st.rec }
   }

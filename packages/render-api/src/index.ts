@@ -14,3 +14,4 @@ export { DEMO_BOARDS, loadDemoBoard, defaultFilmConfig, compileFilm } from './bo
 export type { DemoBoardId } from './boards.js'
 export { renderFilm, FORMAT_EXT, FORMAT_MIME, OUTPUT_FORMATS, isAlphaFormat } from './render-film.js'
 export type { OutputFormat, RenderFilmOptions, RenderFilmResult } from './render-film.js'
+export { encodeWav, traceScore } from './score-audio.js'

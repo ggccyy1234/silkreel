@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { resolveConfig } from '../config'
 import type { FilmConfig, TraceScene } from '../types'
-import { compileTrace, TRACE_ACTS } from './index'
+import { compileTrace, makeCam, project, sampleShot, TRACE_ACTS } from './index'
 import { boardModel } from '../../test/helpers'
 
 const BOARDS = ['glasgow', 'icebreaker', 'StickHub', 'ecc83-pp', 'video', 'kit-dev-coldfire-xilinx_5213']
@@ -43,13 +43,48 @@ describe('the trace score', () => {
       }
     })
 
-    it(`${name}: shots ascend through the film and land top-down`, () => {
+    it(`${name}: shots ascend, cut on the act changes and land on a sharp three-quarter hero`, () => {
       expect(s.shots[0]?.t).toBe(0)
       expect(s.shots.at(-1)?.t).toBe(1)
       for (let i = 1; i < s.shots.length; i++) expect((s.shots[i] as { t: number }).t).toBeGreaterThan((s.shots[i - 1] as { t: number }).t)
+      expect(s.shots.filter((k) => k.cut === true).length).toBeGreaterThanOrEqual(3)
       const hero = s.shots.at(-1)
-      expect(hero?.tilt).toBe(0)
-      expect(hero?.aperture).toBe(0)
+      expect(hero?.tilt).toBeGreaterThan(0.3)
+      expect(hero?.tilt).toBeLessThan(0.7)
+      expect(hero?.aperture).toBeLessThanOrEqual(0.05)
+    })
+
+    it(`${name}: the hero frame holds the whole board`, () => {
+      const W = 1080
+      const H = 1350
+      const cam = makeCam(sampleShot(s.shots, 0.99), W, H)
+      for (const loop of s.board) {
+        for (let i = 0; i + 1 < loop.length; i += 2) {
+          const q = project(cam, loop[i] as number, loop[i + 1] as number, 0)
+          expect(Math.abs(q.x)).toBeLessThanOrEqual(1)
+          expect(Math.abs(q.y)).toBeLessThanOrEqual(1)
+        }
+      }
+    })
+
+    it(`${name}: parts land after the mask, the hero first`, () => {
+      expect(s.parts.length).toBeGreaterThan(0)
+      const hero = s.parts.filter((pt) => pt.hero === true)
+      expect(hero.length).toBeLessThanOrEqual(1)
+      for (const pt of s.parts) {
+        if (pt.hero === true) expect(pt.t).toBe(TRACE_ACTS.land[1])
+        else {
+          expect(pt.t).toBeGreaterThanOrEqual(TRACE_ACTS.place[0])
+          expect(pt.t).toBeLessThanOrEqual(TRACE_ACTS.place[1])
+        }
+        expect(pt.w).toBeGreaterThan(0)
+        expect(pt.z).toBeGreaterThan(0)
+      }
+    })
+
+    it(`${name}: one stack label per copper layer`, () => {
+      expect(s.stack.labels.length).toBe(s.layers.length)
+      expect(s.stack.gap).toBeGreaterThan(0)
     })
 
     it(`${name}: the board area is closed loops`, () => {

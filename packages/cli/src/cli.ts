@@ -7,16 +7,17 @@ import { renderFilm } from '@silk-reel/render-api'
 import { parseCliArgs } from './args.js'
 
 async function main(): Promise<void> {
-  const { input, out, config, format } = parseCliArgs(process.argv.slice(2))
+  const { input, out, config, format, draft, audio } = parseCliArgs(process.argv.slice(2))
   const board = parseKicadPcb(await readFile(input, 'utf8'), path.basename(input))
   const timeline = compileTimeline(board, config)
   for (const w of timeline.warnings) console.warn(`warning: ${w.message}`)
   console.log(`${timeline.style} ${timeline.width}x${timeline.height} ${timeline.totalFrames}f @${timeline.fps}fps -> ${format}`)
   const outputLocation = path.resolve(out)
   await renderFilm({
-    inputProps: { timeline },
+    inputProps: { timeline, quality: draft ? 'draft' : 'final' },
     outputLocation,
     format,
+    audio,
     onProgress: (pct) => {
       console.log(`  ${pct}%`)
     }

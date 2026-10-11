@@ -203,6 +203,11 @@ export interface TraceMaterial {
   finishRough: number
   /** bare laminate albedo */
   substrate: string
+  /** silkscreen ink: white on dark masks, near-black on white mask */
+  silk: string
+  /** energy hues: warm for power and pours, cool for clocks and data */
+  energyWarm: string
+  energyCool: string
   /** px per mm at zoom 1 */
   pxPerMm: number
   /** board thickness, px */
@@ -215,19 +220,54 @@ export interface TraceMaterial {
  * camera down toward the board's bottom edge, yaw spins about the board
  * normal, aperture 0..1 is depth of field (0 = everything sharp).
  */
-export interface CameraShot { t: number; x: number; y: number; zoom: number; tilt: number; yaw: number; aperture: number }
+export interface CameraShot {
+  t: number; x: number; y: number; zoom: number; tilt: number; yaw: number; aperture: number
+  /** a hard cut lands on this key: no move is drawn into it */
+  cut?: boolean | undefined
+}
 
 /** p-ranges of the four acts' set pieces */
 export interface TraceActs {
   ignite: [number, number]
+  /** the hero chip descends onto its pads and seats */
+  land: [number, number]
   heroPads: [number, number]
   flood: [number, number]
   signal: [number, number]
   explode: [number, number]
   slam: [number, number]
   mask: [number, number]
+  /** UV cure: a violet pass hardens the mask */
+  cure: [number, number]
   silk: [number, number]
+  /** pick-and-place: the rest of the parts land */
+  place: [number, number]
   sweep: [number, number]
+}
+
+export type PartKind = 'ic' | 'res' | 'cap' | 'ind' | 'diode' | 'led' | 'xtal' | 'conn' | 'switch' | 'can' | 'other'
+
+/** a component body, plane px; z is its height */
+export interface TracePart {
+  x: number; y: number; w: number; h: number; rot: number; z: number
+  kind: PartKind
+  /** lands at t (drops in just before) */
+  t: number
+  /** laser-etched marking on the top face (ICs) */
+  label?: string | undefined
+  hero?: boolean | undefined
+  /** pin pitch, px (connectors: the pins drawn on top) */
+  pitch?: number | undefined
+}
+
+/** a screen-space caption pinned to a board point */
+export interface TraceCallout { t0: number; t1: number; x: number; y: number; text: string; sub?: string | undefined }
+
+/** the exploded stack: one entry per copper layer, top first */
+export interface TraceStack {
+  /** lift between adjacent layers at full explode, px */
+  gap: number
+  labels: string[]
 }
 export interface TracePad {
   x: number; y: number; w: number; h: number; rot: number
@@ -272,6 +312,9 @@ export interface TraceScene {
   material: TraceMaterial
   shots: CameraShot[]
   acts: TraceActs
+  parts: TracePart[]
+  callouts: TraceCallout[]
+  stack: TraceStack
 }
 
 export type CompileTimeline = (board: BoardModel, config: FilmConfig) => Timeline
