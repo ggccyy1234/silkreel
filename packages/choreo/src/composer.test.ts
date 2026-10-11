@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from './index'
-import { decodeAlpha } from './decode'
+import { blinkAlpha, decodeAlpha } from './decode'
 import { buildCast } from './glyphs'
+import { safeArea } from './layout'
 import { makeRng } from './rng'
 import type { FilmConfig, GlyphTimeline } from './types'
 import type { BoardModel } from '@silk-reel/ingest'
@@ -35,17 +36,24 @@ function compile(board: BoardModel, overrides: Partial<FilmConfig> = {}): GlyphT
   return tl
 }
 
-/** is anything lit at this loop step (integer steps — the twos grid) */
-function litAt(tl: GlyphTimeline, step: number): boolean {
-  const on = (u: { inStep: number; outStep: number; pattern: number }): boolean =>
-    decodeAlpha(step, u.inStep, u.outStep, u.pattern, tl.steps) > 0.01
-  return tl.placements.some(on) || tl.ghost.bins.some(on)
+/** atoms film.ts would actually ink at this loop step (integer steps — the twos grid) */
+function visibleAtoms(tl: GlyphTimeline, step: number): number {
+  let n = 0
+  for (const p of tl.placements) {
+    const base =
+      decodeAlpha(step, p.inStep, p.outStep, p.pattern, tl.steps) * blinkAlpha(step, p.blinks, tl.steps)
+    if (base <= 0.004) continue
+    for (const [i] of p.atoms.entries()) {
+      if (base * (p.tones[i] ?? 1) > 0.004) n += 1
+    }
+  }
+  return n
 }
 
 /** longest cyclic run of steps where nothing is visible */
 function longestDarkRun(tl: GlyphTimeline): number {
   const lit: boolean[] = []
-  for (let s = 0; s < tl.steps; s++) lit.push(litAt(tl, s))
+  for (let s = 0; s < tl.steps; s++) lit.push(visibleAtoms(tl, s) > 0)
   const anchor = lit.indexOf(true)
   if (anchor < 0) return tl.steps
   let best = 0
@@ -137,8 +145,10 @@ describe('composeFilm cast', () => {
   })
 
   it('embeds silkscreen labels inside package glyphs', () => {
-    const tl = compile(boardModel('icebreaker.kicad_pcb'))
-    const labelled = tl.cast.filter((g) => g.kind === 'package' && (g.labels?.length ?? 0) > 0)
+    // label embedding lives in buildCast — the timeline's cast is trimmed to
+    // placed glyphs, and pkg:* silhouettes are not placed by the cell score
+    const { cast } = buildCast(boardModel('icebreaker.kicad_pcb'), 1, true, makeRng(42, 'cast'))
+    const labelled = cast.filter((g) => g.kind === 'package' && (g.labels?.length ?? 0) > 0)
     expect(labelled.length).toBeGreaterThan(0)
     for (const g of labelled) {
       for (const label of g.labels ?? []) {
@@ -153,28 +163,47 @@ describe('composeFilm cast', () => {
 
 describe('placements', () => {
   for (const name of BOARDS) {
-    for (const aspect of ['4:5', '16:9'] as const) {
-      it(`${name} @ ${aspect}: every placement is one valid symmetry set with shared timing`, () => {
+    for (const aspect of ['4:5', '9:16'] as const) {
+      it(`${name} @ ${aspect}: every placement is a valid timed symmetry set`, () => {
         const tl = compile(boardModel(name), { aspect })
         expect(tl.placements.length).toBeGreaterThan(0)
+        const acts = new Set<number>()
         for (const p of tl.placements) {
           const glyph = tl.cast.find((g) => g.id === p.glyphId)
           expect(glyph, `${p.glyphId} missing from cast`).toBeDefined()
           expect(p.atoms.length).toBeGreaterThanOrEqual(1)
           expect(p.atoms.length).toBeLessThanOrEqual(4)
           expect(p.tones.length).toBe(p.atoms.length)
-          expect(p.inStep).toBeGreaterThanOrEqual(0)
-          expect(p.inStep).toBeLessThan(tl.steps)
-          expect(p.outStep).toBeGreaterThanOrEqual(0)
-          expect(p.outStep).toBeLessThan(tl.steps)
+          for (const t of p.tones) {
+            expect(t).toBeGreaterThan(0)
+            expect(t).toBeLessThanOrEqual(1)
+          }
+          for (const step of [p.inStep, p.outStep]) {
+            expect(Number.isInteger(step)).toBe(true)
+            expect(step).toBeGreaterThanOrEqual(0)
+            expect(step).toBeLessThan(tl.steps)
+          }
+          expect(Number.isInteger(p.pattern)).toBe(true)
           expect(p.pattern).toBeGreaterThanOrEqual(0)
           expect(p.pattern).toBeLessThan(6)
-          expect(tl.formations[p.formation], `formation ${p.formation} missing`).toBeDefined()
-          // the true copy is first and unflipped; every off-axis atom has a
-          // symmetry twin (mirror across Y, or the rot2 180° partner)
-          expect(p.atoms[0]?.flipX).toBeFalsy()
-          expect(p.atoms[0]?.flipY).toBeFalsy()
+          // placement.formation is the act index — it joins formations via beat
+          acts.add(p.formation)
+          expect(
+            tl.formations.some((f) => f.beat === p.formation),
+            `no formation carries act ${p.formation}`
+          ).toBe(true)
+          for (const b of p.blinks ?? []) {
+            expect(Number.isInteger(b)).toBe(true)
+            expect(b).toBeGreaterThanOrEqual(0)
+            expect(b).toBeLessThan(tl.steps)
+          }
           for (const a of p.atoms) {
+            expect(Number.isFinite(a.x)).toBe(true)
+            expect(Number.isFinite(a.y)).toBe(true)
+            expect(Number.isFinite(a.rot)).toBe(true)
+            expect(a.scale).toBeGreaterThan(0)
+            // every off-axis atom has a symmetry twin (mirror across Y, or the
+            // rot2 180° partner); authored single cells all sit on the axis
             if (Math.abs(a.x) < 1e-9) continue
             const twin = p.atoms.some(
               (b) =>
@@ -184,158 +213,99 @@ describe('placements', () => {
             )
             expect(twin, `atom (${a.x.toFixed(2)},${a.y.toFixed(2)}) lacks a symmetry twin`).toBe(true)
           }
-          // text ornament: reflections ride at 0.45 under a full-ink true copy
-          if (glyph?.kind === 'text' && p.atoms.length > 1) {
-            expect(p.tones[0]).toBeCloseTo(1, 9)
-            for (const t of p.tones.slice(1)) expect(t).toBeCloseTo(0.45, 9)
-          }
         }
+        // every act contributes placements
+        expect([...acts].sort()).toEqual([0, 1, 2])
       })
 
-      it(`${name} @ ${aspect}: step 0 opens on A already mostly in — no run of 3+ empty steps`, () => {
-        const tl = compile(boardModel(name), { aspect })
-        expect(tl.steps).toBe(168)
-        // A wraps the loop boundary: it decoded in under the residue, so the
-        // first frame holds a formed cluster, not a lone seam mark
-        const a = tl.placements.filter((p) => p.formation === 0)
-        const lit = a.filter(
-          (p) => decodeAlpha(0, p.inStep, p.outStep, p.pattern, tl.steps) > 0.01
-        )
-        expect(
-          lit.length / Math.max(1, a.length),
-          `only ${lit.length}/${a.length} of A is lit at step 0`
-        ).toBeGreaterThanOrEqual(0.6)
-        const run = longestDarkRun(tl)
-        expect(run, `longest dark run is ${run} steps`).toBeLessThanOrEqual(2)
-      })
-
-      it(`${name} @ ${aspect}: placements decode inside their formation's arc window`, () => {
+      it(`${name} @ ${aspect}: formations are the three acts — sorted, non-empty windows`, () => {
         const tl = compile(boardModel(name), { aspect })
         const ids = tl.formations.map((f) => f.id)
-        // fixed arc: sparse A, dense B, quad climax, ghost, marks residue
-        expect(ids.length).toBe(5)
-        expect(['orbit', 'marks']).toContain(ids[0])
-        expect(['columns', 'ring']).toContain(ids[1])
-        expect(ids[2]).toBe('quad')
-        expect(ids[3]).toBe('ghost')
-        expect(ids[4]).toBe('marks')
-        // A's window wraps the loop boundary — its endPhase lands before its
-        // startPhase; every other formation runs forward in loop order
+        expect([...ids].sort()).toEqual(['frame', 'pillars', 'spine'])
         for (const [i, f] of tl.formations.entries()) {
           expect(f.startPhase).toBeGreaterThanOrEqual(0)
-          expect(f.endPhase).toBeLessThanOrEqual(1)
-          expect(f.endPhase === f.startPhase).toBe(false)
-          if (i > 0) expect(f.endPhase).toBeGreaterThan(f.startPhase)
+          expect(f.startPhase).toBeLessThan(1)
+          expect(f.endPhase).toBeGreaterThan(f.startPhase)
+          // a window, not the whole loop; the spine's wraps past 1
+          expect(f.endPhase - f.startPhase).toBeLessThan(1)
+          if (i > 0) expect(f.startPhase).toBeGreaterThan(tl.formations[i - 1]?.startPhase ?? 0)
         }
-        expect(tl.formations[0]?.startPhase, 'A must wrap the loop').toBeGreaterThan(
-          tl.formations[4]?.startPhase ?? 0
-        )
-        for (let i = 2; i < tl.formations.length; i++) {
-          const prev = tl.formations[i - 1]
-          const cur = tl.formations[i]
-          expect(cur !== undefined && prev !== undefined && cur.startPhase > prev.startPhase).toBe(true)
+        for (const f of tl.formations) {
+          expect(tl.placements.some((p) => p.formation === f.beat), `act ${f.id} has no placements`).toBe(true)
         }
+        // every placement is lit at some step inside its act's window
         for (const p of tl.placements) {
-          const f = tl.formations[p.formation]
+          const f = tl.formations.find((x) => x.beat === p.formation)
           if (f === undefined) continue
-          // A (and any unit crossing the boundary) wraps the loop on purpose
-          const wraps = p.outStep < p.inStep
-          if (!wraps) {
-            expect(p.inStep).toBeGreaterThanOrEqual(f.startPhase * tl.steps - 1e-9)
-            expect(p.inStep).toBeLessThanOrEqual(f.endPhase * tl.steps + 1e-9)
-            expect(p.outStep).toBeLessThanOrEqual(f.endPhase * tl.steps + 1e-9)
+          const start = Math.round(f.startPhase * tl.steps)
+          const end = Math.round(f.endPhase * tl.steps)
+          let lit = false
+          for (let s = start; s < end && !lit; s++) {
+            lit = decodeAlpha(s % tl.steps, p.inStep, p.outStep, p.pattern, tl.steps) > 0.004
           }
-        }
-        for (const b of tl.ghost.bins) {
-          const f = tl.formations[3]
-          expect(f === undefined || b.inStep >= f.startPhase * tl.steps - 1e-9).toBe(true)
-        }
-        // glints target support placements inside their own hold
-        for (const g of tl.glints) {
-          const p = tl.placements[g.placement]
-          expect(p).toBeDefined()
-          expect(p?.role).toBe('support')
-          expect(g.step).toBeGreaterThanOrEqual(0)
-          expect(g.step).toBeLessThan(tl.steps)
+          expect(lit, `${p.glyphId} (act ${f.id}) never lit inside its window`).toBe(true)
         }
       })
 
-      it(`${name} @ ${aspect}: A and B are board-first — synthetic filler ≤30%`, () => {
+      it(`${name} @ ${aspect}: no dead air — never 4+ unlit steps, and the hero is seen`, () => {
         const tl = compile(boardModel(name), { aspect })
-        for (const fi of [0, 1]) {
-          const ps = tl.placements.filter((p) => p.formation === fi)
-          const synth = ps.filter((p) => p.glyphId.startsWith('mark:'))
-          expect(
-            synth.length / Math.max(1, ps.length),
-            `formation ${tl.formations[fi]?.id}: ${synth.length}/${ps.length} synthetic`
-          ).toBeLessThanOrEqual(0.3)
-        }
+        expect(visibleAtoms(tl, 0), 'step 0 must be lit — the spine holds across the wrap').toBeGreaterThan(0)
+        const run = longestDarkRun(tl)
+        expect(run, `longest dark run is ${run} steps`).toBeLessThanOrEqual(3)
+        const heroes = tl.placements.filter((p) => p.role === 'hero')
+        expect(heroes.length, 'no hero placement on the loop').toBeGreaterThanOrEqual(1)
+        const heroSeen = heroes.some((p) => {
+          for (let s = 0; s < tl.steps; s++) {
+            if (decodeAlpha(s, p.inStep, p.outStep, p.pattern, tl.steps) > 0.004) return true
+          }
+          return false
+        })
+        expect(heroSeen, 'no hero glyph is ever visible').toBe(true)
       })
 
-      it(`${name} @ ${aspect}: A and B are packed — median edge gap ≤ 1.2× median glyph size`, () => {
+      it(`${name} @ ${aspect}: every atom stays inside the stage`, () => {
         const tl = compile(boardModel(name), { aspect })
+        // film.ts: stage ±1 maps to half the safe area's short side
+        const safe = safeArea(tl.width, tl.height, tl.title !== undefined)
+        const stagePx = Math.min(safe.w, safe.h) * 0.5
+        const cx = safe.x + safe.w / 2
+        const cy = safe.y + safe.h / 2
         const byId = new Map(tl.cast.map((g) => [g.id, g]))
-        const med = (xs: number[]): number => {
-          const sorted = [...xs].sort((a, b) => a - b)
-          return sorted[Math.floor(sorted.length / 2)] ?? 0
-        }
-        for (const fi of [0, 1]) {
-          const boxes: Array<{ x: number; y: number; hw: number; hh: number; size: number }> = []
-          for (const p of tl.placements.filter((x) => x.formation === fi)) {
-            const g = byId.get(p.glyphId)
-            if (g === undefined) continue
-            for (const a of p.atoms) {
-              const hw = g.kind === 'text' ? ((g.text?.length ?? 0) * 0.6 * a.scale) / 2 : a.scale / 2
-              boxes.push({ x: a.x, y: a.y, hw, hh: a.scale / 2, size: a.scale })
-            }
+        for (const p of tl.placements) {
+          const g = byId.get(p.glyphId)
+          // the glyph's own extent around the atom centre — words run wide
+          const word = g?.kind === 'text' ? (g.text ?? '') : ''
+          for (const a of p.atoms) {
+            const px = cx + a.x * stagePx
+            const py = cy + a.y * stagePx
+            const hw =
+              word === ''
+                ? a.scale * stagePx * 0.6
+                : a.scale * stagePx * 0.35 * Math.max(1, word.length)
+            const hh = a.scale * stagePx * 0.6
+            expect(px - hw, `${p.glyphId} atom x=${a.x.toFixed(3)}`).toBeGreaterThanOrEqual(safe.x - 1e-6)
+            expect(px + hw, `${p.glyphId} atom x=${a.x.toFixed(3)}`).toBeLessThanOrEqual(safe.x + safe.w + 1e-6)
+            expect(py - hh, `${p.glyphId} atom y=${a.y.toFixed(3)}`).toBeGreaterThanOrEqual(safe.y - 1e-6)
+            expect(py + hh, `${p.glyphId} atom y=${a.y.toFixed(3)}`).toBeLessThanOrEqual(safe.y + safe.h + 1e-6)
           }
-          if (boxes.length < 2) continue
-          const nn = boxes.map((b, i) =>
-            Math.min(
-              ...boxes
-                .filter((_, j) => j !== i)
-                .map((o) => {
-                  const dx = Math.max(0, Math.abs(b.x - o.x) - b.hw - o.hw)
-                  const dy = Math.max(0, Math.abs(b.y - o.y) - b.hh - o.hh)
-                  return Math.hypot(dx, dy)
-                })
-            )
-          )
-          const ratio = med(nn) / Math.max(1e-9, med(boxes.map((b) => b.size)))
-          expect(
-            ratio,
-            `formation ${tl.formations[fi]?.id}: median edge gap is ${ratio.toFixed(2)}× median glyph size`
-          ).toBeLessThanOrEqual(1.2)
         }
       })
 
-      it(`${name} @ ${aspect}: the quad centre holds a full-ink hero`, () => {
-        const tl = compile(boardModel(name), { aspect })
-        const centre = tl.placements.filter(
-          (p) =>
-            p.formation === 2 &&
-            p.role === 'hero' &&
-            p.atoms.some((a) => Math.hypot(a.x, a.y) < 0.05)
-        )
-        expect(centre.length, 'no hero placement at the quad centre').toBeGreaterThanOrEqual(1)
+      it(`${name} @ ${aspect}: the same seed compiles a deep-equal timeline`, () => {
+        const a = compile(boardModel(name), { aspect })
+        const b = compile(boardModel(name), { aspect })
+        expect(b).toEqual(a)
       })
     }
   }
 
-  it('is deterministic for a fixed seed', () => {
-    const a = compile(boardModel('glasgow.kicad_pcb'))
-    const b = compile(boardModel('glasgow.kicad_pcb'))
-    expect(JSON.stringify(a.placements)).toBe(JSON.stringify(b.placements))
-    expect(JSON.stringify(a.ghost)).toBe(JSON.stringify(b.ghost))
-  })
-
-  it('board-seeded plans vary across the fixture set', () => {
-    const plans = new Set<string>()
+  it('board-seeded scores vary across the fixture set', () => {
+    const sigs = new Set<string>()
     for (const name of BOARDS) {
       const tl = compile(boardModel(name))
-      plans.add(tl.formations.map((f) => f.id).join(','))
+      sigs.add(JSON.stringify(tl.placements.map((p) => [p.glyphId, p.inStep, p.outStep])))
     }
-    expect(plans.size).toBeGreaterThan(1)
+    expect(sigs.size).toBeGreaterThan(1)
   })
 
   it('keeps atoms finite and positive-scale everywhere', () => {

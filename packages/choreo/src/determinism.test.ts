@@ -44,7 +44,10 @@ describe('seeded determinism', () => {
       expect(tl.placements.length).toBeGreaterThan(0)
       for (const f of tl.formations) {
         expect(f.startPhase).toBeGreaterThanOrEqual(0)
-        expect(f.endPhase).toBeLessThanOrEqual(1)
+        expect(f.startPhase).toBeLessThan(1)
+        // a non-empty window; an act that wraps the loop runs endPhase past 1
+        expect(f.endPhase).toBeGreaterThan(f.startPhase)
+        expect(f.endPhase - f.startPhase).toBeLessThan(1)
       }
     }
     expect(digests.size).toBe(3)

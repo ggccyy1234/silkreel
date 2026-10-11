@@ -36,8 +36,9 @@ describe('knobs', () => {
   })
 
   it('texts=0 removes text glyphs; texts=1 includes them', () => {
-    const off = compile(board(), { knobs: { texts: 0 } })
-    const on = compile(board(), { knobs: { texts: 1 } })
+    // the knob gates buildCast's silk-text extraction
+    const off = buildCast(board(), 1, false, makeRng(42, 'cast'))
+    const on = buildCast(board(), 1, true, makeRng(42, 'cast'))
     expect(off.cast.some((g) => g.kind === 'text')).toBe(false)
     expect(on.cast.some((g) => g.kind === 'text')).toBe(true)
   })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DECODE_IN, DECODE_OUT, decodeAlpha } from './decode'
+import { DECODE_IN, DECODE_OUT, blinkAlpha, decodeAlpha } from './decode'
 
 const STEPS = 168
 
@@ -86,5 +86,66 @@ describe('decodeAlpha', () => {
         expect([0, 0.35, 1]).toContain(a)
       }
     }
+  })
+
+  it('plays the decode-out pattern across the loop boundary when outStep wraps', () => {
+    const inStep = 160
+    const outStep = 166 // hold = 6, so decode-out occupies steps 166,167,0..3
+    for (let k = 0; k < 6; k++) {
+      expect(decodeAlpha((outStep + k) % STEPS, inStep, outStep, 2, STEPS)).toBe(DECODE_OUT[2]?.[k])
+    }
+    // dark after the pattern, on both sides of the wrap
+    expect(decodeAlpha(4, inStep, outStep, 2, STEPS)).toBe(0)
+    expect(decodeAlpha(159, inStep, outStep, 2, STEPS)).toBe(0)
+  })
+
+  it('runs the full decode-in pattern even when outStep lands inside it', () => {
+    const inStep = 10
+    const outStep = 12 // hold = 2 < IN_LEN — the in window is checked first
+    for (let k = 0; k < 5; k++) {
+      expect(decodeAlpha(inStep + k, inStep, outStep, 0, STEPS)).toBe(DECODE_IN[0]?.[k])
+    }
+    // the decode-out tail still plays the slots past the hold
+    for (const [s, k] of [[15, 3], [16, 4], [17, 5]] as const) {
+      expect(decodeAlpha(s, inStep, outStep, 0, STEPS)).toBe(DECODE_OUT[0]?.[k])
+    }
+    expect(decodeAlpha(18, inStep, outStep, 0, STEPS)).toBe(0)
+  })
+})
+
+describe('blinkAlpha', () => {
+  it('is fully lit without blinks', () => {
+    for (const s of [0, 40.7, STEPS - 1]) {
+      expect(blinkAlpha(s, undefined, STEPS)).toBe(1)
+    }
+  })
+
+  it('goes dark for one step and half-lit the next at each blink', () => {
+    const blinks = [40]
+    expect(blinkAlpha(39, blinks, STEPS)).toBe(1)
+    expect(blinkAlpha(40, blinks, STEPS)).toBe(0)
+    expect(blinkAlpha(41, blinks, STEPS)).toBe(0.35)
+    expect(blinkAlpha(42, blinks, STEPS)).toBe(1)
+  })
+
+  it('wraps around the loop: a blink at the last step shades step 0', () => {
+    const blinks = [STEPS - 1]
+    expect(blinkAlpha(STEPS - 1, blinks, STEPS)).toBe(0)
+    expect(blinkAlpha(0, blinks, STEPS)).toBe(0.35)
+    expect(blinkAlpha(1, blinks, STEPS)).toBe(1)
+  })
+
+  it('floors fractional steps onto the twos grid', () => {
+    const blinks = [10]
+    expect(blinkAlpha(10.9, blinks, STEPS)).toBe(0)
+    expect(blinkAlpha(11.9, blinks, STEPS)).toBe(0.35)
+  })
+
+  it('several blinks each dim their own two steps', () => {
+    const blinks = [10, 80]
+    expect(blinkAlpha(80, blinks, STEPS)).toBe(0)
+    expect(blinkAlpha(81, blinks, STEPS)).toBe(0.35)
+    expect(blinkAlpha(12, blinks, STEPS)).toBe(1)
+    expect(blinkAlpha(82, blinks, STEPS)).toBe(1)
   })
 })

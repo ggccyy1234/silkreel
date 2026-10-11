@@ -54,3 +54,16 @@ export function decodeAlpha(
   }
   return 0
 }
+
+/** a hold breath: out for one step, half back for one, then whole again */
+const BLINK = [0, 0.35]
+
+export function blinkAlpha(step: number, blinks: readonly number[] | undefined, steps: number): number {
+  if (blinks === undefined) return 1
+  const s = Math.floor(step)
+  for (const b of blinks) {
+    const k = mod(s - b, steps)
+    if (k < BLINK.length) return BLINK[k] as number
+  }
+  return 1
+}

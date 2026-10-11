@@ -8,7 +8,7 @@ const ease = (x: number): number => {
 }
 
 /** the window the card lives in: the trace hold beat. glyph draws no title —
- *  the ghost's label plate is the card */
+ *  the name decodes in as a word under the frame act */
 function titleWindow(tl: Timeline): readonly [number, number] | undefined {
   if (tl.style === 'glyph') return undefined
   return tl.scene.beats.hold

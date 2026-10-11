@@ -48,7 +48,7 @@ export interface Placement {
   glyphId: string
   /** static pose of every symmetry copy (x,y,rot,scale,flipX,flipY; alpha unused) */
   atoms: AtomState[]
-  /** per-copy tone multiplier, same length as atoms (text: true copy .9, reflections .45) */
+  /** per-copy tone multiplier, same length as atoms (set by the cell's role) */
   tones: number[]
   role: Tone
   /** loop steps (1 step = 1/15 s) where decode-in starts and where decode-out starts; may wrap */
@@ -56,27 +56,21 @@ export interface Placement {
   outStep: number
   /** index into the decode pattern banks */
   pattern: number
-  /** index into formations[] */
+  /** act index; matches FormationEvent.beat (formations[] is sorted by phase) */
   formation: number
+  /** hold breaths: loop steps where this unit blinks out for two steps */
+  blinks?: number[] | undefined
 }
 
-/** the board's own silk screen, ghosted in as the signature beat */
-export interface GlyphGhost {
-  /** board silk strokes in stage units, grouped into ≤12 spatial bins that decode as units */
-  bins: Array<{ strokes: FlatPath[]; hero: boolean; inStep: number; outStep: number; pattern: number }>
-  label?: TitleCard | undefined
-  /** stage units, just below the ghost */
-  labelPos: { x: number; y: number }
-}
-
-export type FormationId = 'marks' | 'orbit' | 'ring' | 'columns' | 'quad' | 'ghost'
+/** the three acts: a C2 diagonal spine, D2 pillars, the board-core frame */
+export type FormationId = 'spine' | 'pillars' | 'frame'
 
 export interface FormationEvent {
   id: FormationId
   /** hold region on the loop; transitions happen between holds */
   startPhase: number
   endPhase: number
-  /** index into the beat sequence — formation ids repeat (marks interludes) */
+  /** act index in score order */
   beat: number
 }
 
@@ -163,9 +157,6 @@ export interface GlyphTimeline extends TimelineBase {
   /** loop length in decode steps (1 step = 1/15 s) */
   steps: number
   cadence: 'twos' | 'smooth'
-  ghost: GlyphGhost
-  /** single-step dips: the renderer multiplies that placement's alpha by 0.35 */
-  glints: Array<{ placement: number; step: number }>
   /** safeArea w/h — formations widen on wide frames, deepen on tall ones */
   stageAspect: number
 }

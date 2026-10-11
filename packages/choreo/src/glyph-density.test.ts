@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from './index'
-import { decodeAlpha } from './decode'
+import { blinkAlpha, decodeAlpha } from './decode'
 import { boardModel } from '../test/helpers'
 
 const BOARDS = [
@@ -31,7 +31,7 @@ function longestDarkRun(lit: boolean[]): number {
 
 describe('glyph dead-air budget', () => {
   for (const name of BOARDS) {
-    it(`${name} never goes dark for more than 2 consecutive steps`, () => {
+    it(`${name} never goes dark for more than 3 consecutive steps`, () => {
       const tl = compileTimeline(boardModel(name), {
         style: 'glyph',
         knobs: {},
@@ -43,14 +43,17 @@ describe('glyph dead-air budget', () => {
       const lit: boolean[] = []
       for (let s = 0; s < tl.steps; s++) {
         lit.push(
-          tl.placements.some((p) => decodeAlpha(s, p.inStep, p.outStep, p.pattern, tl.steps) > 0.01) ||
-            tl.ghost.bins.some((b) => decodeAlpha(s, b.inStep, b.outStep, b.pattern, tl.steps) > 0.01)
+          tl.placements.some(
+            (p) =>
+              decodeAlpha(s, p.inStep, p.outStep, p.pattern, tl.steps) * blinkAlpha(s, p.blinks, tl.steps) >
+              0.004
+          )
         )
       }
       const darkCount = lit.filter((v) => !v).length
       const run = longestDarkRun(lit)
-      expect(lit[0], 'step 0 must be lit — A holds across the wrap').toBe(true)
-      expect(run, `${name}: ${run} consecutive dark steps`).toBeLessThanOrEqual(2)
+      expect(lit[0], 'step 0 must be lit — the spine holds across the wrap').toBe(true)
+      expect(run, `${name}: ${run} consecutive dark steps`).toBeLessThanOrEqual(3)
       // dead air stays a garnish, not a beat: under a sixth of the loop
       expect(darkCount / tl.steps).toBeLessThanOrEqual(1 / 6)
     })

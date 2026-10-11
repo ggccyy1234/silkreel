@@ -1,4 +1,4 @@
-import { decodeAlpha, safeArea } from '@silk-reel/choreo'
+import { blinkAlpha, decodeAlpha, safeArea } from '@silk-reel/choreo'
 import type { AtomState, GlyphLabel, GlyphTimeline, Timeline } from '@silk-reel/choreo'
 import { drawTraceFrame } from './trace-draw'
 import { drawTitle } from './title'
@@ -144,79 +144,24 @@ export function drawGlyphFrame(
   ctx.lineCap = 'butt'
   ctx.miterLimit = 4
 
-  // a glint dims one placement for exactly one step
-  const glintAt = new Map<number, number>()
-  for (const g of timeline.glints) {
-    if (Math.floor(step) === g.step) glintAt.set(g.placement, 0.35)
-  }
-
   let drawn = 0
-  for (const [pi, placement] of timeline.placements.entries()) {
+  for (const placement of timeline.placements) {
     const glyph = scene.glyphs.get(placement.glyphId)
     if (glyph === undefined) continue
-    const base = decodeAlpha(step, placement.inStep, placement.outStep, placement.pattern, timeline.steps, smooth)
+    const base =
+      decodeAlpha(step, placement.inStep, placement.outStep, placement.pattern, timeline.steps, smooth) *
+      blinkAlpha(step, placement.blinks, timeline.steps)
     if (base <= 0.004) continue
-    const glint = glintAt.get(pi) ?? 1
+    const c = placement.role === 'hero' ? head : ink
+    ctx.strokeStyle = c
+    ctx.fillStyle = c
     for (const [i, atom] of placement.atoms.entries()) {
-      const alpha = base * (placement.tones[i] ?? 1) * glint
+      const alpha = base * (placement.tones[i] ?? 1)
       if (alpha <= 0.004) continue
-      // text is ornament in this style — reflections render mirrored; only the
-      // true copy (index 0) is rotated to an upright reading
-      const a =
-        glyph.text !== undefined && i === 0 ? { ...atom, rot: uprightRot(atom.rot) } : atom
-      const c = placement.role === 'hero' ? head : ink
-      ctx.strokeStyle = c
-      ctx.fillStyle = c
+      // words always read: every copy is rotated upright and never mirrored
+      const a = glyph.text !== undefined ? { ...atom, rot: uprightRot(atom.rot), flipX: false, flipY: false } : atom
       ctx.globalAlpha = alpha
       drawAtom(ctx, glyph, a, cx, cy, stagePx, inkPx)
-      drawn += 1
-    }
-  }
-
-  // the ghost: the board's own silk, stroked in stage coordinates
-  for (const bin of timeline.ghost.bins) {
-    const alpha =
-      decodeAlpha(step, bin.inStep, bin.outStep, bin.pattern, timeline.steps, smooth) *
-      (bin.hero ? 1 : 0.3)
-    if (alpha <= 0.004) continue
-    const c = bin.hero ? head : ink
-    ctx.strokeStyle = c
-    ctx.globalAlpha = alpha
-    ctx.lineWidth = inkPx
-    ctx.beginPath()
-    for (const path of bin.strokes) {
-      const x0 = path[0]
-      const y0 = path[1]
-      if (x0 === undefined || y0 === undefined) continue
-      ctx.moveTo(cx + x0 * stagePx, cy + y0 * stagePx)
-      for (let i = 2; i + 1 < path.length; i += 2) {
-        ctx.lineTo(cx + (path[i] as number) * stagePx, cy + (path[i + 1] as number) * stagePx)
-      }
-    }
-    ctx.stroke()
-    drawn += 1
-  }
-
-  // ghost label — the release name typed on under the board silhouette
-  const label = timeline.ghost.label
-  if (label !== undefined && timeline.ghost.bins.length > 0) {
-    const labelStart = Math.min(...timeline.ghost.bins.map((b) => b.inStep)) + 7
-    const t = (step - labelStart) / 4
-    if (t > 0) {
-      const px = Math.min(timeline.width, timeline.height) / 1080
-      const shown = label.name.substring(0, Math.ceil(label.name.length * Math.min(1, t)))
-      ctx.save()
-      ctx.translate(cx + timeline.ghost.labelPos.x * stagePx, cy + timeline.ghost.labelPos.y * stagePx)
-      ctx.font = `${16 * px}px ${FONT}`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      try {
-        ctx.letterSpacing = '0.12em'
-      } catch { /* older canvas impls */ }
-      ctx.fillStyle = ink
-      ctx.globalAlpha = 0.8
-      ctx.fillText(shown, 0, 0)
-      ctx.restore()
       drawn += 1
     }
   }

@@ -29,34 +29,41 @@ describe('choreo package smoke', () => {
         expect(tl.placements.some((p) => p.glyphId === g.id), `${g.id} never placed`).toBe(true)
       }
       const ids = tl.formations.map((f) => f.id)
-      // fixed arc: seeded sparse, seeded dense, quad climax, ghost, marks residue
-      expect(ids.length).toBe(5)
-      expect(['orbit', 'marks']).toContain(ids[0])
-      expect(['columns', 'ring']).toContain(ids[1])
-      expect(ids[2]).toBe('quad')
-      expect(ids[3]).toBe('ghost')
-      expect(ids[4]).toBe('marks')
-      // something is visible during the climax hold
-      const climax = tl.formations[2]
-      expect(climax).toBeDefined()
-      if (climax === undefined) return
-      const midStep = Math.round(((climax.startPhase + climax.endPhase) / 2) * tl.steps)
-      const lit = tl.placements.filter(
-        (p) => decodeAlpha(midStep, p.inStep, p.outStep, p.pattern, tl.steps) > 0.05
-      )
+      // the fixed three-act score: spine, pillars, frame — sorted by startPhase
+      expect([...ids].sort()).toEqual(['frame', 'pillars', 'spine'])
+      for (const f of tl.formations) {
+        expect(f.endPhase).toBeGreaterThan(f.startPhase)
+      }
+      // the frame act is the climax — its window is lit, and the hero stands in it
+      const frame = tl.formations.find((f) => f.id === 'frame')
+      expect(frame).toBeDefined()
+      if (frame === undefined) return
+      const start = Math.round(frame.startPhase * tl.steps)
+      const end = Math.round(frame.endPhase * tl.steps)
+      const lit = tl.placements.filter((p) => {
+        for (let s = start; s < end; s++) {
+          if (decodeAlpha(s % tl.steps, p.inStep, p.outStep, p.pattern, tl.steps) > 0.05) return true
+        }
+        return false
+      })
       expect(lit.length).toBeGreaterThan(0)
       // the climax crowns one hero — an accent, not a flood
-      const heroes = lit.filter((p) => p.role === 'hero').length
-      if (tl.cast.some((g) => g.kind === 'package')) {
-        expect(heroes).toBeGreaterThan(0)
-        expect(heroes).toBeLessThanOrEqual(Math.max(4, lit.length / 4))
-      }
+      const heroes = tl.placements.filter((p) => p.role === 'hero')
+      expect(heroes.length).toBeGreaterThan(0)
+      expect(heroes.length).toBeLessThanOrEqual(4)
+      const heroLit = heroes.some((p) => {
+        for (let s = start; s < end; s++) {
+          if (decodeAlpha(s % tl.steps, p.inStep, p.outStep, p.pattern, tl.steps) > 0.05) return true
+        }
+        return false
+      })
+      expect(heroLit).toBe(true)
     })
   }
 
-  it('different seeds plan different formation sequences', () => {
+  it('different seeds change the placement score', () => {
     const board = boardModel('glasgow.kicad_pcb')
-    const seq = (seed: number): string => {
+    const sig = (seed: number): string => {
       const tl = compileTimeline(board, {
         style: 'glyph',
         knobs: {},
@@ -65,9 +72,9 @@ describe('choreo package smoke', () => {
         output: { width: 1080, height: 1350, fps: 15 }
       })
       if (tl.style !== 'glyph') throw new Error('expected a glyph timeline')
-      return tl.formations.map((f) => f.id).join(',')
+      return JSON.stringify(tl.placements.map((p) => [p.glyphId, p.inStep, p.outStep]))
     }
-    const seen = new Set([1, 2, 3, 4, 5, 6].map(seq))
+    const seen = new Set([1, 2, 3, 4, 5, 6].map(sig))
     expect(seen.size).toBeGreaterThan(1)
   })
 })

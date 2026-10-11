@@ -1,7 +1,7 @@
 import './test-recorder.js'
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from '@silk-reel/choreo'
-import type { FilmConfig, GlyphTimeline, TraceTimeline } from '@silk-reel/choreo'
+import type { FilmConfig, Glyph, GlyphTimeline, Placement, TraceTimeline } from '@silk-reel/choreo'
 import type { BoardModel } from '@silk-reel/ingest'
 import { buildScene, drawFrame, drawGlyphFrame, postOptionsFor } from './film.js'
 import { asCtx, currentRecorder, RecordingCtx } from './test-recorder.js'
@@ -91,7 +91,7 @@ describe('drawFrame', () => {
     expect(silk).toBeGreaterThan(head)
   })
 
-  it('frame 0 is never empty — A holds across the wrap', () => {
+  it('frame 0 is never empty — the spine holds across the wrap', () => {
     const timeline = compiled(board)
     const scene = buildScene(timeline)
     const drawn = drawFrame(asCtx(currentRecorder()), timeline, scene, 0)
@@ -142,24 +142,21 @@ describe('drawFrame', () => {
     expect(rec.calls.length).toBeGreaterThan(0)
   })
 
-  it('reflected text copies render flipped; the true copy is unflipped and upright', () => {
-    // ecc83-pp has no real silk words — icebreaker's text placements carry twins
+  it('text placements render every copy upright — words never mirror', () => {
+    // icebreaker's silk words decode in with mirrored-position copies; the
+    // draw path keeps every copy readable
     const timeline = compiled(boardModel('icebreaker.kicad_pcb'))
     const placements = timeline.placements.filter(
       (p) => timeline.cast.find((g) => g.id === p.glyphId)?.kind === 'text' && p.atoms.length > 1
     )
     expect(placements.length).toBeGreaterThan(0)
     const p = placements[0]
-    if (p === undefined) throw new Error('no mirrored text placement')
+    if (p === undefined) throw new Error('no multi-copy text placement')
     // mid-hold step for this placement: safely inside the alpha=1 plateau
-    const hold = ((p.outStep - p.inStep) % timeline.steps + timeline.steps) % timeline.steps
-    const midFrame = Math.round((p.inStep + Math.floor(hold / 2)) * (timeline.fps / 15))
-    // author check: copy 0 carries no flips; reflections do
-    expect(p.atoms[0]?.flipX).toBeFalsy()
-    expect(p.atoms[0]?.flipY).toBeFalsy()
-    expect(p.atoms.slice(1).some((a) => a.flipX === true || a.flipY === true)).toBe(true)
+    const hold = (((p.outStep - p.inStep) % timeline.steps) + timeline.steps) % timeline.steps
+    const midFrame = Math.round((p.inStep + Math.floor(hold / 2)) * (timeline.fps / 15)) % timeline.totalFrames
     // render only this placement, mid-hold: every atom is lit
-    const single: GlyphTimeline = { ...timeline, placements: [p], ghost: { bins: [], labelPos: { x: 0, y: 0 } }, glints: [] }
+    const single: GlyphTimeline = { ...timeline, placements: [p] }
     const scene = buildScene(single)
     const rec = new RecordingCtx()
     drawGlyphFrame(asCtx(rec), single, scene, midFrame)
@@ -167,21 +164,21 @@ describe('drawFrame', () => {
     const scales = rec.calls.filter((c) => c.method === 'scale')
     expect(fills.length).toBe(p.atoms.length)
     expect(scales.length).toBe(p.atoms.length)
-    // atom order is preserved: first fillText follows an unflipped scale…
-    const scaleBeforeFirst = scales[0]
-    expect((scaleBeforeFirst?.args[0] as number) > 0 && (scaleBeforeFirst?.args[1] as number) > 0).toBe(true)
-    // …and at least one later fillText follows a negative-scale transform
-    const lastScale = scales.at(-1)
-    expect((lastScale?.args[0] as number) < 0 || (lastScale?.args[1] as number) < 0).toBe(true)
+    // no copy ever sees a mirrored transform
+    for (const c of scales) {
+      expect(c.args[0] as number).toBeGreaterThan(0)
+      expect(c.args[1] as number).toBeGreaterThan(0)
+    }
   })
 
   it('uses a constant screen-space hairline regardless of glyph scale', () => {
     const timeline = compiled(board)
     const scene = buildScene(timeline)
-    // the quad hold: packages and tiny marks coexist, so glyph-space widths differ
-    const quad = timeline.formations[2]
-    if (quad === undefined) throw new Error('no quad formation')
-    drawFrame(asCtx(currentRecorder()), timeline, scene, Math.floor(((quad.startPhase + quad.endPhase) / 2) * timeline.totalFrames))
+    // the frame act's hold: the hero and tiny cells coexist, so glyph-space widths differ
+    const frame = timeline.formations.find((f) => f.id === 'frame')
+    if (frame === undefined) throw new Error('no frame formation')
+    const mid = ((frame.startPhase + Math.min(frame.endPhase, 1)) / 2) * timeline.totalFrames
+    drawFrame(asCtx(currentRecorder()), timeline, scene, Math.floor(mid))
     // lineWidth is set in glyph space as inkPx/sizePx — the recorded widths
     // must vary with scale (bigger glyph -> smaller glyph-space width)
     const widths = callsOf('set:lineWidth').map((c) => c.args[0] as number)
@@ -190,28 +187,32 @@ describe('drawFrame', () => {
   })
 
   it('draws embedded labels inside package outlines', () => {
-    const timeline = compiled(boardModel('icebreaker.kicad_pcb'), {
-      cast: { preferRefs: ['P1', 'SW1', 'SW2', 'J31', 'J33', 'J34'] }
-    })
-    const labelledIds = new Set(
-      timeline.cast.filter((g) => (g.labels?.length ?? 0) > 0).map((g) => g.id)
-    )
-    // biggest first — labels under ~9px are dropped as noise by the renderer
-    const p = timeline.placements
-      .filter((p) => labelledIds.has(p.glyphId))
-      .sort((a, b) => (b.atoms[0]?.scale ?? 0) - (a.atoms[0]?.scale ?? 0))[0]
-    expect(p, 'no labelled package was placed').toBeDefined()
-    if (p === undefined) return
-    // draw at the placement's own hold midpoint so it is fully lit
-    const hold = (((p.outStep - p.inStep) % timeline.steps) + timeline.steps) % timeline.steps
-    const frame = Math.round((p.inStep + Math.floor(hold / 2)) * (timeline.fps / 15)) % timeline.totalFrames
-    const scene = buildScene(timeline)
-    drawFrame(asCtx(currentRecorder()), timeline, scene, frame)
-    const texts = callsOf('fillText').map((c) => c.args[0])
-    const labelTexts = new Set(
-      timeline.cast.filter((g) => labelledIds.has(g.id)).flatMap((g) => (g.labels ?? []).map((l) => l.text))
-    )
-    expect(texts.some((t) => labelTexts.has(t as string))).toBe(true)
+    // pkg: silhouettes are cast-only in the cell score, so fixture a labelled
+    // package and a lit placement for it — the draw path is what matters here
+    const timeline = compiled(boardModel('ecc83-pp.kicad_pcb'))
+    const glyph: Glyph = {
+      id: 'pkg:TEST',
+      kind: 'package',
+      strokes: [[{ x: -0.5, y: -0.5 }, { x: 0.5, y: -0.5 }, { x: 0.5, y: 0.5 }, { x: -0.5, y: 0.5 }, { x: -0.5, y: -0.5 }]],
+      labels: [{ text: 'U7', x: 0, y: 0, size: 0.2, rot: 0 }]
+    }
+    const placement: Placement = {
+      glyphId: glyph.id,
+      atoms: [{ x: 0, y: 0, rot: 0, scale: 0.4, alpha: 1 }],
+      tones: [1],
+      role: 'hero',
+      inStep: 0,
+      outStep: timeline.steps - 1,
+      pattern: 0,
+      formation: 0
+    }
+    const single: GlyphTimeline = { ...timeline, cast: [...timeline.cast, glyph], placements: [placement] }
+    const scene = buildScene(single)
+    const rec = new RecordingCtx()
+    // step 20 sits on the hold plateau — the label scales to ~37px, over the 9px floor
+    drawGlyphFrame(asCtx(rec), single, scene, 20)
+    const texts = rec.calls.filter((c) => c.method === 'fillText').map((c) => c.args[0])
+    expect(texts).toContain('U7')
   })
 
   it('handles an empty cast without throwing', () => {

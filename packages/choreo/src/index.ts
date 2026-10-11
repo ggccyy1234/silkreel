@@ -1,7 +1,7 @@
 export type * from './types'
 export * from './errors'
 export { compileTimeline } from './compile'
-export { decodeAlpha, DECODE_IN, DECODE_OUT } from './decode'
+export { blinkAlpha, decodeAlpha, DECODE_IN, DECODE_OUT } from './decode'
 export { BEAT_STEPS } from './composer'
 export { simplifyStrokes } from './simplify'
 export { clamp, clamp01 } from './curves'

@@ -1,57 +1,60 @@
-import type { BoardModel } from '@silk-reel/ingest'
-import { buildBeatMaps } from './formations'
-import type { CopySpec, GlyphGroups, Slot } from './formations'
-import { buildGhostGeometry } from './ghost'
-import { safeArea } from './layout'
+import type { BoardModel, Vec2 } from '@silk-reel/ingest'
+import { boardCore, frameAct, pillarsAct, spineAct } from './acts'
+import type { ActPlan, Cell, Role, Room } from './acts'
+import { CELL_KINDS, cellGlyph, cellId, heroChip, takeCensus } from './cells'
+import type { CellKind, Census } from './cells'
 import { buildCast } from './glyphs'
+import { safeArea } from './layout'
 import { makeRng } from './rng'
+import type { Rng } from './rng'
 import type { ResolvedConfig } from './config'
-import type {
-  AtomState,
-  FormationEvent,
-  FormationId,
-  Glyph,
-  GlyphGhost,
-  Placement,
-  TimelineWarning,
-  Tone
-} from './types'
+import type { AtomState, FormationEvent, Glyph, Placement, TimelineWarning, Tone } from './types'
 
 /**
- * The loop runs on a 15fps decode grid: nothing moves, units blink in, hold,
- * and blink out. The arc is fixed — sparse opening, dense middle, quad
- * climax, the board-ghost signature, a closing residue, and a seam mark that
- * rides across the wrap so step 0 is never empty.
+ * The loop is a score on a 15fps decode grid. Nothing ever moves: cells
+ * decode in, hold, and decode out, and all the motion is the ORDER they do it
+ * in. Each act grows outward from its seeds along its own structure, breathes
+ * through a hold, then strips back toward the next act's seeds — so the
+ * residue of one act is the first mark of the next, and the last act's
+ * residue is the first frame of the loop.
  */
 
-/** decode steps per beat — the beat grid every arc lands on */
+/** decode steps per beat — every act boundary lands on this grid */
 export const BEAT_STEPS = 7
-/** a full pass through the arc is 24 beats */
-const ARC_BEATS = 24
+/** a full loop is 24 beats (168 steps, 11.2s) */
+const LOOP_BEATS = 24
+/** one lattice pitch in stage units (stage ±1 = half the safe short side) */
+const PITCH = 0.085
+/** how much of each stage half-axis the structures may claim */
+const FILL = 0.71
 
-interface ArcBand {
-  inBeat: number
-  inSpread: number
-  outBeat: number
-  outSpread: number
-  /** rank direction for the decode cascade */
-  cascade: 'center-out' | 'edges-in' | 'heroes-first'
+interface ActTiming {
+  /** seed marks appear (may be negative — wraps) */
+  seeds: number
+  grow: [number, number]
+  strip: [number, number]
 }
 
-/** per-formation arc placement, in beats (arc table in the taste brief) */
-const ARC: Record<'A' | 'B' | 'C' | 'ghost' | 'D', ArcBand> = {
-  // A wraps the loop: it decodes in under the closing residue, holds across
-  // the wrap (so frame 0 opens on a formed cluster) and dissolves as B arrives
-  A: { inBeat: 22, inSpread: 1.5, outBeat: 8, outSpread: 1, cascade: 'center-out' },
-  B: { inBeat: 8, inSpread: 2, outBeat: 13.5, outSpread: 1, cascade: 'center-out' },
-  C: { inBeat: 14, inSpread: 1.5, outBeat: 16, outSpread: 0.5, cascade: 'edges-in' },
-  ghost: { inBeat: 16.5, inSpread: 1, outBeat: 19.5, outSpread: 0.5, cascade: 'heroes-first' },
-  D: { inBeat: 20, inSpread: 1.5, outBeat: 22.5, outSpread: 0.5, cascade: 'center-out' }
+/** in beats; the frame act holds longest — it is the climax */
+const SCORE: ActTiming[] = [
+  { seeds: -1.4, grow: [0, 3.6], strip: [6.2, 8.7] },
+  { seeds: 6.9, grow: [8, 11.4], strip: [14.2, 16.7] },
+  { seeds: 14.9, grow: [16, 19.6], strip: [22.2, 24.8] }
+]
+/** where frame 0 sits in the score: just after the spine completes */
+const OPEN_BEAT = 4
+
+const ROLE_SIZE: Record<Role, number> = {
+  anchor: 0.95, body: 0.8, edge: 0.8, joint: 0.8, accent: 0.72, hero: 2.1, text: 0.5
+}
+const ROLE_TONE: Record<Role, number> = {
+  anchor: 0.92, body: 0.78, edge: 0.6, joint: 0.7, accent: 0.62, hero: 1, text: 0.72
+}
+const ROLE_KIND: Record<Role, Tone> = {
+  anchor: 'support', body: 'support', edge: 'punct', joint: 'punct', accent: 'punct', hero: 'hero', text: 'text'
 }
 
 const mod = (a: number, n: number): number => ((a % n) + n) % n
-
-const KIND_ROLE: Record<string, Tone> = { package: 'support', mark: 'punct', text: 'text' }
 
 export interface ComposeResult {
   cast: Glyph[]
@@ -59,43 +62,143 @@ export interface ComposeResult {
   formations: FormationEvent[]
   steps: number
   cadence: 'twos' | 'smooth'
-  ghost: GlyphGhost
-  glints: Array<{ placement: number; step: number }>
   warnings: TimelineWarning[]
 }
 
-/** expand one slot's symmetry copies into absolute atoms */
-function expand(copies: CopySpec, base: AtomState): AtomState[] {
-  switch (copies.mode) {
-    case 'single':
-      return [base]
-    case 'rot2':
-      if (base.x === 0 && base.y === 0) return [base]
-      return [base, { ...base, x: -base.x, y: -base.y, rot: base.rot + Math.PI }]
-    case 'mirrorX':
-      return base.x === 0
-        ? [base]
-        : [base, { ...base, x: -base.x, rot: -base.rot, flipX: true }]
-    case 'quad': {
-      const atoms: AtomState[] = [base]
-      if (base.x !== 0) atoms.push({ ...base, x: -base.x, rot: -base.rot, flipX: true })
-      if (base.y !== 0) atoms.push({ ...base, y: -base.y, rot: -base.rot, flipY: true })
-      if (base.x !== 0 && base.y !== 0) {
-        atoms.push({ ...base, x: -base.x, y: -base.y, rot: base.rot, flipX: true, flipY: true })
-      }
-      return atoms
+function weighted(rng: Rng, items: Array<{ kind: CellKind; w: number }>): CellKind {
+  let r = rng.next()
+  for (const it of items) {
+    r -= it.w
+    if (r <= 0) return it.kind
+  }
+  return (items[items.length - 1] as { kind: CellKind }).kind
+}
+
+function pickKind(role: Role, census: Census, rng: Rng): CellKind {
+  switch (role) {
+    case 'anchor': {
+      const chip = census.body.find((b) => b.kind === 'chip')?.w ?? 0
+      const leaf = census.body.find((b) => b.kind === 'leaf')?.w ?? 0
+      return rng.next() < chip / Math.max(1e-9, chip + leaf) ? 'chip' : 'leaf'
     }
+    case 'body':
+      return weighted(rng, census.body)
+    case 'edge':
+      return rng.pick(['tick', 'dash', 'bracket'] as CellKind[])
+    case 'joint':
+      return rng.pick<CellKind>(census.holes ? ['ring', 'dot', 'pad'] : ['dot', 'pad', 'dot'])
+    default:
+      return rng.pick(['dot', 'corner', 'dot'] as CellKind[])
   }
 }
 
-function groupCast(cast: Glyph[]): GlyphGroups {
-  const groups: GlyphGroups = { packages: [], texts: [], marks: [] }
-  for (const g of cast) {
-    if (g.kind === 'package') groups.packages.push(g)
-    else if (g.kind === 'text') groups.texts.push(g)
-    else groups.marks.push(g)
+/** one cell's symmetry copies, in stage units; coincident copies collapse */
+function expand(cell: Cell, scale: number, text: boolean): AtomState[] {
+  const x = cell.x * PITCH
+  const y = cell.y * PITCH
+  const rot = cell.rot ?? 0
+  const fx = cell.flipX === true
+  const fy = cell.flipY === true
+  const base: AtomState = { x, y, rot, scale, alpha: 1, flipX: fx, flipY: fy }
+  // words never mirror: copies move, the text stays readable
+  const flip = (ax: boolean, ay: boolean): AtomState =>
+    text ? { ...base, x: ax ? -x : x, y: ay ? -y : y } : { ...base, x: ax ? -x : x, y: ay ? -y : y, flipX: ax ? !fx : fx, flipY: ay ? !fy : fy }
+  const atoms: AtomState[] = [base]
+  switch (cell.sym) {
+    case 'single':
+      break
+    case 'rot2':
+      if (x !== 0 || y !== 0) atoms.push(text ? { ...base, x: -x, y: -y } : { ...base, x: -x, y: -y, rot: rot + Math.PI })
+      break
+    case 'mirrorX':
+      if (x !== 0) atoms.push(flip(true, false))
+      break
+    case 'quad':
+      if (x !== 0) atoms.push(flip(true, false))
+      if (y !== 0) atoms.push(flip(false, true))
+      if (x !== 0 && y !== 0) atoms.push(flip(true, true))
+      break
   }
-  return groups
+  return atoms
+}
+
+interface Unit {
+  placement: Placement
+  act: number
+  /** lattice positions of every copy, for growth distances */
+  sites: Vec2[]
+  lag: number
+}
+
+/** shortest growth distance from the seeds to every unit across the lattice */
+function growthDistances(units: Unit[], seeds: Vec2[]): number[] {
+  const near = (a: Vec2[], b: Vec2[]): number => {
+    let best = Infinity
+    for (const p of a) for (const q of b) best = Math.min(best, Math.hypot(p.x - q.x, p.y - q.y))
+    return best
+  }
+  const n = units.length
+  const dist = units.map((u) => near(u.sites, seeds) < 0.8 ? 0 : Infinity)
+  if (dist.every((d) => d === Infinity)) {
+    // no unit sits on a seed: start from whichever is nearest
+    const d0 = units.map((u) => near(u.sites, seeds))
+    const m = Math.min(...d0)
+    d0.forEach((d, i) => { if (d <= m + 1e-9) dist[i] = 0 })
+  }
+  const pair: number[][] = units.map((a) => units.map((b) => near(a.sites, b.sites)))
+  const done = new Array<boolean>(n).fill(false)
+  for (let it = 0; it < n; it++) {
+    let u = -1
+    for (let i = 0; i < n; i++) if (!done[i] && (u < 0 || (dist[i] as number) < (dist[u] as number))) u = i
+    if (u < 0 || dist[u] === Infinity) break
+    done[u] = true
+    const row = pair[u] as number[]
+    for (let v = 0; v < n; v++) {
+      if (done[v]) continue
+      const d = row[v] as number
+      // growth crawls cell to cell; long jumps cost extra so gaps read as gaps
+      const w = (d <= 1.6 ? d : d * 1.6) * (units[v] as Unit).lag
+      if ((dist[u] as number) + w < (dist[v] as number)) dist[v] = (dist[u] as number) + w
+    }
+  }
+  return dist.map((d) => (d === Infinity ? 0 : d))
+}
+
+const REFDES = /^[A-Z]{1,3}\d+$/
+const VALUE = /^\d+(\.\d+)?[pnuµmkKM]?[FHΩR]?$/
+
+/**
+ * Two short words off the board's own silk — net names, block labels — for
+ * the frame act's captions. Hinted words lead; then short upper-case tokens,
+ * front side and taller first, since those are the ones a designer labelled.
+ */
+function boardWords(board: BoardModel, prefer: string[], rng: Rng): Glyph[] {
+  const seen = new Map<string, number>()
+  for (const [layerId, layer] of Object.entries(board.silkscreen)) {
+    for (const t of layer.texts) {
+      const v = t.value.trim()
+      if (v.length < 2 || v.length > 8 || /\s/.test(v) || REFDES.test(v) || VALUE.test(v) || !/[A-Za-z]/.test(v)) continue
+      const score = (layerId.startsWith('F.') ? 2 : 0) + (v === v.toUpperCase() ? 1.5 : 0) + Math.min(2, t.height) + rng.next() * 0.5
+      seen.set(v, Math.max(seen.get(v) ?? -Infinity, score + (prefer.includes(v) ? 100 : 0)))
+    }
+  }
+  return [...seen.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([v], i) => ({ id: `word:${i}:${v}`, kind: 'text', strokes: [], text: v }))
+}
+
+/**
+ * order → 0..1 arrival fraction. Pure distance stalls on sparse stretches
+ * (a frame's long empty edges); pure rank loses the shape of the wave. Half
+ * of each keeps the direction and a steady cadence. Ties land together.
+ */
+function paced(d: number[]): number[] {
+  const lo = Math.min(...d)
+  const span = Math.max(1e-9, Math.max(...d) - lo)
+  const sorted = [...d].sort((a, b) => a - b)
+  const n = Math.max(1, d.length - 1)
+  return d.map((v) => 0.5 * ((v - lo) / span) + 0.5 * (sorted.indexOf(v) / n))
 }
 
 export function composeFilm(
@@ -105,7 +208,7 @@ export function composeFilm(
   durationSeconds: number
 ): ComposeResult {
   const warnings: TimelineWarning[] = []
-  const { cast, warnings: castWarnings, heroRefs } = buildCast(
+  const { cast: bench, warnings: castWarnings } = buildCast(
     board,
     resolved.knobs.density,
     resolved.knobs.texts >= 0.5,
@@ -113,147 +216,164 @@ export function composeFilm(
     resolved.cast
   )
   warnings.push(...castWarnings)
-  const groups = groupCast(cast)
+  const census = takeCensus(board)
 
   const safe = safeArea(resolved.width, resolved.height, resolved.title !== undefined)
   const stageAspect = safe.w / safe.h
-  const stagePx = Math.min(safe.w, safe.h) * 0.5
+  const room: Room = {
+    nx: Math.floor((FILL * Math.max(1, stageAspect)) / PITCH),
+    ny: Math.floor((FILL * Math.max(1, 1 / stageAspect)) / PITCH)
+  }
   const steps = Math.round(durationSeconds * 15)
-  /** beats → loop steps; scales with duration but lands on the same grid at 168 */
-  const beat = (b: number): number => Math.round((b * steps) / ARC_BEATS)
+  const at = (b: number): number => Math.round((b * steps) / LOOP_BEATS)
 
-  // board-seeded formation picks: sparse A, dense B, closing residue D
+  // the board's own population decides the frame act's interior
+  const coreRoom = { x: Math.min(room.nx - 3, 5), y: Math.min(room.ny - 3, 6) }
+  const core = boardCore(board, coreRoom.x, coreRoom.y)
+  const heroPkg = (core.heroRef === undefined ? undefined : heroChip(board, core.heroRef)) ??
+    bench.find((g) => g.kind === 'package')
+  const words = resolved.knobs.texts >= 0.5 ? boardWords(board, resolved.cast?.preferTexts ?? [], makeRng(seed, 'words')) : []
+
   const planRng = makeRng(seed, `plan:${board.source.boardName}`)
-  const aId: FormationId = planRng.pick(['orbit', 'marks'] as const)
-  const bId: FormationId = planRng.pick(['columns', 'ring'] as const)
-  const aVariant = planRng.int(0, 2)
-  // D is the other marks variant when A was marks, else seeded
-  const dVariant = aId === 'marks' ? 1 - aVariant : planRng.int(0, 2)
-  const formationIds: readonly FormationId[] = [aId, bId, 'quad', 'ghost', 'marks']
-  const marksVariants: number[] = []
-  if (aId === 'marks') marksVariants.push(aVariant)
-  marksVariants.push(dVariant)
+  const bw = board.bbox.max.x - board.bbox.min.x
+  const bh = board.bbox.max.y - board.bbox.min.y
+  // long boards lean the spine further over
+  const lean = Math.min(0.75, 0.35 + 0.12 * Math.abs(Math.log(Math.max(1e-6, bw / Math.max(1e-6, bh))))) + planRng.range(-0.05, 0.05)
+  const acts: ActPlan[] = [
+    spineAct(room, lean),
+    pillarsAct(room, (census.body.find((b) => b.kind === 'chip')?.w ?? 0) > 0.18),
+    frameAct({ nx: room.nx, ny: room.ny }, core.cells, heroPkg?.id, words.map((w) => w.id))
+  ]
 
-  const maps = buildBeatMaps(
-    groups,
-    resolved.knobs.density,
-    (label) => makeRng(seed, `form:${label}`),
-    formationIds,
-    stageAspect,
-    stagePx,
-    marksVariants
-  )
+  const glyphs = new Map<string, Glyph>()
+  for (const g of [...bench, ...words]) glyphs.set(g.id, g)
+  if (heroPkg !== undefined) glyphs.set(heroPkg.id, heroPkg)
+  for (const k of CELL_KINDS) glyphs.set(cellId(k), cellGlyph(k))
+  if (resolved.title !== undefined) {
+    glyphs.set('txt:title', { id: 'txt:title', kind: 'text', strokes: [], text: resolved.title.name })
+  }
 
-  const placements: Placement[] = []
-  const bands: ArcBand[] = [ARC.A, ARC.B, ARC.C, ARC.D]
-  const mapIdxFor = [0, 1, 2, 4] as const // 'ghost' (index 3) has no slot map
-  for (const [fi, mi] of mapIdxFor.entries()) {
-    const band = bands[fi] as ArcBand
-    const map = maps.get(mi) as Map<string, Slot[]>
-    // rank: normalized slot distance from centre; outs cascade in reverse
-    let maxDist = 0
-    for (const slots of map.values()) {
-      for (const s of slots) maxDist = Math.max(maxDist, Math.hypot(s.x, s.y))
+  const units: Unit[] = []
+  for (const [ai, act] of acts.entries()) {
+    const rng = makeRng(seed, `cells:${ai}`)
+    const cells = [...act.cells]
+    if (ai === 2 && resolved.title !== undefined) {
+      const fy = Math.max(...cells.map((c) => c.y))
+      cells.push({ x: 0, y: fy + 1.6, role: 'text', sym: 'single', glyphId: 'txt:title', lag: 1.3 })
     }
-    const rngP = makeRng(seed, `pat:${fi}`)
-    for (const [gid, slots] of map) {
-      const glyph = cast.find((g) => g.id === gid)
+    for (const cell of cells) {
+      const gid = cell.glyphId ?? cellId(cell.kind ?? pickKind(cell.role, census, rng))
+      const glyph = glyphs.get(gid)
       if (glyph === undefined) continue
-      for (const s of slots) {
-        let rank = maxDist > 0 ? Math.hypot(s.x, s.y) / maxDist : 0
-        if (band.cascade === 'edges-in') rank = 1 - rank
-        // heroes anchor their window: in first, out last, never a cameo
-        if (s.hero === true) rank = 0
-        const inStep = beat(band.inBeat + rank * band.inSpread)
-        // last in, first out
-        const outStep = beat(band.outBeat + (1 - rank) * band.outSpread)
-        const atoms = expand(s.copies, { x: s.x, y: s.y, rot: s.rot, scale: s.scale, alpha: 1 })
-        // text reads as an ornament: the true copy at full ink, reflections dim
-        const tones =
-          glyph.kind === 'text' ? atoms.map((_, i) => (i === 0 ? 1 : 0.45)) : atoms.map(() => 1)
-        placements.push({
+      const text = glyph.kind === 'text'
+      const scale = (cell.size ?? ROLE_SIZE[cell.role]) * PITCH
+      const atoms = expand(cell, scale, text)
+      const tone = ROLE_TONE[cell.role]
+      units.push({
+        act: ai,
+        lag: cell.lag ?? 1,
+        sites: atoms.map((a) => ({ x: a.x / PITCH, y: a.y / PITCH })),
+        placement: {
           glyphId: gid,
           atoms,
-          tones,
-          role: s.hero === true ? 'hero' : (KIND_ROLE[glyph.kind] as Tone),
-          inStep,
-          outStep: outStep % steps,
-          pattern: rngP.int(0, 6),
-          formation: mi
-        })
-      }
+          tones: atoms.map(() => tone),
+          role: ROLE_KIND[cell.role],
+          inStep: 0,
+          outStep: 0,
+          pattern: rng.int(0, 6),
+          formation: ai
+        }
+      })
     }
   }
 
-  // ghost bins decode as units — heroes first, then outward from the centre
-  const geo = buildGhostGeometry(board, heroRefs, resolved.title, stageAspect)
-  const rngG = makeRng(seed, 'pat:ghost')
-  const ghostBand = ARC.ghost
-  const maxBinDist = Math.max(1e-9, ...geo.bins.filter((b) => !b.hero).map((b) => b.dist))
-  const ghost: GlyphGhost = {
-    bins: geo.bins.map((b) => {
-      const rank = b.hero ? 0 : b.dist / maxBinDist
-      return {
-        strokes: b.strokes,
-        hero: b.hero,
-        inStep: beat(ghostBand.inBeat + rank * ghostBand.inSpread),
-        outStep: beat(ghostBand.outBeat + (1 - rank) * ghostBand.outSpread) % steps,
-        pattern: rngG.int(0, 6)
-      }
-    }),
-    label: geo.label,
-    labelPos: geo.labelPos
+  // growth: each act's cells arrive by lattice distance from its seeds,
+  // in pulses of two steps so the wavefront has a pulse
+  for (const [ai, act] of acts.entries()) {
+    const t = SCORE[ai] as ActTiming
+    const mine = units.filter((u) => u.act === ai)
+    const g0 = at(t.grow[0])
+    const g1 = at(t.grow[1])
+    const rng = makeRng(seed, `grow:${ai}`)
+    const grow = paced(growthDistances(mine, act.seeds))
+    for (const [i, u] of mine.entries()) {
+      const frac = grow[i] as number
+      const jitter = frac > 0 && frac < 1 ? rng.int(0, 2) : 0
+      u.placement.inStep = mod(g0 + 2 * Math.round(((g1 - g0) * frac) / 2) + jitter, steps)
+    }
+    // strip toward the next act's seeds: the far side goes first, the cells
+    // nearest the next seeds hold on as residue
+    const next = acts[(ai + 1) % acts.length] as ActPlan
+    const s0 = at(t.strip[0])
+    const s1 = at(t.strip[1])
+    const strip = paced(mine.map((u) => -Math.min(...u.sites.flatMap((p) => next.seeds.map((q) => Math.hypot(p.x - q.x, p.y - q.y))))))
+    for (const [i, u] of mine.entries()) {
+      u.placement.outStep = mod(s0 + Math.round((s1 - s0) * (strip[i] as number)) + rng.int(0, 2), steps)
+    }
   }
 
+  // seed marks: the next act's first dots appear while the last act strips
+  for (const [ai, act] of acts.entries()) {
+    const t = SCORE[ai] as ActTiming
+    const atoms = act.seeds.map((p) => ({ x: p.x * PITCH, y: p.y * PITCH, rot: 0, scale: 0.8 * PITCH, alpha: 1 }))
+    units.push({
+      act: ai,
+      lag: 1,
+      sites: act.seeds,
+      placement: {
+        glyphId: cellId('dot'),
+        atoms,
+        tones: atoms.map(() => 0.9),
+        role: 'punct',
+        inStep: mod(at(t.seeds), steps),
+        outStep: mod(at(t.grow[0]) + 3, steps),
+        pattern: 1,
+        formation: ai
+      }
+    })
+  }
 
+  // the hold breathes: single cells blink out and back, never two at once
+  for (const [ai] of acts.entries()) {
+    const t = SCORE[ai] as ActTiming
+    const rng = makeRng(seed, `breath:${ai}`)
+    const pool = units.filter((u) => u.act === ai && u.placement.role !== 'hero' && u.placement.role !== 'text' && u.sites.length > 1)
+    if (pool.length === 0) continue
+    const h0 = at(t.grow[1]) + 6
+    const h1 = at(t.strip[0]) - 2
+    for (let s = h0; s < h1; s += 2 + rng.int(0, 3)) {
+      const u = rng.pick(pool)
+      const blinks = u.placement.blinks ?? []
+      blinks.push(mod(s, steps))
+      u.placement.blinks = blinks
+    }
+  }
 
-  const formationIdsArr: FormationId[] = [aId, bId, 'quad', 'ghost', 'marks']
-  const formationBands: ArcBand[] = [ARC.A, ARC.B, ARC.C, ARC.ghost, ARC.D]
-  const formations: FormationEvent[] = formationIdsArr.map((id, i) => {
-    const band = formationBands[i] as ArcBand
-    // the window is the units' own first inStep / last outStep — the seam mark
-    // wraps the loop, so only non-wrapping units feed the end
-    const units = i === 3 ? ghost.bins : placements.filter((p) => p.formation === i)
-    const inSteps = units.map((u) => u.inStep)
-    const outEnds = units.filter((u) => u.outStep > u.inStep).map((u) => u.outStep)
-    const firstIn = inSteps.length > 0 ? Math.min(...inSteps) : beat(band.inBeat)
-    const lastOut = outEnds.length > 0 ? Math.max(...outEnds) : beat(band.outBeat + band.outSpread)
-    return { id, startPhase: firstIn / steps, endPhase: lastOut / steps, beat: i }
+  // the loop opens on the spine already standing: frame 0 is a poster, and
+  // the first motion a scroller sees is the strip that hands off to act II
+  const shift = at(OPEN_BEAT)
+  const placements = units.map((u) => {
+    const p = u.placement
+    p.inStep = mod(p.inStep - shift, steps)
+    p.outStep = mod(p.outStep - shift, steps)
+    if (p.blinks !== undefined) p.blinks = p.blinks.map((b) => mod(b - shift, steps))
+    return p
   })
+  const formations: FormationEvent[] = acts
+    .map((act, i) => {
+      const t = SCORE[i] as ActTiming
+      const start = mod(at(t.grow[0]) - shift, steps)
+      return { id: act.id, startPhase: start / steps, endPhase: (start + at(t.strip[1]) - at(t.grow[0])) / steps, beat: i }
+    })
+    .sort((a, b) => a.startPhase - b.startPhase)
 
-  // glints: every ~21 steps of a hold, one support placement dips for a step.
-  // A's hold wraps the loop, so measure hold length modulo steps and skip
-  // windows that are too short to glint or wrap into absurdity
-  const glints: Array<{ placement: number; step: number }> = []
-  const rngGl = makeRng(seed, 'glint')
-  for (const [fi, mi] of mapIdxFor.entries()) {
-    const band = bands[fi] as ArcBand
-    const holdStart = mod(beat(band.inBeat + band.inSpread) + 5, steps)
-    const holdEnd = beat(band.outBeat)
-    const holdLen = mod(holdEnd - holdStart, steps)
-    if (holdLen < BEAT_STEPS || holdLen > steps * 0.4) continue
-    const supports = placements
-      .map((p, i) => ({ p, i }))
-      .filter(({ p }) => p.formation === mi && p.role === 'support')
-    for (let off = 0; off < holdLen; off += 21) {
-      const pick = supports[rngGl.int(0, supports.length)]
-      if (pick === undefined) break
-      glints.push({ placement: pick.i, step: (holdStart + off) % steps })
-    }
-  }
-
-  // drop cast members no placement uses — they would draw nothing anyway
-  const usedIds = new Set(placements.map((p) => p.glyphId))
-  const activeCast = cast.filter((g) => usedIds.has(g.id))
-
+  const used = new Set(placements.map((p) => p.glyphId))
   return {
-    cast: activeCast,
+    cast: [...glyphs.values()].filter((g) => used.has(g.id)),
     placements,
     formations,
     steps,
     cadence: resolved.cadence,
-    ghost,
-    glints,
     warnings
   }
 }
