@@ -55,6 +55,12 @@ export function decodeAlpha(
   return 0
 }
 
+/** the signal head: full ink while decoding in and for `flare` steps after, then `tone` */
+export function flareTone(step: number, inStep: number, flare: number | undefined, tone: number, steps: number): number {
+  if (flare === undefined) return tone
+  return mod(Math.floor(step) - inStep, steps) < IN_LEN + flare ? 1 : tone
+}
+
 /** a hold breath: out for one step, half back for one, then whole again */
 const BLINK = [0, 0.35]
 

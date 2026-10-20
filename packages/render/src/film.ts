@@ -1,4 +1,4 @@
-import { blinkAlpha, decodeAlpha, safeArea } from '@silk-reel/choreo'
+import { blinkAlpha, decodeAlpha, flareTone, safeArea } from '@silk-reel/choreo'
 import type { AtomState, GlyphLabel, GlyphTimeline, Timeline } from '@silk-reel/choreo'
 import { drawTraceFrame } from './trace-draw'
 import { drawTitle } from './title'
@@ -155,13 +155,14 @@ export function drawGlyphFrame(
     const c = placement.role === 'hero' ? head : ink
     ctx.strokeStyle = c
     ctx.fillStyle = c
+    const weight = inkPx * (placement.weight ?? 1)
     for (const [i, atom] of placement.atoms.entries()) {
-      const alpha = base * (placement.tones[i] ?? 1)
+      const alpha = base * flareTone(step, placement.inStep, placement.flare, placement.tones[i] ?? 1, timeline.steps)
       if (alpha <= 0.004) continue
       // words always read: every copy is rotated upright and never mirrored
       const a = glyph.text !== undefined ? { ...atom, rot: uprightRot(atom.rot), flipX: false, flipY: false } : atom
       ctx.globalAlpha = alpha
-      drawAtom(ctx, glyph, a, cx, cy, stagePx, inkPx)
+      drawAtom(ctx, glyph, a, cx, cy, stagePx, weight)
       drawn += 1
     }
   }

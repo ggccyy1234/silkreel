@@ -3,6 +3,7 @@ import { boardCore, frameAct, heroPart, planAct, routeAct } from './acts'
 import type { ActPlan, Cell, Role, Room } from './acts'
 import { CELL_KINDS, cellGlyph, cellId, heroChip, takeCensus } from './cells'
 import type { CellKind, Census } from './cells'
+import { DECODE_IN } from './decode'
 import { buildCast } from './glyphs'
 import { safeArea } from './layout'
 import { makeRng } from './rng'
@@ -21,6 +22,7 @@ import type { AtomState, FormationEvent, Glyph, Placement, TimelineWarning, Tone
 
 /** decode steps per beat — every act boundary lands on this grid */
 export const BEAT_STEPS = 7
+const DECODE_IN_STEPS = DECODE_IN[0]?.length ?? 5
 /** a full loop is 24 beats (168 steps, 11.2s) */
 const LOOP_BEATS = 24
 /** one lattice pitch in stage units (stage ±1 = half the safe short side) */
@@ -128,6 +130,8 @@ interface Unit {
   /** lattice positions of every copy, for growth distances */
   sites: Vec2[]
   lag: number
+  at?: number | undefined
+  life?: number | undefined
 }
 
 /** shortest growth distance from the seeds to every unit across the lattice */
@@ -241,7 +245,7 @@ export function composeFilm(
   ]
 
   const glyphs = new Map<string, Glyph>()
-  for (const g of [...bench, ...words]) glyphs.set(g.id, g)
+  for (const g of [...bench, ...words, ...acts.flatMap((a) => a.glyphs ?? [])]) glyphs.set(g.id, g)
   if (heroPkg !== undefined) glyphs.set(heroPkg.id, heroPkg)
   for (const k of CELL_KINDS) glyphs.set(cellId(k), cellGlyph(k))
   if (resolved.title !== undefined) {
@@ -263,10 +267,12 @@ export function composeFilm(
       const text = glyph.kind === 'text'
       const scale = (cell.size ?? ROLE_SIZE[cell.role]) * PITCH
       const atoms = expand(cell, scale, text)
-      const tone = ROLE_TONE[cell.role]
+      const tone = cell.tone ?? ROLE_TONE[cell.role]
       units.push({
         act: ai,
         lag: cell.lag ?? 1,
+        at: cell.at,
+        life: cell.life,
         sites: atoms.map((a) => ({ x: a.x / PITCH, y: a.y / PITCH })),
         placement: {
           glyphId: gid,
@@ -276,7 +282,9 @@ export function composeFilm(
           inStep: 0,
           outStep: 0,
           pattern: rng.int(0, 6),
-          formation: ai
+          formation: ai,
+          ...(cell.weight === undefined ? {} : { weight: cell.weight }),
+          ...(cell.flare === undefined ? {} : { flare: cell.flare })
         }
       })
     }
@@ -290,20 +298,30 @@ export function composeFilm(
     const g0 = at(t.grow[0])
     const g1 = at(t.grow[1])
     const rng = makeRng(seed, `grow:${ai}`)
-    const grow = paced(growthDistances(mine, act.seeds))
+    // an authored order travels at one speed, cell by cell; otherwise the
+    // structure grows out from its seeds in pulses of two steps
+    const timed = mine.every((u) => u.at !== undefined)
+    const last = Math.max(1e-9, ...mine.map((u) => u.at ?? 0))
+    const grow = timed ? mine.map((u) => (u.at ?? 0) / last) : paced(growthDistances(mine, act.seeds))
     for (const [i, u] of mine.entries()) {
       const frac = grow[i] as number
+      if (timed) {
+        u.placement.inStep = mod(g0 + Math.round((g1 - g0) * frac), steps)
+        continue
+      }
       const jitter = frac > 0 && frac < 1 ? rng.int(0, 2) : 0
       u.placement.inStep = mod(g0 + 2 * Math.round(((g1 - g0) * frac) / 2) + jitter, steps)
     }
     // strip toward the next act's seeds: the far side goes first, the cells
     // nearest the next seeds hold on as residue
-    const next = acts[(ai + 1) % acts.length] as ActPlan
+    const toward = act.stripTo ?? (acts[(ai + 1) % acts.length] as ActPlan).seeds
     const s0 = at(t.strip[0])
     const s1 = at(t.strip[1])
-    const strip = paced(mine.map((u) => -Math.min(...u.sites.flatMap((p) => next.seeds.map((q) => Math.hypot(p.x - q.x, p.y - q.y))))))
+    const strip = paced(mine.map((u) => -Math.min(...u.sites.flatMap((p) => toward.map((q) => Math.hypot(p.x - q.x, p.y - q.y))))))
     for (const [i, u] of mine.entries()) {
       u.placement.outStep = mod(s0 + Math.round((s1 - s0) * (strip[i] as number)) + rng.int(0, 2), steps)
+      // a brief mark leaves right after it lands
+      if (u.life !== undefined) u.placement.outStep = mod(u.placement.inStep + DECODE_IN_STEPS + u.life, steps)
     }
   }
 
@@ -332,7 +350,7 @@ export function composeFilm(
   for (const [ai] of acts.entries()) {
     const t = SCORE[ai] as ActTiming
     const rng = makeRng(seed, `breath:${ai}`)
-    const pool = units.filter((u) => u.act === ai && u.placement.role !== 'hero' && u.placement.role !== 'text' && u.sites.length > 1)
+    const pool = units.filter((u) => u.act === ai && u.life === undefined && u.placement.role !== 'hero' && u.placement.role !== 'text' && u.sites.length > 1)
     if (pool.length === 0) continue
     const h0 = at(t.grow[1]) + 6
     const h1 = at(t.strip[0]) - 2

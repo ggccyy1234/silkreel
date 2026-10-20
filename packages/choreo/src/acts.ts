@@ -1,7 +1,7 @@
 import type { BoardModel, Footprint, Vec2 } from '@silk-reel/ingest'
 import type { CellKind } from './cells'
 import { classify, CLASS_CELL } from './cells'
-import type { FormationId } from './types'
+import type { FormationId, Glyph } from './types'
 
 /**
  * Three acts, each a structure with a direction of growth. Cells sit on an
@@ -29,6 +29,16 @@ export interface Cell {
   flipY?: boolean | undefined
   /** growth weight: >1 makes this cell arrive later than its distance says */
   lag?: number | undefined
+  /** authored arrival order; when every cell of an act has one, it replaces growth by distance */
+  at?: number | undefined
+  /** tone override; otherwise the role's */
+  tone?: number | undefined
+  /** hairline multiplier */
+  weight?: number | undefined
+  /** steps at full ink after decoding in */
+  flare?: number | undefined
+  /** a brief mark: decodes out this many steps after it lands instead of holding */
+  life?: number | undefined
 }
 
 export interface ActPlan {
@@ -36,6 +46,10 @@ export interface ActPlan {
   cells: Cell[]
   /** every symmetric seed position, lattice units */
   seeds: Vec2[]
+  /** where this act strips toward; the next act's seeds when omitted */
+  stripTo?: Vec2[] | undefined
+  /** glyphs only this act uses (net names) */
+  glyphs?: Glyph[] | undefined
 }
 
 /** lattice half-extents (cells) the frame can hold */
@@ -63,6 +77,10 @@ class Grid {
         return [k(x, y), k(-x, y), k(x, -y), k(-x, -y)]
     }
   }
+  /** a mark that overlays a taken site (a ping, a label) */
+  over(c: Cell): void {
+    this.cells.push(c)
+  }
   add(c: Omit<Cell, 'sym'> & { sym?: Sym }): boolean {
     const keys = this.keys(c.x, c.y, c.sym)
     if (keys.some((key) => this.taken.has(key))) return false
@@ -72,6 +90,15 @@ class Grid {
   }
   has(x: number, y: number): boolean {
     return this.keys(x, y).some((key) => this.taken.has(key))
+  }
+  /** a word on one row: lands only where its whole width is free, and claims it */
+  word(c: Cell, halfWidth: number): boolean {
+    const xs: number[] = []
+    for (let x = c.x - halfWidth; x <= c.x + halfWidth + 1e-9; x += 0.5) xs.push(x)
+    if (xs.some((x) => this.has(x, c.y))) return false
+    for (const x of xs) for (const key of this.keys(x, c.y, c.sym)) this.taken.add(key)
+    this.cells.push(c)
+    return true
   }
 }
 
@@ -123,13 +150,20 @@ function simplify(pts: Vec2[], eps: number): number[] {
  * routes in distinct directions win; the C2 twin would cover a route's
  * opposite, so direction is compared modulo a half turn.
  */
-function heroRoutes(board: BoardModel, hero: Footprint, max: number): Vec2[][] {
+interface Route {
+  pts: Vec2[]
+  /** widest copper on the path, mm */
+  width: number
+  net: number | undefined
+}
+
+function heroRoutes(board: BoardModel, hero: Footprint, max: number): Route[] {
   const layers = Object.values(board.copper)
   const heroPads = layers.flatMap((l) => l.pads).filter((p) => p.footprintRef === hero.ref && p.netId !== undefined)
-  const found: Array<{ pts: Vec2[]; reach: number; angle: number }> = []
+  const found: Array<Route & { reach: number; angle: number }> = []
   for (const net of new Set(heroPads.map((p) => p.netId))) {
     const pos = new Map<string, Vec2>()
-    const adj = new Map<string, Array<[string, number]>>()
+    const adj = new Map<string, Array<[string, number, number]>>()
     for (const l of layers) {
       for (const t of l.traces) {
         if (t.netId !== net) continue
@@ -140,7 +174,7 @@ function heroRoutes(board: BoardModel, hero: Footprint, max: number): Vec2[][] {
           for (const [p, q] of [[a, b], [b, a]] as const) {
             pos.set(key(p), p)
             const out = adj.get(key(p)) ?? []
-            out.push([key(q), d])
+            out.push([key(q), d, t.width])
             adj.set(key(p), out)
           }
         }
@@ -148,7 +182,7 @@ function heroRoutes(board: BoardModel, hero: Footprint, max: number): Vec2[][] {
     }
     const mine = heroPads.filter((h) => h.netId === net)
     const dist = new Map<string, number>()
-    const prev = new Map<string, string>()
+    const prev = new Map<string, [string, number]>()
     for (const [k, p] of pos) {
       if (mine.some((h) => Math.hypot(p.x - h.pos.x, p.y - h.pos.y) <= Math.max(h.size.x, h.size.y) / 2 + 0.1)) dist.set(k, 0)
     }
@@ -158,11 +192,11 @@ function heroRoutes(board: BoardModel, hero: Footprint, max: number): Vec2[][] {
       for (const [k, d] of dist) if (!done.has(k) && (u === undefined || d < (dist.get(u) as number))) u = k
       if (u === undefined) break
       done.add(u)
-      for (const [v, w] of adj.get(u) ?? []) {
+      for (const [v, w, width] of adj.get(u) ?? []) {
         const d = (dist.get(u) as number) + w
         if (d < (dist.get(v) ?? Infinity)) {
           dist.set(v, d)
-          prev.set(v, u)
+          prev.set(v, [u, width])
         }
       }
     }
@@ -175,9 +209,13 @@ function heroRoutes(board: BoardModel, hero: Footprint, max: number): Vec2[][] {
     }
     if (far === undefined) continue
     const pts: Vec2[] = []
-    for (let k: string | undefined = far; k !== undefined; k = prev.get(k)) pts.unshift(pos.get(k) as Vec2)
+    let width = 0
+    for (let k: string | undefined = far; k !== undefined; k = prev.get(k)?.[0]) {
+      pts.unshift(pos.get(k) as Vec2)
+      width = Math.max(width, prev.get(k)?.[1] ?? 0)
+    }
     const end = pts[pts.length - 1] as Vec2
-    found.push({ pts, reach, angle: Math.atan2(end.y - hero.pos.y, end.x - hero.pos.x) })
+    found.push({ pts, width, net, reach, angle: Math.atan2(end.y - hero.pos.y, end.x - hero.pos.x) })
   }
   found.sort((a, b) => b.reach - a.reach)
   const picked: typeof found = []
@@ -189,7 +227,7 @@ function heroRoutes(board: BoardModel, hero: Footprint, max: number): Vec2[][] {
     if (picked.every((p) => apart(p.angle) > 0.4)) picked.push(r)
     if (picked.length === max) break
   }
-  return picked.map((r) => r.pts)
+  return picked
 }
 
 /** the copper's own direction as a mark: dash, tick, or a short slash for 45° runs */
@@ -201,17 +239,29 @@ function stroke(dx: number, dy: number): Pick<Cell, 'kind' | 'size' | 'flipX'> {
   return { kind: 'slash', size: 0.62, flipX: dx * dy > 0 }
 }
 
+/** a net's own name, as its designer wrote it: last path segment, overbars dropped; none for auto names */
+function netLabel(name: string | undefined): string | undefined {
+  const v = (name?.split('/').pop() ?? '').replace(/~\{([^}]*)\}/g, '$1').replace(/[{}~]/g, '')
+  return v.length >= 2 && v.length <= 10 && !/^(Net-|unconnected)/i.test(v) ? v : undefined
+}
+
+/** steps of full ink behind each route's head: the comet tail */
+const TAIL = 3
+
 /**
  * Act I — the routes. The hero chip sits at the centre and its longest real
  * traces run out to the parts they feed, stepped onto the lattice with a C2
- * twin and drawn as strokes along the copper's direction. Bends and vias
- * become joints; each route ends on the cell of the part it reaches. Growth
- * runs from the chip outward, along the copper. A board without routed
- * copper falls back to straight lines to its farthest parts.
+ * twin and drawn as strokes along the copper's direction. Each route travels
+ * at one speed from the chip, a bright head with a settling tail; heavy
+ * copper draws heavier. Bends and vias become joints, and each route lands on
+ * the cell of the part it reaches with a ping and the net's own name. A board
+ * without routed copper falls back to straight lines to its farthest parts.
  */
 export function routeAct(board: BoardModel, room: Room, hero: Footprint | undefined, heroGlyph: string | undefined): ActPlan {
   const g = new Grid('rot2')
-  g.add(heroGlyph === undefined ? { x: 0, y: 0, role: 'anchor', sym: 'single' } : { x: 0, y: 0, role: 'hero', glyphId: heroGlyph, size: 1.5, sym: 'single' })
+  g.add(heroGlyph === undefined
+    ? { x: 0, y: 0, role: 'anchor', sym: 'single', at: 0 }
+    : { x: 0, y: 0, role: 'hero', glyphId: heroGlyph, size: 1.5, sym: 'single', at: 0 })
   if (hero === undefined) return { id: 'route', cells: g.cells, seeds: [{ x: 0, y: 0 }] }
   const real = board.footprints.filter((f) => !/\*/.test(f.ref) && f !== hero)
   let routes = heroRoutes(board, hero, 5)
@@ -219,12 +269,14 @@ export function routeAct(board: BoardModel, room: Room, hero: Footprint | undefi
     routes = [...real]
       .sort((a, b) => Math.hypot(b.pos.x - hero.pos.x, b.pos.y - hero.pos.y) - Math.hypot(a.pos.x - hero.pos.x, a.pos.y - hero.pos.y))
       .slice(0, 3)
-      .map((f) => [hero.pos, f.pos])
+      .map((f) => ({ pts: [hero.pos, f.pos], width: 0, net: undefined }))
   }
   const pads = padCounts(board)
   const vias = new Set(Object.values(board.copper).flatMap((l) => l.vias.map((v) => key(v.pos))))
   const allPads = Object.values(board.copper).flatMap((l) => l.pads)
-  const rel = routes.map((r) => r.map((p) => ({ x: p.x - hero.pos.x, y: p.y - hero.pos.y })))
+  const names = new Map(board.nets.map((n) => [n.id, n.name]))
+  const thin = Math.min(...routes.map((r) => r.width).filter((w) => w > 0))
+  const rel = routes.map((r) => r.pts.map((p) => ({ x: p.x - hero.pos.x, y: p.y - hero.pos.y })))
   const ex = Math.max(1e-6, ...rel.flat().map((p) => Math.abs(p.x)))
   const ey = Math.max(1e-6, ...rel.flat().map((p) => Math.abs(p.y)))
   const turn = ex > ey !== room.nx > room.ny
@@ -239,15 +291,19 @@ export function routeAct(board: BoardModel, room: Room, hero: Footprint | undefi
     .sort((a, b) => a - b)
   const k = fits[Math.floor((fits.length - 1) / 2)] as number
   const toLattice = (p: Vec2): Vec2 => (turn ? { x: -p.y * k, y: p.x * k } : { x: p.x * k, y: p.y * k })
+  const glyphs: Glyph[] = []
   for (const [ri, route] of routes.entries()) {
+    const weight = route.width > 0 && Number.isFinite(thin) ? 1 + Math.min(1, (route.width / thin - 1) / 2) : 1
     // the lattice cannot hold sub-cell jogs: keep only the bends it can show
     const kept = simplify((rel[ri] as Vec2[]).map(toLattice), 0.6)
     const pts = kept.map((i) => toLattice(rel[ri]?.[i] as Vec2))
-    const tip = route[route.length - 1] as Vec2
+    const tip = route.pts[route.pts.length - 1] as Vec2
     // the part this route reaches names its last cell
     const near = allPads.find((p) => p.footprintRef !== hero.ref && Math.hypot(p.pos.x - tip.x, p.pos.y - tip.y) < Math.max(p.size.x, p.size.y))
     const part = near === undefined ? undefined : real.find((f) => f.ref === near.footprintRef)
     let last = '0,0'
+    let n = 0
+    let end: { x: number; y: number; dx: number; dy: number } | undefined
     walk: for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1] as Vec2
       const b = pts[i] as Vec2
@@ -259,22 +315,55 @@ export function routeAct(board: BoardModel, room: Room, hero: Footprint | undefi
         if (Math.abs(x) > room.nx - 1 || Math.abs(y) > room.ny - 1) break walk
         if (`${x},${y}` === last || Math.hypot(x, y) < 1.5) continue
         last = `${x},${y}`
+        n++
         const tipCell = i === pts.length - 1 && s === steps
         const corner = s === steps && !tipCell
-        if (tipCell) g.add({ x, y, role: 'anchor', kind: part === undefined ? 'pad' : partKind(part, pads) })
-        else if (corner) g.add({ x, y, role: 'joint', kind: vias.has(key(route[kept[i] as number] as Vec2)) ? 'ring' : undefined })
-        else g.add({ x, y, role: 'body', ...stroke(b.x - a.x, b.y - a.y) })
+        if (tipCell) {
+          g.add({ x, y, role: 'anchor', kind: part === undefined ? 'pad' : partKind(part, pads), at: n, flare: TAIL + 2 })
+          end = { x, y, dx: b.x - a.x, dy: b.y - a.y }
+        } else if (corner) {
+          g.add({ x, y, role: 'joint', kind: vias.has(key(route.pts[kept[i] as number] as Vec2)) ? 'ring' : undefined, at: n, flare: TAIL })
+        } else {
+          g.add({ x, y, role: 'body', ...stroke(b.x - a.x, b.y - a.y), at: n, weight, flare: TAIL, tone: 0.6 })
+        }
       }
     }
+    // a landing beside the chip would only crowd it
+    if (end === undefined || Math.hypot(end.x, end.y) < 3) continue
+    // the landing: a ring pings around the part the signal reached
+    g.over({ x: end.x, y: end.y, role: 'accent', kind: 'ring', size: 2.2, sym: 'rot2', at: n, life: 2 })
+    const label = netLabel(names.get(route.net ?? -1))
+    if (label === undefined || glyphs.some((gl) => gl.text === label)) continue
+    const id = `net:${label}`
+    // beside the tip: past it along the copper, else above or below it; never over other marks
+    const w = 0.13 * label.length
+    const sx = Math.sign(end.dx) || 1
+    const sy = Math.sign(end.dy) || 1
+    const spots = [
+      Math.abs(end.dx) >= Math.abs(end.dy) ? { x: end.x + sx * (0.7 + w), y: end.y } : { x: end.x, y: end.y + sy },
+      { x: end.x, y: end.y - 1 },
+      { x: end.x, y: end.y + 1 }
+    ]
+    const landed = spots.some((p) => {
+      const x = Math.sign(p.x) * Math.min(Math.abs(p.x), room.nx - 0.3 - w)
+      return Math.abs(p.y) <= room.ny - 0.4 && g.word({ x, y: p.y, role: 'text', glyphId: id, size: 0.42, sym: 'rot2', at: n + 1.5 }, w)
+    })
+    if (landed) glyphs.push({ id, kind: 'text', strokes: [], text: label })
   }
-  return { id: 'route', cells: g.cells, seeds: [{ x: 0, y: 0 }] }
+  return { id: 'route', cells: g.cells, seeds: [{ x: 0, y: 0 }], glyphs }
 }
 
+/** build order (arrival fraction): ICs land while the outline is still sweeping, then connectors, the rest, passives last */
+const TIER: Partial<Record<CellKind, number>> = { chip: 0.06, bracket: 0.35, pill: 0.75, pad: 0.75 }
+/** passives recede so the parts that matter read */
+const PLAN_TONE: Partial<Record<CellKind, number>> = { chip: 1, bracket: 0.85, pill: 0.42, pad: 0.5 }
+
 /**
- * Act II — the plan. The whole board from above, folded about its centre:
- * the outline as dashes and ticks, mounting holes as rings, every part on its
- * real site. A board whose long side disagrees with the frame turns a quarter
- * turn. It grows from where the hero sits on the board.
+ * Act II — the plan. The whole board from above, folded about its centre.
+ * The outline sweeps round as the ICs land out from the hero's site, then the
+ * rest arrive at their true size: connectors, the rest, passives last. A board whose long
+ * side disagrees with the frame turns a quarter turn. It collapses inward to
+ * the hero's site as the frame closes round it, a push in.
  */
 export function planAct(board: BoardModel, room: Room, hero: Footprint | undefined): ActPlan {
   const g = new Grid('quad')
@@ -290,11 +379,18 @@ export function planAct(board: BoardModel, room: Room, hero: Footprint | undefin
     const dy = Math.abs(p.y - c.y) * k
     return turn ? { x: dy, y: dx } : { x: dx, y: dy }
   }
+  const h = fold(hero?.pos ?? c)
+  const hx = Math.round(h.x)
+  const hy = Math.round(h.y)
+  // the outline sweeps from one axis to the other, all four copies at once
+  const sweep = (x: number, y: number): number => (0.4 * Math.atan2(y, x)) / (Math.PI / 2)
   for (const d of board.drill) {
     // mounting holes, not tooling or connector pegs
     if (d.plated || d.dia < 2) continue
     const p = fold(d.pos)
-    g.add({ x: Math.round(p.x * 2) / 2, y: Math.round(p.y * 2) / 2, role: 'joint', kind: 'ring' })
+    const x = Math.round(p.x * 2) / 2
+    const y = Math.round(p.y * 2) / 2
+    g.add({ x, y, role: 'joint', kind: 'ring', at: sweep(x, y) + 0.02 })
   }
   for (const path of board.outline) {
     // fold each sample, not the ends: an edge across the axis folds onto itself
@@ -305,17 +401,46 @@ export function planAct(board: BoardModel, room: Room, hero: Footprint | undefin
       const steps = Math.max(1, Math.ceil((Math.hypot(b.x - a.x, b.y - a.y) * k) / 2))
       for (let s = 0; s < steps; s++) {
         const p = fold({ x: a.x + ((b.x - a.x) * s) / steps, y: a.y + ((b.y - a.y) * s) / steps })
-        g.add({ x: Math.round(p.x), y: Math.round(p.y), role: 'edge', kind: flat ? 'dash' : 'tick' })
+        const x = Math.round(p.x)
+        const y = Math.round(p.y)
+        g.add({ x, y, role: 'edge', kind: flat ? 'dash' : 'tick', tone: 0.85, at: sweep(x, y) })
       }
     }
   }
-  for (const cell of foldParts(board, board.footprints.filter((f) => !/\*/.test(f.ref)), fold, room.nx - 2, room.ny - 2, 0.22)) {
-    g.add({ x: cell.x, y: cell.y, role: cell.big ? 'anchor' : 'body', kind: cell.kind, size: cell.big ? 1.5 : 0.7 })
+  // each part at its true size: its pads' extent on the lattice
+  const extent = new Map<string, number>()
+  const spans = new Map<string, BBoxAcc>()
+  for (const layer of Object.values(board.copper)) {
+    for (const p of layer.pads) {
+      if (p.footprintRef === undefined) continue
+      const b = spans.get(p.footprintRef) ?? { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
+      const r = Math.max(p.size.x, p.size.y) / 2
+      spans.set(p.footprintRef, { x0: Math.min(b.x0, p.pos.x - r), y0: Math.min(b.y0, p.pos.y - r), x1: Math.max(b.x1, p.pos.x + r), y1: Math.max(b.y1, p.pos.y + r) })
+    }
   }
-  const h = fold(hero?.pos ?? c)
-  const hx = Math.round(h.x)
-  const hy = Math.round(h.y)
-  return { id: 'plan', cells: g.cells, seeds: [{ x: hx, y: hy }, { x: -hx, y: hy }, { x: hx, y: -hy }, { x: -hx, y: -hy }] }
+  for (const [ref, b] of spans) extent.set(ref, Math.max(b.x1 - b.x0, b.y1 - b.y0) * k)
+  const reach = Math.hypot(room.nx, room.ny)
+  for (const cell of foldParts(board, board.footprints.filter((f) => !/\*/.test(f.ref)), fold, room.nx - 2, room.ny - 2, 0.22)) {
+    const size = cell.big ? 1.5 : Math.max(0.38, Math.min(1.3, extent.get(cell.ref) ?? 0.7))
+    g.add({
+      x: cell.x,
+      y: cell.y,
+      role: cell.big ? 'anchor' : 'body',
+      kind: cell.kind,
+      size,
+      tone: PLAN_TONE[cell.kind] ?? 0.72,
+      at: (TIER[cell.kind] ?? 0.55) + (0.2 * Math.hypot(cell.x - hx, cell.y - hy)) / reach
+    })
+  }
+  const site = [{ x: hx, y: hy }, { x: -hx, y: hy }, { x: hx, y: -hy }, { x: -hx, y: -hy }]
+  return { id: 'plan', cells: g.cells, seeds: site, stripTo: site }
+}
+
+interface BBoxAcc {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
 }
 
 export interface CoreCell {
@@ -323,6 +448,7 @@ export interface CoreCell {
   y: number
   kind: CellKind
   big: boolean
+  ref: string
 }
 
 /**
@@ -404,7 +530,7 @@ function foldParts(board: BoardModel, parts: Footprint[], fold: (p: Vec2) => Vec
     const kind = partKind(f, pads)
     const n = pads.get(f.ref) ?? 0
     const near = 1 - Math.hypot(x / (cx + 1), y / (cy + 1)) / Math.SQRT2
-    candidates.push({ x, y, kind, big: classify(f.ref, f.value) === 'ic' && n >= 14, rank: PRIORITY[kind] * 50 + Math.min(n, 60) + near * 400 })
+    candidates.push({ x, y, kind, ref: f.ref, big: classify(f.ref, f.value) === 'ic' && n >= 14, rank: PRIORITY[kind] * 50 + Math.min(n, 60) + near * 400 })
   }
   // strongest parts claim their sites first; big ICs take a 2×2 block
   candidates.sort((a, b) => b.rank - a.rank)
@@ -420,7 +546,7 @@ function foldParts(board: BoardModel, parts: Footprint[], fold: (p: Vec2) => Vec
     const keys = block.map(([dx, dy]) => `${c.x + (dx as number)},${c.y + (dy as number)}`)
     if (keys.some((k) => taken.has(k))) continue
     for (const k of keys) taken.add(k)
-    cells.push(block.length > 1 ? { x: c.x + 0.5, y: c.y + 0.5, kind: c.kind, big: true } : { x: c.x, y: c.y, kind: c.kind, big: false })
+    cells.push({ x: block.length > 1 ? c.x + 0.5 : c.x, y: block.length > 1 ? c.y + 0.5 : c.y, kind: c.kind, big: block.length > 1, ref: c.ref })
   }
   return cells
 }

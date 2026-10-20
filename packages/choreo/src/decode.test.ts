@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DECODE_IN, DECODE_OUT, blinkAlpha, decodeAlpha } from './decode'
+import { DECODE_IN, DECODE_OUT, blinkAlpha, decodeAlpha, flareTone } from './decode'
 
 const STEPS = 168
 
@@ -147,5 +147,16 @@ describe('blinkAlpha', () => {
     expect(blinkAlpha(81, blinks, STEPS)).toBe(0.35)
     expect(blinkAlpha(12, blinks, STEPS)).toBe(1)
     expect(blinkAlpha(82, blinks, STEPS)).toBe(1)
+  })
+})
+
+describe('flareTone', () => {
+  it('holds full ink through the decode and the flare, then settles to the tone, across the wrap', () => {
+    const inStep = STEPS - 2
+    const lit = DECODE_IN[0]?.length ?? 0
+    expect(flareTone(inStep, inStep, 3, 0.6, STEPS)).toBe(1)
+    expect(flareTone((inStep + lit + 2) % STEPS, inStep, 3, 0.6, STEPS)).toBe(1)
+    expect(flareTone((inStep + lit + 3) % STEPS, inStep, 3, 0.6, STEPS)).toBe(0.6)
+    expect(flareTone(inStep, inStep, undefined, 0.6, STEPS)).toBe(0.6)
   })
 })

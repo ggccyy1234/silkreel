@@ -60,6 +60,10 @@ export interface Placement {
   formation: number
   /** hold breaths: loop steps where this unit blinks out for two steps */
   blinks?: number[] | undefined
+  /** hairline multiplier: heavy copper draws heavier (default 1) */
+  weight?: number | undefined
+  /** steps after decode-in finishes that the unit stays at full ink before settling to its tone */
+  flare?: number | undefined
 }
 
 /** the three acts: the hero's routes (C2), the folded board plan (D2), the board-core frame */
