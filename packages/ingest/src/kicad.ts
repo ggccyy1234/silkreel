@@ -367,6 +367,7 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
     const globalPos = rotatePoint({ x: fpOrigin.x + localAt.x, y: fpOrigin.y + localAt.y }, fpOrigin, fpRot)
     const eid = nextId(ids)
     const key = `p:${eid}`
+    const netId = bindNet(netAtomOf(node), 'pad', key, fp.ref)
     const pad: Pad = {
       id: key,
       pos: globalPos,
@@ -374,10 +375,10 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
       shape: padShapeOf(shapeToken),
       // pad and text angles in the file are already board-absolute
       rot: padRot,
-      footprintRef: fp.ref
+      footprintRef: fp.ref,
+      netId
     }
-    const netId = bindNet(netAtomOf(node), 'pad', key, fp.ref)
-    padRecords.push({ key, pad: { ...pad, netId }, netId })
+    padRecords.push({ key, pad, netId })
     fp.padRefs.push(key)
 
     if (padType === 'np_thru_hole') {

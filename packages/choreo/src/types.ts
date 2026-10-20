@@ -62,8 +62,8 @@ export interface Placement {
   blinks?: number[] | undefined
 }
 
-/** the three acts: a C2 diagonal spine, D2 pillars, the board-core frame */
-export type FormationId = 'spine' | 'pillars' | 'frame'
+/** the three acts: the hero's routes (C2), the folded board plan (D2), the board-core frame */
+export type FormationId = 'route' | 'plan' | 'frame'
 
 export interface FormationEvent {
   id: FormationId

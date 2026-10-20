@@ -91,7 +91,7 @@ describe('drawFrame', () => {
     expect(silk).toBeGreaterThan(head)
   })
 
-  it('frame 0 is never empty — the spine holds across the wrap', () => {
+  it('frame 0 is never empty — the routes hold across the wrap', () => {
     const timeline = compiled(board)
     const scene = buildScene(timeline)
     const drawn = drawFrame(asCtx(currentRecorder()), timeline, scene, 0)

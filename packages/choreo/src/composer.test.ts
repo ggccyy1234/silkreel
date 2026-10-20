@@ -221,12 +221,12 @@ describe('placements', () => {
       it(`${name} @ ${aspect}: formations are the three acts — sorted, non-empty windows`, () => {
         const tl = compile(boardModel(name), { aspect })
         const ids = tl.formations.map((f) => f.id)
-        expect([...ids].sort()).toEqual(['frame', 'pillars', 'spine'])
+        expect([...ids].sort()).toEqual(['frame', 'plan', 'route'])
         for (const [i, f] of tl.formations.entries()) {
           expect(f.startPhase).toBeGreaterThanOrEqual(0)
           expect(f.startPhase).toBeLessThan(1)
           expect(f.endPhase).toBeGreaterThan(f.startPhase)
-          // a window, not the whole loop; the spine's wraps past 1
+          // a window, not the whole loop; the routes' wraps past 1
           expect(f.endPhase - f.startPhase).toBeLessThan(1)
           if (i > 0) expect(f.startPhase).toBeGreaterThan(tl.formations[i - 1]?.startPhase ?? 0)
         }
@@ -249,7 +249,7 @@ describe('placements', () => {
 
       it(`${name} @ ${aspect}: no dead air — never 4+ unlit steps, and the hero is seen`, () => {
         const tl = compile(boardModel(name), { aspect })
-        expect(visibleAtoms(tl, 0), 'step 0 must be lit — the spine holds across the wrap').toBeGreaterThan(0)
+        expect(visibleAtoms(tl, 0), 'step 0 must be lit — the routes hold across the wrap').toBeGreaterThan(0)
         const run = longestDarkRun(tl)
         expect(run, `longest dark run is ${run} steps`).toBeLessThanOrEqual(3)
         const heroes = tl.placements.filter((p) => p.role === 'hero')
@@ -318,5 +318,21 @@ describe('placements', () => {
         expect(a.scale).toBeGreaterThan(0)
       }
     }
+  })
+})
+
+describe('every act is the board', () => {
+  // a fixed template reads as the same picture on every board; each act's
+  // layout must come from the board's own geometry
+  const layout = (tl: GlyphTimeline, act: number): string =>
+    tl.placements
+      .filter((p) => p.formation === act)
+      .flatMap((p) => p.atoms.map((a) => `${a.x.toFixed(3)},${a.y.toFixed(3)}`))
+      .sort()
+      .join(' ')
+
+  it.each([0, 1, 2])('act %i differs across all six boards', (act) => {
+    const layouts = new Set(BOARDS.map((name) => layout(compile(boardModel(name)), act)))
+    expect(layouts.size).toBe(BOARDS.length)
   })
 })

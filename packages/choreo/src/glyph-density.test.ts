@@ -52,7 +52,7 @@ describe('glyph dead-air budget', () => {
       }
       const darkCount = lit.filter((v) => !v).length
       const run = longestDarkRun(lit)
-      expect(lit[0], 'step 0 must be lit — the spine holds across the wrap').toBe(true)
+      expect(lit[0], 'step 0 must be lit — the routes hold across the wrap').toBe(true)
       expect(run, `${name}: ${run} consecutive dark steps`).toBeLessThanOrEqual(3)
       // dead air stays a garnish, not a beat: under a sixth of the loop
       expect(darkCount / tl.steps).toBeLessThanOrEqual(1 / 6)

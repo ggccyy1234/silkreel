@@ -505,8 +505,8 @@ const PlayerPane: React.FC<{ timeline: Timeline; stale: boolean }> = ({ timeline
 }
 
 const FORMATION_LABELS: Record<string, string> = {
-  spine: 'spine',
-  pillars: 'pillars',
+  route: 'route',
+  plan: 'plan',
   frame: 'frame'
 }
 

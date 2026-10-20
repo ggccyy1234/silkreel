@@ -29,8 +29,8 @@ describe('choreo package smoke', () => {
         expect(tl.placements.some((p) => p.glyphId === g.id), `${g.id} never placed`).toBe(true)
       }
       const ids = tl.formations.map((f) => f.id)
-      // the fixed three-act score: spine, pillars, frame — sorted by startPhase
-      expect([...ids].sort()).toEqual(['frame', 'pillars', 'spine'])
+      // the fixed three-act score: route, plan, frame — sorted by startPhase
+      expect([...ids].sort()).toEqual(['frame', 'plan', 'route'])
       for (const f of tl.formations) {
         expect(f.endPhase).toBeGreaterThan(f.startPhase)
       }

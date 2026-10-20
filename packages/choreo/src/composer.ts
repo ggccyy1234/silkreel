@@ -1,5 +1,5 @@
 import type { BoardModel, Vec2 } from '@silk-reel/ingest'
-import { boardCore, frameAct, pillarsAct, spineAct } from './acts'
+import { boardCore, frameAct, heroPart, planAct, routeAct } from './acts'
 import type { ActPlan, Cell, Role, Room } from './acts'
 import { CELL_KINDS, cellGlyph, cellId, heroChip, takeCensus } from './cells'
 import type { CellKind, Census } from './cells'
@@ -41,7 +41,7 @@ const SCORE: ActTiming[] = [
   { seeds: 6.9, grow: [8, 11.4], strip: [14.2, 16.7] },
   { seeds: 14.9, grow: [16, 19.6], strip: [22.2, 24.8] }
 ]
-/** where frame 0 sits in the score: just after the spine completes */
+/** where frame 0 sits in the score: just after the routes complete */
 const OPEN_BEAT = 4
 
 const ROLE_SIZE: Record<Role, number> = {
@@ -227,22 +227,17 @@ export function composeFilm(
   const steps = Math.round(durationSeconds * 15)
   const at = (b: number): number => Math.round((b * steps) / LOOP_BEATS)
 
-  // the board's own population decides the frame act's interior
+  // every act is the board: its hero's routes, its plan, the hero's neighbourhood
+  const hero = heroPart(board)
   const coreRoom = { x: Math.min(room.nx - 3, 5), y: Math.min(room.ny - 3, 6) }
-  const core = boardCore(board, coreRoom.x, coreRoom.y)
-  const heroPkg = (core.heroRef === undefined ? undefined : heroChip(board, core.heroRef)) ??
+  const core = boardCore(board, hero, coreRoom.x, coreRoom.y)
+  const heroPkg = (hero === undefined ? undefined : heroChip(board, hero.ref)) ??
     bench.find((g) => g.kind === 'package')
   const words = resolved.knobs.texts >= 0.5 ? boardWords(board, resolved.cast?.preferTexts ?? [], makeRng(seed, 'words')) : []
-
-  const planRng = makeRng(seed, `plan:${board.source.boardName}`)
-  const bw = board.bbox.max.x - board.bbox.min.x
-  const bh = board.bbox.max.y - board.bbox.min.y
-  // long boards lean the spine further over
-  const lean = Math.min(0.75, 0.35 + 0.12 * Math.abs(Math.log(Math.max(1e-6, bw / Math.max(1e-6, bh))))) + planRng.range(-0.05, 0.05)
   const acts: ActPlan[] = [
-    spineAct(room, lean),
-    pillarsAct(room, (census.body.find((b) => b.kind === 'chip')?.w ?? 0) > 0.18),
-    frameAct({ nx: room.nx, ny: room.ny }, core.cells, heroPkg?.id, words.map((w) => w.id))
+    routeAct(board, room, hero, heroPkg?.id),
+    planAct(board, room, hero),
+    frameAct({ nx: room.nx, ny: room.ny }, core, heroPkg?.id, words.map((w) => w.id))
   ]
 
   const glyphs = new Map<string, Glyph>()
@@ -349,7 +344,7 @@ export function composeFilm(
     }
   }
 
-  // the loop opens on the spine already standing: frame 0 is a poster, and
+  // the loop opens on the routes already standing: frame 0 is a poster, and
   // the first motion a scroller sees is the strip that hands off to act II
   const shift = at(OPEN_BEAT)
   const placements = units.map((u) => {
