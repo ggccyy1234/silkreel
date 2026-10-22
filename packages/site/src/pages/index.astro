@@ -1,0 +1,203 @@
+---
+import Base from '../layouts/Base.astro'
+import Footer from '../components/Footer.astro'
+import { PALETTES } from '@silk-reel/choreo'
+import { acts, aspects, boards, inks, site } from '../data/site'
+import '../styles/home.css'
+
+const n = (v: number) => v.toLocaleString('en-US')
+const ice = boards[0]!
+const counts = [
+  [ice.footprints, 'Footprints'],
+  [ice.traces, 'Traces'],
+  [ice.pads, 'Pads'],
+  [ice.vias, 'Vias'],
+  [ice.layers, 'Layers']
+] as const
+const beatsOf = acts.map((a, i) => (acts[i + 1]?.at ?? 24) - a.at)
+const styles = [
+  { id: 'glyph', text: 'Type, drawn live in this tab' },
+  { id: 'trace', text: 'The lit board, a video render' }
+] as const
+const frameIcon = (id: string, size = 18) => {
+  const [w, h] = id.split(':').map(Number) as [number, number]
+  const k = size / Math.max(w, h)
+  return `width:${(w * k).toFixed(1)}px;height:${(h * k).toFixed(1)}px`
+}
+---
+<Base>
+  <Fragment slot="world">
+    <canvas class="reel-gl" data-reel aria-hidden="true"></canvas>
+    <div class="count" data-count aria-hidden="true">
+      <div class="count__frame" data-count-frame>
+        <canvas class="count__film" data-count-film></canvas>
+        <img class="count__board" src="/img/icebreaker-cu.webp" alt="" decoding="async" fetchpriority="high" data-count-board />
+        <i class="count__beam" data-count-sweep></i>
+        <svg class="count__dial" viewBox="-100 -100 200 200" preserveAspectRatio="xMidYMid slice"><circle r="66" /><circle r="54" /><path d="M-400 0H400M0 -400V400" /></svg>
+        <i class="count__perf count__perf--l"></i><i class="count__perf count__perf--r"></i>
+        <svg class="count__digit" viewBox="0 0 60 100">
+          <path data-digit d="M12 18 H46 L27 45 C44 43 50 56 48 68 C46 86 22 92 11 79" pathLength="1" />
+          <path data-digit d="M13 31 C13 12 47 11 47 31 C47 50 13 64 13 89 H48" pathLength="1" />
+          <path data-digit d="M18 24 L32 11 V89 M19 89 H45" pathLength="1" />
+          <circle data-count-head cx="12" cy="18" r="2.2" />
+        </svg>
+        <span class="count__k count__k--tl">Picture start</span>
+        <span class="count__k count__k--tr">silk reel · leader</span>
+        <p class="count__n"><b data-count-n>000</b><span>/ 335</span></p>
+        <p class="count__read" data-count-read data-reads={JSON.stringify([`reading ${ice.id}.kicad_pcb`, `${n(ice.footprints)} parts · ${n(ice.traces)} traces · ${n(ice.vias)} vias`, `${ice.hero.ref} · ${ice.hero.value} takes the light`])}>reading {ice.id}.kicad_pcb</p>
+      </div>
+    </div>
+    <div class="drop" data-drop aria-hidden="true">
+      <p class="drop__say">Drop it in the gate</p>
+      <p class="drop__note">Parsed in this tab. Nothing is uploaded.</p>
+    </div>
+    <div class="toast" data-toast role="status" aria-live="polite"></div>
+  </Fragment>
+
+  <section class="hero" id="top" aria-labelledby="hero-title">
+    <div class="hero__reel" aria-hidden="true">
+      <picture>
+        <source media="(max-width: 760px)" srcset="/img/reel-phone.webp" />
+        <img class="hero__poster" src="/img/reel-desk.webp" alt="" width="2880" height="1800" fetchpriority="high" />
+      </picture>
+    </div>
+    <div class="hero__say">
+      <h1 id="hero-title" class="hero__title">A circuit board in.<br />A film out.</h1>
+      <p class="hero__lede">This is the iCEBreaker film: 168 drawings, each held for two frames, on one strip. silk reel made it from the board's own file. Scroll to run it.</p>
+      <p class="hero__label silk"><span aria-hidden="true">─</span> Strip: real frames, cropped to the board</p>
+    </div>
+  </section>
+
+  <section class="gate" id="film" aria-labelledby="gate-title" data-gate>
+    <div class="gate__pin">
+      <canvas class="gate__strip" data-strip aria-hidden="true"></canvas>
+      <div class="gate__box" aria-hidden="true"><span class="silk">Gate</span><span class="silk gate__dir">↑ Next · ↓ Played</span></div>
+      <svg class="gate__beam" data-beam aria-hidden="true"><defs><linearGradient id="beam-light" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0.95" /><stop offset="1" stop-color="#fff" stop-opacity="0.18" /></linearGradient></defs><polygon data-beam-poly /><line data-beam-a /><line data-beam-b /></svg>
+      <div class="gate__head">
+        <h2 id="gate-title" class="gate__title">Every frame,<br />in your hands.</h2>
+        <p class="gate__body">The whole film, 336 frames, runs through this gate as you scroll. Hold space and it runs at 30 frames a second.</p>
+      </div>
+      <div class="gate__screen" data-screen tabindex="0" role="slider" aria-label="The iCEBreaker glyph film, frame in the gate" aria-valuemin="0" aria-valuemax="335" aria-valuenow="0" aria-valuetext="Frame 0 of 336, beat 1" aria-keyshortcuts="Space ArrowLeft ArrowRight">
+        <canvas data-screen-film aria-hidden="true"></canvas>
+      </div>
+      <div class="gate__read silk" aria-live="off">
+        <span class="gate__in">In the gate</span>
+        <span>Drawing <b data-g-d>000</b> · frame <b data-g-f>000</b> / 336 · beat <b data-g-b>01</b> · <b data-g-act>Spine</b></span>
+        <span class="gate__tc" data-g-tc>00:00.00</span>
+        <span class="gate__hero">{ice.hero.ref} · {ice.hero.value} holds drawings 110 to 127</span>
+        <span class="gate__swipe" aria-hidden="true">Swipe up · one frame</span>
+        <ol class="beats" aria-label="The four acts on the 24-beat score">
+          {acts.map((a, i) => (
+            <li class="beats__act" style={`--n:${beatsOf[i]}`} data-beat-act={a.id}><span class="beats__k">{['I', 'II', 'III', 'IV'][i]}<span class="beats__name"> · {a.label}</span></span><span class="sr-only">, beats {a.at + 1} to {a.at + (beatsOf[i] ?? 0)}</span></li>
+          ))}
+          <li class="beats__fill" aria-hidden="true" data-beat-fill></li>
+        </ol>
+      </div>
+      <p class="gate__keys silk" aria-hidden="true"><span>Scroll · one frame</span><span>Space · run at 30 fps</span><span>← → · step</span></p>
+    </div>
+  </section>
+
+  <section class="looks" id="board" aria-labelledby="looks-title">
+    <div class="looks__head">
+      <h2 id="looks-title" class="sec__title">Two looks.<br />One board.</h2>
+      <p class="sec__body">Point silk reel at a board file and pick a style. Both read every trace, pad and via from the file. Nothing is drawn by hand.</p>
+    </div>
+    <div class="stock">
+      <div class="looks__run">
+        <figure class="look" data-look="trace">
+          <figcaption class="look__k silk"><span><b>A</b> · --style trace</span><span>Video render · 12 s</span></figcaption>
+          <div class="look__frame">
+            <video data-look-video muted loop playsinline preload="none" poster="/films/trace/icebreaker-poster.webp" width="1280" height="720" aria-label="The iCEBreaker trace film, a video render"><source src="/films/trace/icebreaker-720.mp4" type="video/mp4" /></video>
+          </div>
+          <p class="look__say">A lit board under a camera. Copper routes out of the hero chip, the mask and parts go on, and then the board powers up.</p>
+        </figure>
+        <figure class="look" data-look="glyph">
+          <figcaption class="look__k silk"><span><b>B</b> · --style glyph</span><span>Drawn live in this tab</span></figcaption>
+          <div class="look__frame">
+            <canvas data-look-film role="img" aria-label="The iCEBreaker glyph film, drawn live"></canvas>
+          </div>
+          <p class="look__say">Every part set as type. The board's own shapes play out in four acts on 24 beats, and the last frame runs into the first.</p>
+        </figure>
+      </div>
+    </div>
+    <div class="counts-row pos">
+      <dl class="counts">
+        {counts.map(([v, k]) => <div><dt class="silk">{k}</dt><dd>{n(v)}</dd></div>)}
+      </dl>
+      <p class="counts__by silk">iCEBreaker by 1BitSquared<br />CC BY-SA 4.0</p>
+    </div>
+  </section>
+
+  <section class="make" id="make" aria-labelledby="make-title">
+    <div class="make__head">
+      <h2 id="make-title" class="make__title">One command.<br /> Any board.</h2>
+      <p class="sec__body">Every word of the command is a control. Change one and the film above it changes. Copy the line and your terminal renders that film.</p>
+    </div>
+    <div class="monitor" data-monitor>
+      <div class="monitor__stage" data-monitor-stage>
+        <canvas data-monitor-film role="img" aria-label="The film for the command below"></canvas>
+        <video data-monitor-video muted loop playsinline preload="none" aria-label="The trace film for the command below, a video render" hidden></video>
+      </div>
+      <p class="monitor__read silk" aria-hidden="true"><span data-monitor-read>Glyph · drawn live in this tab</span><span data-monitor-tc>00:00.00</span></p>
+    </div>
+    <div class="cmd" id="get" data-cmd>
+      <p class="cmd__line">
+        <span class="cmd__p" aria-hidden="true">$</span>
+        <span class="cmd__fixed">npm run reel --</span>
+        <button type="button" class="tok" popovertarget="pick-board" data-tok="board" aria-label="Board: icebreaker.kicad_pcb. Change the board"><span data-roll data-tok-v>icebreaker.kicad_pcb</span></button>
+        <button type="button" class="tok" popovertarget="pick-style" data-tok="style" aria-label="Style: glyph. Change the style"><span class="tok__f">--style</span> <span data-roll data-tok-v>glyph</span></button>
+        <button type="button" class="tok" popovertarget="pick-aspect" data-tok="aspect" aria-label="Aspect: 16:9. Change the aspect"><span class="tok__f">--aspect</span> <span data-roll data-tok-v>16:9</span></button>
+        <button type="button" class="tok" popovertarget="pick-palette" data-tok="palette" aria-label="Palette: mono. Change the palette"><span class="tok__f">--palette</span> <span data-roll data-tok-v>mono</span></button>
+      </p>
+      <p class="cmd__note silk" data-cmd-note>Tap any word to change it</p>
+    </div>
+    <div class="make__acts">
+      <button type="button" class="btn btn--solid" data-copy={site.command} data-cmd-copy><span data-copy-label data-roll>Copy the command</span></button>
+      <button type="button" class="btn" data-take><span data-take-label data-roll>Record a take</span></button>
+      <button type="button" class="btn" data-still><span data-roll>Save a still</span></button>
+      <a class="btn" href="/docs/"><span data-roll>Read the docs</span></a>
+    </div>
+
+    <div class="pick" id="pick-board" popover data-pick="board">
+      <p class="pick__k silk">Board</p>
+      <div class="pick__list" role="menu" aria-label="Board">
+        {boards.map((b, i) => (
+          <button type="button" role="menuitemradio" class="pick__o" data-v={b.id} aria-checked={i === 0 ? 'true' : 'false'}><span>{b.name}</span><span class="silk">{n(b.footprints)} parts</span></button>
+        ))}
+        <button type="button" role="menuitem" class="pick__o pick__o--own" data-own><span>Your .kicad_pcb…</span><span class="silk">Stays in this tab</span></button>
+      </div>
+    </div>
+    <div class="pick" id="pick-style" popover data-pick="style">
+      <p class="pick__k silk">Style</p>
+      <div class="pick__list" role="menu" aria-label="Style">
+        {styles.map((s, i) => (
+          <button type="button" role="menuitemradio" class="pick__o" data-v={s.id} aria-checked={i === 0 ? 'true' : 'false'}><span>{s.id}</span><span class="silk">{s.text}</span></button>
+        ))}
+      </div>
+    </div>
+    <div class="pick" id="pick-aspect" popover data-pick="aspect">
+      <p class="pick__k silk">Aspect</p>
+      <div class="pick__list" role="menu" aria-label="Aspect">
+        {aspects.map((a) => (
+          <button type="button" role="menuitemradio" class="pick__o" data-v={a.id} aria-checked={a.id === '16:9' ? 'true' : 'false'}><span><i class="pick__frame" aria-hidden="true" style={frameIcon(a.id)}></i>{a.id}</span><span class="silk">{a.use}</span></button>
+        ))}
+      </div>
+    </div>
+    <div class="pick" id="pick-palette" popover data-pick="palette">
+      <p class="pick__k silk">Palette</p>
+      <div class="pick__list" role="menu" aria-label="Palette">
+        {inks.map((k, i) => (
+          <button type="button" role="menuitemradio" class="pick__o" data-v={k.id} aria-checked={i === 0 ? 'true' : 'false'}><span><i class="pick__ink" aria-hidden="true" style={`--sw:${PALETTES[k.id].silk};--sw-bg:${PALETTES[k.id].bg}`}></i>{k.id}</span><span class="silk">{k.text}</span></button>
+        ))}
+      </div>
+    </div>
+  </section>
+  <input class="sr-only" type="file" accept=".kicad_pcb" tabindex="-1" aria-hidden="true" data-file />
+
+  <Footer slot="footer" />
+</Base>
+
+<script>
+  import { setupHome } from '../motion/home'
+  setupHome()
+</script>

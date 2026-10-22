@@ -1,0 +1,44 @@
+---
+import Base from '../layouts/Base.astro'
+import Footer from '../components/Footer.astro'
+import '../styles/docs.css'
+---
+<Base title="Not found" image="/og-404.png" description="No board at this address. The film and the docs are one click away." noindex>
+  <section class="lost">
+    <div class="lost__say">
+      <p class="lost__code silk">404 · no frame at this address</p>
+      <h1 class="xl">This page never powered on.</h1>
+      <p class="lede">The link has no board behind it. The film and the docs are where they always are.</p>
+      <div class="lost__actions">
+        <a class="btn btn--solid" href="/">Back to the film</a>
+        <a class="btn" href="/docs/">Read the docs</a>
+      </div>
+    </div>
+    <div class="lost__frame" aria-hidden="true">
+      <canvas class="lost__film" data-lost></canvas>
+      <p class="silk">Video board · frame held · no signal</p>
+    </div>
+  </section>
+  <Footer slot="footer" />
+</Base>
+
+<script>
+  import { World } from '../world/world'
+  import { fixtureFilm } from '../world/films'
+  import { prefersReducedMotion } from '../engine/env'
+  import { ROOM } from '../world/room'
+
+  const canvas = document.querySelector<HTMLCanvasElement>('[data-lost]')
+  if (canvas) {
+    const reduced = prefersReducedMotion()
+    const world = new World(canvas, { reduced })
+    world.setPalette(ROOM, { instant: true })
+    world.setView({ rect: null, zoom: 1.6, cx: 0.5, cy: 0.5, fx: 0.5, fy: 0.5 }, { instant: true })
+    void fixtureFilm('video', '16:9').then((film) => {
+      world.show(film, { decode: false })
+      world.reveal()
+      world.scrub(film.tl.totalFrames * 0.66)
+      canvas.dataset.on = ''
+    })
+  }
+</script>

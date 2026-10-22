@@ -1,0 +1,123 @@
+---
+import { site } from '../data/site'
+import FooterFigure from './FooterFigure.astro'
+const zones = [1, 2, 3, 4, 5, 6]
+const home = Astro.url.pathname === '/'
+const docs = Astro.url.pathname.startsWith('/docs')
+const sheet = home ? { n: 1, name: 'The film', file: '/' } : docs ? { n: 2, name: 'Docs', file: '/docs/' } : { n: 0, name: 'Not found', file: '/404' }
+const rows = ['A', 'B', 'C', 'D']
+const sheets = [
+  { href: '/#film', label: 'The film' },
+  { href: '/#board', label: 'Two looks' },
+  { href: '/#make', label: 'Make one' },
+  { href: '/docs/', label: 'Docs' }
+]
+---
+<footer class="ft">
+  <div class="ft__sheet">
+    <div class="ft__zones ft__zones--top" aria-hidden="true">{zones.map((z) => <span>{z}</span>)}</div>
+    <div class="ft__rows ft__rows--l" aria-hidden="true">{rows.map((r) => <span>{r}</span>)}</div>
+    <div class="ft__area">
+      <nav class="ft__sheets" aria-label="Footer">
+        <p class="silk">Sheets</p>
+        <ol>
+          {sheets.map((s, i) => <li><a href={s.href}><span class="silk" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span><span>{s.label}</span></a></li>)}
+        </ol>
+      </nav>
+      <details class="ft__notes" open data-notes>
+        <summary class="silk">Fab notes</summary>
+        <ol>
+          <li>Boards: iCEBreaker © 2019 1BitSquared, CC BY-SA 4.0. Glasgow, the Glasgow project's base board, rev C3. The other four are KiCad demo projects.</li>
+          {home && <li>The trace films are video renders from silk reel's trace renderer, one per board and aspect.</li>}
+          <li>Type: JetBrains Mono under the OFL.</li>
+          <li>Sound: CC0 recordings from Freesound by mm4wood, qubodup and Relenzo2. Off until you turn it on.</li>
+          <li>Every glyph film on these pages is drawn live in your browser, by the same code that renders it.</li>
+          <li>The bench below carries the iCEBreaker's real top copper. Its screen draws the frame in the gate, and U4 lights while the film holds on it.</li>
+        </ol>
+      </details>
+      <dl class="ft__block">
+        <div class="ft__c ft__c--sheet"><dt>Sheet</dt><dd>{sheet.name}</dd></div>
+        <div class="ft__c ft__c--file"><dt>File</dt><dd>{sheet.file}</dd></div>
+        <div class="ft__c ft__c--title"><dt>Title</dt><dd>Release films for KiCad boards</dd></div>
+        <div class="ft__c"><dt>Size</dt><dd>Web</dd></div>
+        <div class="ft__c"><dt>Date</dt><dd>2026-10-21</dd></div>
+        <div class="ft__c"><dt>Rev</dt><dd>1.0</dd></div>
+        <div class="ft__c"><dt>Id</dt><dd>{sheet.n ? `${sheet.n} / 2` : '404'}</dd></div>
+        <div class="ft__c ft__c--top"><dt class="sr-only">Top</dt><dd><a href="#top">[ Back to the top ]</a></dd></div>
+      </dl>
+      <FooterFigure />
+      <p class="ft__hint silk" aria-hidden="true">Drag the bench to crank the film</p>
+    </div>
+    <div class="ft__rows ft__rows--r" aria-hidden="true">{rows.map((r) => <span>{r}</span>)}</div>
+    <div class="ft__zones ft__zones--bot" aria-hidden="true">{zones.map((z) => <span>{z}</span>)}</div>
+  </div>
+</footer>
+<script>
+  import { setupFigure } from '../motion/figure'
+  const notes = document.querySelector<HTMLDetailsElement>('[data-notes]')
+  const narrow = matchMedia('(max-width: 600px)')
+  const fold = () => {
+    if (!notes) return
+    notes.open = !narrow.matches
+    notes.querySelector('summary')?.setAttribute('tabindex', narrow.matches ? '0' : '-1')
+  }
+  fold()
+  narrow.addEventListener('change', fold)
+  notes?.addEventListener('toggle', () => { if (!narrow.matches && !notes.open) notes.open = true })
+  setupFigure()
+</script>
+<style>
+  /* the footer is a KiCad drawing sheet: zone markers round the frame, fab notes, and the title block in its corner */
+  .ft { position: relative; z-index: 3; padding: clamp(72px, 10vh, 120px) var(--gutter) var(--gutter); background: var(--c-bg); overflow-x: clip; }
+  .ft__sheet { display: grid; grid-template-columns: 20px minmax(0, 1fr) 20px; grid-template-rows: 20px auto 20px; border: 1.5px solid var(--c-ink); }
+  .ft__zones { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(6, 1fr); }
+  .ft__zones--top { border-bottom: 1px solid var(--c-ink); }
+  .ft__zones--bot { border-top: 1px solid var(--c-ink); }
+  .ft__rows { display: grid; grid-template-rows: repeat(4, 1fr); }
+  .ft__rows--l { border-right: 1px solid var(--c-ink); }
+  .ft__rows--r { border-left: 1px solid var(--c-ink); }
+  .ft__zones span, .ft__rows span { display: grid; place-items: center; font-family: var(--f-mono); font-size: 10px; font-weight: 500; letter-spacing: 0.08em; }
+  .ft__zones span + span { border-left: 1px solid var(--c-ink); }
+  .ft__rows span + span { border-top: 1px solid var(--c-ink); }
+  .ft__hint { grid-column: 1 / -1; justify-self: end; margin-top: -12px; padding-bottom: 12px; color: var(--c-red); }
+  :global(html:not(.motion)) .ft__hint { display: none; }
+  .ft__area { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 5fr) minmax(0, 4.6fr); gap: 40px; align-items: start; padding: 32px 32px 0; min-width: 0; }
+  .ft .silk { color: var(--c-muted); }
+  .ft__sheets ol, .ft__notes ol { list-style: none; padding: 0; margin-top: 10px; }
+  .ft__sheets a { display: flex; align-items: baseline; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--c-line-2); font-family: var(--f-display); font-weight: 600; font-size: 1.5rem; letter-spacing: -0.03em; }
+  .ft__sheets a > span:last-child { transition: translate var(--t3) var(--seat); }
+  .ft__sheets a:hover > span:last-child { translate: 8px 0; }
+  .ft__sheets a .silk { width: 24px; }
+  .ft__notes summary { list-style: none; cursor: default; pointer-events: none; }
+  .ft__notes summary::-webkit-details-marker { display: none; }
+  .ft__notes ol { counter-reset: n; }
+  .ft__notes li { counter-increment: n; display: grid; grid-template-columns: 34px 1fr; padding: 6px 0; font-size: 0.875rem; line-height: 1.5; max-width: 60ch; }
+  .ft__notes li::before { content: counter(n) '.'; font-family: var(--f-mono); font-weight: 500; font-size: 0.8125rem; }
+  .ft__block { display: grid; grid-template-columns: 90px 60px 1fr 1fr; border: 1.5px solid var(--c-ink); }
+  .ft__c { display: grid; gap: 3px; align-content: start; padding: 6px 10px; border-right: 1px solid var(--c-ink); border-bottom: 1px solid var(--c-ink); }
+  .ft__c dt { font-family: var(--f-mono); font-size: 10px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--c-muted); }
+  .ft__c dd { font-family: var(--f-mono); font-size: 0.8125rem; font-weight: 500; overflow-wrap: anywhere; }
+  .ft__c--sheet { grid-column: 1 / span 2; }
+  .ft__c--file { grid-column: 3 / -1; border-right: 0; }
+  .ft__c--title { grid-column: 1 / -1; border-right: 0; padding-block: 8px; }
+  .ft__c--title dd { font-family: var(--f-display); font-weight: 600; font-size: 1.375rem; letter-spacing: -0.03em; }
+  .ft__block > :nth-child(4) { grid-column: 1; }
+  .ft__block > :nth-child(5) { grid-column: 2 / span 2; }
+  .ft__block > :nth-child(6) { grid-column: 4; border-right: 0; }
+  .ft__block > :nth-child(7), .ft__c--top { border-bottom: 0; }
+  .ft__c--top { grid-column: 2 / -1; border-right: 0; display: flex; align-items: center; justify-content: flex-end; }
+  .ft__c--top a { display: inline-flex; align-items: center; min-height: 32px; padding: 0 6px; margin-right: -6px; font-family: var(--f-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; }
+  .ft__c--top a:hover { background: var(--c-ink); color: var(--c-bg); }
+  @media (max-width: 600px) {
+    .ft__notes summary { display: flex; justify-content: space-between; align-items: center; min-height: 44px; border-bottom: 1px solid var(--c-line-2); cursor: pointer; pointer-events: auto; }
+    .ft__notes summary::after { content: '+'; font-size: 1rem; color: var(--c-ink); }
+    .ft__notes[open] summary::after { content: '−'; }
+    .ft__sheets a { font-size: 1.25rem; padding: 6px 0; }
+    .ft__area { overflow-x: clip; }
+    .ft__area :global(.ft__fig) { margin-inline: -26%; margin-block: 8px 4px; }
+  }
+  @media (max-width: 860px) {
+    .ft__area { grid-template-columns: 1fr; gap: 32px; padding: 24px 16px 0; }
+    .ft__sheet { grid-template-columns: 14px minmax(0, 1fr) 14px; }
+  }
+</style>

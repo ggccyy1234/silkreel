@@ -1,0 +1,247 @@
+---
+import Base from '../../layouts/Base.astro'
+import Footer from '../../components/Footer.astro'
+import { PALETTES } from '@silk-reel/choreo'
+import { site } from '../../data/site'
+import '../../styles/docs.css'
+
+const toc = [
+  { id: 'install', label: 'Install' },
+  { id: 'cli', label: 'The command' },
+  { id: 'flags', label: 'Flags' },
+  { id: 'aspects', label: 'Aspects' },
+  { id: 'palettes', label: 'Palettes' },
+  { id: 'formats', label: 'Formats' },
+  { id: 'studio', label: 'The studio' },
+  { id: 'api', label: 'Render API' },
+  { id: 'env', label: 'Environment' }
+]
+const flags = [
+  { flag: '-o', values: 'a file path', def: '<board>-<style>-<aspect>.<ext>', text: 'Where the film goes. The default sits next to the board file.' },
+  { flag: '--style', values: 'trace · glyph', def: 'trace', text: 'glyph sets the footprints as type in a loop with no seam. trace films the board as an object under a camera.' },
+  { flag: '--aspect', values: '4:5 · 1:1 · 9:16 · 16:9', def: '4:5', text: 'The frame. Each aspect has its own camera, not a crop.' },
+  { flag: '--palette', values: 'copper · mono · blueprint · phosphor', def: 'copper (trace), mono (glyph)', text: 'The ground, the ink and the light colour.' },
+  { flag: '--accent', values: '#rrggbb', def: 'the palette head', text: 'One colour for the growth heads and the glyph hero.' },
+  { flag: '--title', values: 'text', def: 'no card', text: 'A title card at the end of the film.' },
+  { flag: '--version', values: 'text', def: 'none', text: 'A version line under the title. It needs --title.' },
+  { flag: '--format', values: 'mp4 · gif · webm-alpha · prores-alpha', def: 'mp4', text: 'The container. The two alpha formats have a transparent ground.' },
+  { flag: '--seed', values: 'a number', def: '42', text: 'Variation. The same seed gives the same film.' },
+  { flag: '--tempo', values: '0.75 to 1.5', def: '1', text: 'Pacing. Higher is faster.' },
+  { flag: '--density', values: '0.5 to 1.5', def: '1', text: 'How much of the board moves at once.' },
+  { flag: '--draft', values: '', def: 'off', text: 'One motion-blur sample and lighter maps. A fast look, not a release.' },
+  { flag: '--no-audio', values: '', def: 'off', text: 'Skip the score. Trace films carry sound by default.' }
+]
+const aspects = [
+  { id: '4:5', size: '1080 × 1350', use: 'Instagram and LinkedIn feeds', r: 4 / 5 },
+  { id: '1:1', size: '1080 × 1080', use: 'Feeds, avatars, READMEs', r: 1 },
+  { id: '9:16', size: '1080 × 1920', use: 'Reels, Shorts, Stories', r: 9 / 16 },
+  { id: '16:9', size: '1920 × 1080', use: 'Launch pages, YouTube, talks', r: 16 / 9 }
+]
+const formats = [
+  { id: 'mp4', codec: 'H.264, AAC sound', alpha: 'No', note: 'Posts, READMEs, launch pages.' },
+  { id: 'gif', codec: '720 px wide at most, no grain', alpha: 'No', note: 'Issues, forums and chat. No sound.' },
+  { id: 'webm-alpha', codec: 'VP9 with alpha, Opus sound', alpha: 'Yes', note: 'Overlays on a web page or a stream.' },
+  { id: 'prores-alpha', codec: 'ProRes 4444 with alpha', alpha: 'Yes', note: 'Premiere, Resolve and Final Cut.' }
+]
+const routes = [
+  { m: 'GET', p: '/health', text: 'The service is up.' },
+  { m: 'GET', p: '/demos', text: 'The bundled demo boards.' },
+  { m: 'POST', p: '/render', text: 'Queue a render. Send demoId or boardJson, a filmConfig and a format. Returns 202 and a jobId.' },
+  { m: 'GET', p: '/job/:id', text: 'The job: its status and its progress.' },
+  { m: 'POST', p: '/job/:id/cancel', text: 'Cancel a queued or running job.' },
+  { m: 'GET', p: '/download/:id', text: 'The finished file.' },
+  { m: 'GET', p: '/queue', text: 'Every job, oldest first.' }
+]
+---
+<Base title="Docs" image="/og-docs.png" description="Install silk reel, render a film from a .kicad_pcb with one command, and run the studio and the render API.">
+  <div class="docs wrap">
+    <header class="docs__head">
+      <p class="sh__ref silk">Docs</p>
+      <h1 class="xl">The command,<br />flag by flag.</h1>
+      <p class="lede">Everything the command, the studio and the render API take. Renders are deterministic: the same board and the same flags give the same film.</p>
+      <div class="docs__film docs__stock" style="--r:1"><canvas class="docs__frame" data-docs-film width="720" height="720" aria-hidden="true"></canvas></div>
+    </header>
+
+    <div class="docs__body">
+      <nav class="docs__toc" aria-label="On this page">
+        <ol>
+          {toc.map((t, i) => <li><a href={`#${t.id}`} data-toc={t.id}><span class="silk">{String(i + 1).padStart(2, '0')}</span><span>{t.label}</span></a></li>)}
+        </ol>
+      </nav>
+
+      <article class="docs__main">
+        <section id="install" class="doc">
+          <h2 class="m">Install</h2>
+          <p class="body">silk reel needs Node.js 22 or later, and <code class="mono">ffmpeg</code> and <code class="mono">ffprobe</code> on the PATH. Remotion downloads its own headless Chromium on the first render.</p>
+          <div class="term">
+            <div class="term__bar"><p class="silk">~/silk-reel</p><button type="button" class="term__copy silk" data-copy="npm install">Copy</button></div>
+            <pre class="term__body"><code><span class="term__c"># in your silk reel checkout</span>
+<span class="term__p">$</span> npm install</code></pre>
+          </div>
+        </section>
+
+        <section id="cli" class="doc">
+          <h2 class="m">The command</h2>
+          <p class="body">Give it one board file. Every flag is optional.</p>
+          <div class="term">
+            <div class="term__bar"><p class="silk">~/silk-reel</p><button type="button" class="term__copy silk" data-copy={site.command}>Copy</button></div>
+            <pre class="term__body"><code><span class="term__p">$</span> {site.command}</code></pre>
+          </div>
+          <p class="body">A glyph film is an 11.2 second loop and renders in about ten seconds. A trace film runs about 12 seconds; a final trace render takes one to two minutes on a laptop GPU, and <code class="mono">--draft</code> takes a fraction of that.</p>
+        </section>
+
+        <section id="flags" class="doc">
+          <h2 class="m">Flags</h2>
+          <dl class="flags">
+            {flags.map((f) => (
+              <div class="flags__row">
+                <dt><code class="mono">{f.flag}</code></dt>
+                <dd>
+                  <p class="body">{f.text.split(/(--[a-z]+)/).map((t) => (t.startsWith('--') ? <code class="mono flag-ref">{t}</code> : t))}</p>
+                  <p class="flags__meta silk">{f.values && <span>{f.values}</span>}<span>Default: {f.def}</span></p>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        <section id="aspects" class="doc">
+          <h2 class="m">Aspects</h2>
+          <p class="body">Every aspect is composed for its frame. The camera moves closer for 9:16 and wider for 16:9.</p>
+          <ul class="docs__aspects">
+            {aspects.map((a) => (
+              <li>
+                <div class="docs__stock" style={`--r:${a.r}`}><canvas class="docs__frame" data-still={a.id} aria-hidden="true"></canvas></div>
+                <p class="m">{a.id}</p>
+                <p class="silk">{a.size}</p>
+                <p class="body">{a.use}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section id="palettes" class="doc">
+          <h2 class="m">Palettes</h2>
+          <p class="body"><code>copper</code> is the trace default and keeps the board's true colours: a salmon copper, the solder mask and the silk. On a glyph film it is warm silk with an amber head. <code>mono</code>, <code>blueprint</code> and <code>phosphor</code> tint the whole film. The cards show each palette on the glyph film.</p>
+          <ul class="docs__pals">
+            {(Object.keys(PALETTES) as Array<keyof typeof PALETTES>).map((p) => (
+              <li>
+                <div class="docs__stock" style="--r:1"><canvas class="docs__frame" style={`background:${PALETTES[p].bg}`} data-pal={p} aria-hidden="true"></canvas></div>
+                <p class="mono">{p}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section id="formats" class="doc">
+          <h2 class="m">Formats</h2>
+          <table class="docs__table">
+            <thead><tr><th scope="col">--format</th><th scope="col">Codec</th><th scope="col">Alpha</th><th scope="col">For</th></tr></thead>
+            <tbody>
+              {formats.map((f) => <tr><th scope="row"><code class="mono">{f.id}</code></th><td>{f.codec}</td><td data-k="Alpha">{f.alpha}</td><td>{f.note}</td></tr>)}
+            </tbody>
+          </table>
+          <p class="body">The alpha formats render on a transparent ground, so the board drops over your own footage.</p>
+        </section>
+
+        <section id="studio" class="doc">
+          <h2 class="m">The studio</h2>
+          <p class="body">The studio is <a href="/studio/">on this site</a>: pick a board or drop your own, cut the film live, and record a loop in the tab. Its Render button queues the full-quality film on the render API on your machine, so start the API first. The original studio app also runs locally, on <code class="mono">localhost:3101</code>.</p>
+          <div class="term">
+            <div class="term__bar"><p class="silk">~/silk-reel</p><button type="button" class="term__copy silk" data-copy="npm run start --workspace=@silk-reel/render-api">Copy</button></div>
+            <pre class="term__body"><code><span class="term__c"># the render API, on port 3102</span>
+<span class="term__p">$</span> npm run start --workspace=@silk-reel/render-api
+
+<span class="term__c"># the studio, on port 3101</span>
+<span class="term__p">$</span> npm run dev --workspace=@silk-reel/studio</code></pre>
+          </div>
+        </section>
+
+        <section id="api" class="doc">
+          <h2 class="m">Render API</h2>
+          <p class="body">A small HTTP service with one serial queue. The studio uses it; your own tools can too.</p>
+          <ul class="routes">
+            {routes.map((r) => <li><span class={`routes__m silk routes__m--${r.m.toLowerCase()}`}>{r.m}</span><code class="mono">{r.p}</code><p class="body">{r.text}</p></li>)}
+          </ul>
+        </section>
+
+        <section id="env" class="doc">
+          <h2 class="m">Environment</h2>
+          <dl class="flags">
+            <div class="flags__row">
+              <dt><code class="mono">SILK_REEL_GL</code></dt>
+              <dd><p class="body">The Chromium GL backend for renders. <code class="mono">angle</code> uses the GPU. Use <code class="mono">swangle</code> on a CI runner or a server with no GPU.</p><p class="flags__meta silk"><span>Default: angle</span></p></dd>
+            </div>
+            <div class="flags__row">
+              <dt><code class="mono">SILK_REEL_CONCURRENCY</code></dt>
+              <dd><p class="body">How many frames Remotion renders at once. Lower it if the browser runs out of GPU memory.</p><p class="flags__meta silk"><span>Default: half the cores</span></p></dd>
+            </div>
+          </dl>
+          <div class="docs__next">
+            <a class="btn btn--solid" href="/"><span data-roll>Try it on a board</span></a>
+          </div>
+        </section>
+      </article>
+    </div>
+  </div>
+  <Footer slot="footer" />
+</Base>
+
+<script>
+  import type { Aspect } from '@silk-reel/choreo'
+  import { PALETTES } from '@silk-reel/choreo'
+  import { ROOM } from '../../world/room'
+  import { drawStill } from '../../world/world'
+  import { fixtureFilm } from '../../world/films'
+
+  // each aspect frame holds that aspect's own film, at the poster frame, in the room's ink
+  const ink = ROOM
+  document.querySelectorAll<HTMLCanvasElement>('[data-still]').forEach((c) => {
+    void fixtureFilm('icebreaker', c.dataset.still as Aspect).then((film) => {
+      c.width = Math.round(c.clientWidth * Math.min(2, devicePixelRatio))
+      c.height = Math.round((c.width * film.tl.height) / film.tl.width)
+      drawStill(c, film, Math.round(film.tl.totalFrames * 0.66), ink)
+    })
+  })
+
+  // each palette holds the same frame of the same film, so only the ink changes
+  document.querySelectorAll<HTMLCanvasElement>('[data-pal]').forEach((c) => {
+    void fixtureFilm('icebreaker', '1:1').then((film) => {
+      c.width = c.height = Math.round(c.clientWidth * Math.min(2, devicePixelRatio))
+      drawStill(c, film, Math.round(film.tl.totalFrames * 0.66), PALETTES[c.dataset.pal as keyof typeof PALETTES], 1.8)
+    })
+  })
+
+  // the head carries the same film the home page opens on, looping while it is on screen
+  const film = document.querySelector<HTMLCanvasElement>('[data-docs-film]')
+  if (film) {
+    void fixtureFilm('icebreaker', '1:1').then((f) => {
+      const total = f.tl.totalFrames
+      film.parentElement?.setAttribute('data-on', '')
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) { drawStill(film, f, Math.round(total * 0.66), ink, 1.5); return }
+      let raf = 0, t0 = performance.now(), last = -1
+      const step = (now: number) => {
+        const frame = Math.floor(((now - t0) / 1000) * 30) % total
+        if (frame !== last) { last = frame; drawStill(film, f, frame, ink, 1.5) }
+        raf = requestAnimationFrame(step)
+      }
+      new IntersectionObserver(([e]) => {
+        cancelAnimationFrame(raf)
+        if (e?.isIntersecting) { t0 = performance.now() - (last < 0 ? 0 : last / 30) * 1000; raf = requestAnimationFrame(step) }
+      }).observe(film)
+    })
+  }
+
+  const links = [...document.querySelectorAll<HTMLAnchorElement>('[data-toc]')]
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue
+      links.forEach((l) => { l.toggleAttribute('aria-current', l.dataset.toc === e.target.id) })
+      // on a phone the strip keeps the current section in sight
+      const on = links.find((l) => l.dataset.toc === e.target.id)
+      const strip = on?.closest('ol')
+      if (on && strip && strip.scrollWidth > strip.clientWidth) strip.scrollTo({ left: (on.parentElement?.offsetLeft ?? 0) - parseFloat(getComputedStyle(strip).paddingLeft), behavior: 'smooth' })
+    }
+  }, { rootMargin: '-30% 0px -60% 0px' })
+  links.forEach((l) => { const s = document.getElementById(l.dataset.toc ?? ''); if (s) io.observe(s) })
+</script>

@@ -1,0 +1,6 @@
+raw/
+.astro/
+dist/
+.shots/
+public/films/trace/
+public/boards/

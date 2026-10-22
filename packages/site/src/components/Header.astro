@@ -1,0 +1,110 @@
+---
+import Mark from './Mark.astro'
+const path = Astro.url.pathname
+const home = path === '/'
+const links = [
+  { href: '/#film', id: 'film', label: 'Film' },
+  { href: '/#make', id: 'make', label: 'Make' },
+  { href: '/studio/', id: 'studio', label: 'Studio' },
+  { href: '/docs/', id: 'docs', label: 'Docs' }
+]
+---
+<header class="hd" data-header>
+  <a class="hd__brand" href="/" aria-label="silk reel, home">
+    <Mark class="hd__mark" decode />
+    <span class="hd__word">silk reel</span>
+  </a>
+  <nav class="hd__nav" aria-label="Main">
+    {links.map((l) => (
+      <a href={home && (l.id === 'film' || l.id === 'make') ? `#${l.id}` : l.href} data-nav={l.id} aria-current={(l.id === 'docs' && path.startsWith('/docs')) || (l.id === 'studio' && path.startsWith('/studio')) ? 'page' : undefined}>
+        <span class="hd__b" aria-hidden="true">[</span><span data-roll>{l.label}</span><span class="hd__b" aria-hidden="true">]</span>
+      </a>
+    ))}
+  </nav>
+  <div class="hd__end">
+    <button class="hd__sound" type="button" aria-pressed="false" data-sound-toggle>
+      <span class="hd__meter" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span class="hd__sound-label"><span class="hd__sound-word">Sound </span><span data-sound-state>off</span></span>
+    </button>
+    {path.startsWith('/studio')
+      ? <a class="btn btn--solid hd__cta" href="/#get"><span data-roll>Get the CLI</span></a>
+      : <a class="btn btn--solid hd__cta" href="/studio/"><span data-roll>Open studio</span></a>}
+  </div>
+</header>
+<style>
+  .hd {
+    position: fixed; inset: 0 0 auto 0; z-index: var(--z-header);
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px;
+    padding: 16px var(--gutter);
+    color: var(--c-ink);
+    view-transition-name: header;
+    transition: color var(--t2) var(--soft);
+  }
+  /* over a length of stock the header turns to light on black */
+  :global(html.hd-pos) .hd { --c-ink: var(--opal); --c-bg: var(--stock); --c-muted: #a9a9a3; --ink-rgb: var(--opal-rgb); --bg-rgb: var(--stock-rgb); --c-line-2: rgb(var(--ink-rgb) / 0.3); }
+  /* the bar is always solid ground, so nothing ghosts under it; once scrolled it gains a hard rule */
+  .hd::before {
+    content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: var(--c-bg); box-shadow: 0 1px 0 transparent; transition: box-shadow 0.3s var(--soft), background-color var(--t2) var(--soft);
+  }
+  :global(html.scrolled) .hd::before { box-shadow: 0 1px 0 var(--c-line-2); }
+  .hd__brand { display: inline-flex; align-items: center; gap: 10px; justify-self: start; height: 44px; padding-inline: 4px; margin-inline: -4px; }
+  .hd :global(.hd__mark) { width: 22px; height: 22px; flex: none; --mark-fill: var(--c-bg); transition: rotate var(--t3) var(--seat); }
+  .hd__brand:hover :global(.hd__mark) { rotate: -90deg; }
+  .hd__word { font-family: var(--f-mono); font-weight: 600; font-size: 0.9375rem; letter-spacing: -0.04em; white-space: nowrap; }
+
+  .hd__nav { display: flex; gap: 2px; }
+  .hd__nav a {
+    display: inline-flex; align-items: center; gap: 4px; height: 44px; padding: 0 10px;
+    font-family: var(--f-mono); font-size: var(--t-label); font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--c-muted); transition: color var(--t2) var(--soft);
+  }
+  /* the brackets close in on the word under the pointer, like a part seating between its pads */
+  .hd__b { display: inline-block; opacity: 0.5; transition: translate var(--t3) var(--seat), opacity var(--t2) var(--soft); }
+  .hd__nav a:hover, .hd__nav a[aria-current] { color: var(--c-ink); }
+  .hd__nav a:hover .hd__b, .hd__nav a[aria-current] .hd__b { opacity: 1; }
+  .hd__nav a:hover .hd__b:first-child { translate: 3px 0; }
+  .hd__nav a:hover .hd__b:last-child { translate: -3px 0; }
+  .hd__nav a { position: relative; }
+  .hd__nav a::after { content: ''; position: absolute; left: 50%; bottom: 7px; width: 14px; height: 2px; translate: -50% 0; background: var(--pencil); scale: 0 1; transition: scale var(--t3) var(--seat); }
+  .hd__nav a:hover::after, .hd__nav a[aria-current]::after { scale: 1 1; }
+  .hd__nav a:focus-visible { outline: 2px solid var(--c-ink); outline-offset: -6px; color: var(--c-ink); }
+
+  .hd__end { justify-self: end; display: flex; align-items: center; gap: 6px; }
+  .hd__sound {
+    display: inline-flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px;
+    font-family: var(--f-mono); font-size: var(--t-label); font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--c-muted); transition: color var(--t2) var(--soft);
+  }
+  .hd__sound:hover, .hd__sound[aria-pressed='true'] { color: var(--c-ink); }
+  .hd__sound-label [data-sound-state] { display: inline-block; min-width: 3ch; }
+  .hd__meter { display: inline-flex; align-items: center; gap: 2px; height: 12px; }
+  .hd__meter i { display: block; width: 2px; height: 2px; background: currentColor; transition: height var(--t3) var(--seat); }
+  .hd__sound:hover .hd__meter i:nth-child(1) { height: 5px; }
+  .hd__sound:hover .hd__meter i:nth-child(2) { height: 9px; }
+  .hd__sound:hover .hd__meter i:nth-child(3) { height: 6px; }
+  .hd__sound:hover .hd__meter i:nth-child(4) { height: 11px; }
+  .hd__sound[aria-pressed='true'] .hd__meter i { animation: hd-bar 0.9s var(--soft) infinite alternate; }
+  .hd__sound[aria-pressed='true'] .hd__meter i:nth-child(1) { animation-delay: -0.2s; }
+  .hd__sound[aria-pressed='true'] .hd__meter i:nth-child(2) { animation-delay: -0.55s; }
+  .hd__sound[aria-pressed='true'] .hd__meter i:nth-child(3) { animation-delay: -0.1s; }
+  .hd__sound[aria-pressed='true'] .hd__meter i:nth-child(4) { animation-delay: -0.75s; }
+  @keyframes hd-bar { from { height: 2px; } to { height: 12px; } }
+  .hd__cta { --h: 36px; padding: 0 14px; font-family: var(--f-mono); font-size: var(--t-label); letter-spacing: 0.1em; text-transform: uppercase; }
+
+  /* on a phone the bar is one row: the name, Film, Docs and the call to action; the sound toggle keeps only its meter */
+  @media (max-width: 760px) {
+    .hd { grid-template-columns: auto 1fr auto; gap: 0; padding-block: 8px; }
+    .hd__brand { min-height: 44px; }
+    .hd__brand :global(.hd__mark), .hd__b { display: none; }
+    .hd__sound { height: 44px; justify-content: center; gap: 5px; padding: 0 4px; }
+    .hd__sound-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .hd__end { gap: 2px; }
+    .hd__sound .hd__meter i { height: 8px; }
+    .hd__nav { justify-content: center; gap: 0; }
+    .hd__nav a { padding: 0 7px; }
+    .hd__cta { padding: 0 10px; }
+    /* the bench is a home page section you scroll to; the studio link gives way to the call to action, except on the studio itself */
+    .hd__nav a[data-nav='make'], .hd__nav a[data-nav='studio']:not([aria-current]), .hd__nav:has(a[data-nav='studio'][aria-current]) a[data-nav='film'] { display: none; }
+  }
+</style>

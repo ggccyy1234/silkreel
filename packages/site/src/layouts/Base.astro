@@ -1,0 +1,79 @@
+---
+import { site } from '../data/site'
+import Header from '../components/Header.astro'
+import '../styles/tokens.css'
+import '../styles/base.css'
+
+interface Props { title?: string; description?: string; image?: string; noindex?: boolean }
+const { title, description = site.description, image = '/og.png', noindex = false } = Astro.props
+const fullTitle = title ? `${title} | ${site.name}` : `${site.name}: ${site.line}`
+const canonical = new URL(Astro.url.pathname, Astro.site ?? site.url).href
+const ogImage = new URL(image, Astro.site ?? site.url).href
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: site.name,
+  applicationCategory: 'MultimediaApplication',
+  operatingSystem: 'macOS, Linux, Windows (Node.js)',
+  description: site.description,
+  url: site.url,
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }
+}
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style is:inline>@view-transition { navigation: auto; } @media (prefers-reduced-motion: reduce) { @view-transition { navigation: none; } }</style>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
+    <meta name="theme-color" content="#ecede9" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={site.name} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+    <link rel="preload" href="/fonts/jetbrains-mono-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/jetbrains-mono-500-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <slot name="head" />
+    <script is:inline>
+      (function () {
+        var h = document.documentElement
+        h.classList.add('js')
+        if (window.WebGL2RenderingContext) h.classList.add('gl')
+        if (!matchMedia('(prefers-reduced-motion: reduce)').matches) h.classList.add('motion')
+        // the countdown belongs to a first arrival at home; any other page counts as having arrived
+        try { if (sessionStorage.getItem('sr-seen') === '1') h.classList.add('seen'); else if (location.pathname !== '/') sessionStorage.setItem('sr-seen', '1') } catch (e) {}
+        // a page transition the browser abandons (a fast second click, a back swipe) is not an error
+        var hush = function (e) { var v = e.viewTransition; if (v) [v.ready, v.finished, v.updateCallbackDone].forEach(function (p) { p.catch(function () {}) }) }
+        addEventListener('pageswap', hush)
+        addEventListener('pagereveal', hush)
+      })()
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <slot name="world" />
+    <Header />
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    <slot name="footer" />
+    <script>
+      import { boot } from '../motion/site'
+      boot()
+    </script>
+  </body>
+</html>

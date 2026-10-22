@@ -1,0 +1,157 @@
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; }
+html {
+  -webkit-text-size-adjust: none; text-size-adjust: none; color-scheme: light;
+  background: var(--c-bg); color: var(--c-ink);
+  transition: background-color 0.6s var(--soft), color 0.6s var(--soft);
+}
+body {
+  min-height: 100dvh; font-family: var(--f-body); font-size: var(--t-body); line-height: 1.5;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-kerning: normal; overflow-x: clip;
+}
+img, picture, video, canvas, svg { display: block; max-width: 100%; }
+img { height: auto; }
+input, button, textarea, select { font: inherit; color: inherit; }
+button { background: none; border: 0; cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent; }
+a { color: inherit; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+h1, h2, h3, h4 { font-weight: inherit; font-size: inherit; text-wrap: balance; }
+p { text-wrap: pretty; }
+::selection { background: var(--c-head); color: var(--c-bg); }
+
+:focus-visible { outline: 2px solid var(--c-ink); outline-offset: 2px; }
+#main:focus { outline: none; }
+.skip-link {
+  position: fixed; left: 8px; top: 8px; z-index: 100;
+  padding: 12px 16px; background: var(--c-ink); color: var(--c-bg); border-radius: 2px;
+  font-family: var(--f-mono); font-size: var(--t-xs); letter-spacing: 0.06em; text-transform: uppercase;
+  translate: 0 -160%; transition: translate var(--t2) var(--seat);
+}
+.skip-link:focus-visible { translate: 0 0; outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+html.lenis, html.lenis body { height: auto; }
+.lenis:not(.lenis-autoToggle).lenis-stopped { overflow: clip; }
+.lenis [data-lenis-prevent] { overscroll-behavior: contain; }
+#main { position: relative; z-index: var(--z-content); }
+
+/* decoded type: words never break mid-way; characters flicker on through the film's patterns */
+.dw { display: inline-block; white-space: nowrap; }
+
+/* Layout */
+.wrap { width: 100%; max-width: var(--maxw); margin-inline: auto; padding-inline: var(--gutter); }
+
+/* Type */
+.mega { font-family: var(--f-display); font-weight: 600; font-size: var(--t-mega); line-height: 0.88; letter-spacing: -0.055em; margin-left: -0.055em; }
+.xl { font-family: var(--f-display); font-weight: 600; font-size: var(--t-xl); line-height: 0.92; letter-spacing: -0.048em; margin-left: -0.045em; }
+@media (max-width: 760px) { .xl { line-height: 1.02; } }
+.l { font-family: var(--f-display); font-weight: 500; font-size: var(--t-l); line-height: 1.04; letter-spacing: -0.035em; }
+.m { font-size: var(--t-m); line-height: 1.38; letter-spacing: -0.012em; }
+.lede { font-size: var(--t-m); line-height: 1.42; color: var(--c-muted); max-width: 32ch; letter-spacing: -0.012em; }
+.lede strong, .body strong { color: var(--c-ink); font-weight: 500; }
+.body { color: var(--c-muted); max-width: 46ch; }
+
+/* silkscreen: designators, readouts and every small label */
+.silk { font-family: var(--f-mono); font-size: var(--t-label); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-muted); font-variant-numeric: tabular-nums; }
+.silk b { color: var(--c-ink); font-weight: 500; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.tag { display: inline-flex; align-items: center; gap: 10px; }
+.tag::before { content: ''; width: 6px; height: 6px; border: 1.25px solid currentColor; border-radius: 50%; }
+
+/*
+ * Labels advance one frame under the pointer: the word pulls up a line like the strip in the gate,
+ * and the red frame line between the two frames passes through the window.
+ */
+.roll { position: relative; display: inline-grid; overflow: clip; vertical-align: top; }
+.roll > span { grid-area: 1 / 1; white-space: nowrap; transition: translate 380ms var(--pull); }
+.roll__b { translate: 0 calc(100% + 3px); box-shadow: 0 -2px 0 -0.5px var(--pencil); }
+.roll.is-pulling .roll__a { translate: 0 calc(-100% - 3px); }
+.roll.is-pulling .roll__b { translate: 0 0; }
+@media (hover: hover) {
+  :is(a, button):hover .roll__a { translate: 0 calc(-100% - 3px); }
+  :is(a, button):hover .roll__b { translate: 0 0; }
+}
+.roll.is-set > span { transition: none; }
+html:not(.motion) .roll > span { transition: none; }
+html:not(.motion) .roll__b { display: none; }
+html:not(.motion) :is(a, button) .roll__a { translate: none; }
+
+/* Buttons: ink floods up from the base and the label inverts; a red registration tick seats at the left edge */
+.btn {
+  --h: 48px;
+  position: relative; isolation: isolate; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  height: var(--h); padding: 0 20px; border-radius: 2px;
+  font-size: 0.9375rem; font-weight: 500; letter-spacing: -0.01em; white-space: nowrap; user-select: none;
+  color: var(--c-ink); box-shadow: inset 0 0 0 1px var(--c-line-2);
+  transition: color var(--t2) var(--soft), box-shadow var(--t2) var(--soft), scale var(--t1) var(--soft);
+}
+.btn::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--c-ink);
+  transform: scaleY(0); transform-origin: 50% 100%; transition: transform var(--t3) var(--seat);
+}
+.btn::after {
+  content: ''; position: absolute; left: 0; top: 0; width: 100%; height: 3px; background: var(--pencil);
+  scale: 0 1; transform-origin: 0 50%; transition: scale 380ms var(--pull);
+}
+.btn:focus-visible::after { scale: 1 1; }
+.btn:focus-visible { color: var(--c-bg); box-shadow: inset 0 0 0 1px var(--c-ink); }
+.btn:focus-visible::before { transform: scaleY(1); }
+.btn:focus-visible { outline: 2px solid var(--c-ink); outline-offset: 3px; }
+.btn:active { scale: 0.98; }
+.btn--solid { color: var(--c-bg); box-shadow: none; }
+.btn--solid::before { transform: scaleY(1); transition: transform var(--t3) var(--seat), background-color var(--t2) var(--soft); }
+.btn--solid:focus-visible::before { background-color: #c4221a; }
+@media (hover: hover) {
+  .btn:hover::after { scale: 1 1; }
+  .btn:hover { color: var(--c-bg); box-shadow: inset 0 0 0 1px var(--c-ink); }
+  .btn:hover::before { transform: scaleY(1); }
+  .btn--solid:hover::before { background-color: #c4221a; }
+}
+.btn svg { width: 16px; height: 16px; flex: none; }
+.btn .kbd { font-family: var(--f-mono); font-size: var(--t-label); letter-spacing: 0.06em; opacity: 0.6; }
+
+/* Inline links in prose keep an underline that draws in ink on hover */
+.prose-link {
+  background: linear-gradient(currentColor, currentColor) 0 100% / 0 1px no-repeat, linear-gradient(var(--c-line-2), var(--c-line-2)) 0 100% / 100% 1px no-repeat;
+  padding-bottom: 1px; transition: background-size var(--t3) var(--seat), color var(--t2) var(--soft);
+}
+.prose-link:hover { background-size: 100% 1px, 100% 1px; color: var(--c-ink); }
+
+/* The terminal: a command in a quiet panel, with a copy that confirms itself */
+.term { border-radius: 2px; background: rgb(var(--ink-rgb) / 0.035); box-shadow: inset 0 0 0 1px var(--c-line); overflow: hidden; }
+.term__bar { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 6px 0 16px; border-bottom: 1px solid var(--c-line); }
+.term__bar p { color: var(--c-muted); }
+.term__copy { margin-left: auto; height: 32px; padding: 0 12px; border-radius: 2px; color: var(--c-muted); transition: color var(--t2) var(--soft), background-color var(--t2) var(--soft), scale var(--t1) var(--soft); }
+.term__copy:hover, .term__copy:focus-visible { color: var(--c-bg); background: var(--c-ink); }
+.term__copy:active { scale: 0.97; }
+.term__body { padding: 18px 16px 20px; overflow-x: auto; font-family: var(--f-mono); font-size: 0.8125rem; line-height: 1.75; color: var(--c-ink); scrollbar-width: none; }
+.term__c { color: var(--c-muted); }
+.term__p { color: var(--c-head); margin-right: 0.4ch; }
+
+/* page to page: the film advances one frame. Both pages sit back into frames on black stock, the strip pulls up one frame past
+   the sprockets, and the next page opens to fill the screen (the opt-in sits inline in Base.astro) */
+::view-transition-group(root) {
+  --hole: rgb(236 237 233 / 0.92);
+  background:
+    linear-gradient(var(--hole) 0 20px, transparent 20px) 2.4vw 0 / 14px 34px repeat-y,
+    linear-gradient(var(--hole) 0 20px, transparent 20px) calc(100% - 2.4vw) 0 / 14px 34px repeat-y,
+    #0b0b0b;
+  animation: frame-perf 0.9s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+::view-transition-old(root), ::view-transition-new(root) { mix-blend-mode: normal; transform-origin: 50% 50%; }
+::view-transition-old(root) { animation: frame-out 0.9s cubic-bezier(0.65, 0, 0.35, 1) both; }
+::view-transition-new(root) { animation: frame-in 0.9s cubic-bezier(0.65, 0, 0.35, 1) both; }
+@keyframes frame-out {
+  0% { scale: 1; translate: 0 0; }
+  28% { scale: 0.84; translate: 0 0; filter: brightness(0.85); }
+  100% { scale: 0.84; translate: 0 calc(-84% - 64px); filter: brightness(0.6); }
+}
+@keyframes frame-in {
+  0% { scale: 0.84; translate: 0 calc(84% + 64px); }
+  72% { scale: 0.84; translate: 0 0; }
+  100% { scale: 1; translate: 0 0; }
+}
+@keyframes frame-perf { 0%, 28% { background-position: 2.4vw 0, calc(100% - 2.4vw) 0, 0 0; } 72%, 100% { background-position: 2.4vw calc(-84vh - 64px), calc(100% - 2.4vw) calc(-84vh - 64px), 0 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
