@@ -1,23 +1,64 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import type { TraceTimeline } from '@silk-reel/choreo'
 
 /**
- * The sound of a trace film, synthesised from its own score: nothing is a
- * sample, every hit lands on an event the picture already plays — the hero
- * chip seating, its pins igniting, power flooding, clocks ticking, buses
- * landing as chimes, the stack lifting, the slam, the mask pouring, parts
- * clicking down, and a resolving chord under the hero. Deterministic: the
- * same timeline makes the same waveform.
+ * The sound of a trace film, mixed from real CC0 recordings (assets/sound,
+ * sources in its CREDITS.md) placed on the events the picture already plays:
+ * the music under the build, parts clicking down, the hero chip seating, the
+ * reflow sizzle and every part snapping, a held breath, then the switch and
+ * the music's drop at power-on. Code only places, levels, pans and
+ * re-pitches by resampling. Deterministic: the same timeline makes the same
+ * waveform.
  */
 const SR = 48000
+const SOUND = path.resolve(import.meta.dirname, '../assets/sound')
+/** the music edit is cut to 24 beats at 120 BPM: twelve seconds */
+const MUSIC_SECONDS = 12
 
-function rng(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+/** a 16-bit PCM WAV at 48 kHz, as float channels */
+function readWav(file: string): Float32Array[] {
+  const buf = readFileSync(path.join(SOUND, file))
+  let at = 12
+  let channels = 1
+  while (at + 8 <= buf.length) {
+    const id = buf.toString('ascii', at, at + 4)
+    const size = buf.readUInt32LE(at + 4)
+    if (id === 'fmt ') channels = buf.readUInt16LE(at + 10)
+    if (id === 'data') {
+      const frames = Math.floor(size / (2 * channels))
+      const out = Array.from({ length: channels }, () => new Float32Array(frames))
+      for (let i = 0; i < frames; i++) {
+        for (let c = 0; c < channels; c++) (out[c] as Float32Array)[i] = buf.readInt16LE(at + 8 + (i * channels + c) * 2) / 32768
+      }
+      return out
+    }
+    at += 8 + size + (size % 2)
   }
+  throw new Error(`no data chunk in ${file}`)
+}
+
+const cache = new Map<string, Float32Array[]>()
+const sound = (file: string): Float32Array[] => {
+  let s = cache.get(file)
+  if (s === undefined) {
+    s = readWav(file)
+    cache.set(file, s)
+  }
+  return s
+}
+
+/** play x at rate r: above 1 it runs faster and higher */
+function resample(x: Float32Array, r: number): Float32Array {
+  if (Math.abs(r - 1) < 1e-6) return x
+  const out = new Float32Array(Math.floor(x.length / r))
+  for (let i = 0; i < out.length; i++) {
+    const f = i * r
+    const j = Math.floor(f)
+    const a = x[j] ?? 0
+    out[i] = a + ((x[j + 1] ?? a) - a) * (f - j)
+  }
+  return out
 }
 
 class Bus {
@@ -41,115 +82,63 @@ class Bus {
   }
 }
 
-const env = (i: number, n: number, attack: number, curve = 4): number => {
-  const t = i / SR
-  const a = Math.min(1, t / Math.max(1e-4, attack))
-  return a * Math.exp((-curve * i) / n)
-}
-
-/** a decaying sine with a pitch fall: thumps and booms */
-function thump(f0: number, f1: number, dur: number): Float32Array {
-  const n = Math.round(dur * SR)
-  const out = new Float32Array(n)
-  let ph = 0
-  for (let i = 0; i < n; i++) {
-    const u = i / n
-    const f = f1 + (f0 - f1) * Math.exp(-u * 8)
-    ph += (2 * Math.PI * f) / SR
-    out[i] = Math.sin(ph) * env(i, n, 0.002, 5)
-  }
-  return out
-}
-
-/** FM bell: the chime of a bus landing */
-function bell(f: number, dur: number, ratio = 3.5, index = 2.2): Float32Array {
-  const n = Math.round(dur * SR)
-  const out = new Float32Array(n)
-  for (let i = 0; i < n; i++) {
-    const t = i / SR
-    const e = env(i, n, 0.003, 6)
-    const mod = Math.sin(2 * Math.PI * f * ratio * t) * index * e
-    out[i] = Math.sin(2 * Math.PI * f * t + mod) * e
-  }
-  return out
-}
-
-/** a short bright click: ticks, part placements */
-function click(f: number, dur: number): Float32Array {
-  const n = Math.round(dur * SR)
-  const out = new Float32Array(n)
-  for (let i = 0; i < n; i++) out[i] = Math.sin((2 * Math.PI * f * i) / SR) * Math.exp((-i / n) * 9)
-  return out
-}
-
-/** filtered noise with an envelope and a moving one-pole lowpass: pours, whooshes, bursts */
-function noise(dur: number, cutoff: (u: number) => number, amp: (u: number) => number, seed: number, high = false): Float32Array {
-  const n = Math.round(dur * SR)
-  const out = new Float32Array(n)
-  const r = rng(seed)
-  let lp = 0
-  let lp2 = 0
-  for (let i = 0; i < n; i++) {
-    const u = i / n
-    const a = 1 - Math.exp((-2 * Math.PI * cutoff(u)) / SR)
-    lp += a * (r() * 2 - 1 - lp)
-    lp2 += a * (lp - lp2)
-    out[i] = (high ? lp - lp2 : lp2) * amp(u)
-  }
-  return out
-}
-
-/** a slow pad of detuned sines: the drone and the resolving chord */
-function pad(freqs: number[], dur: number, amp: (u: number) => number): Float32Array {
-  const n = Math.round(dur * SR)
-  const out = new Float32Array(n)
-  for (const f of freqs) {
-    for (const d of [-0.18, 0.18]) {
-      const ff = f * Math.pow(2, d / 12)
-      for (let i = 0; i < n; i++) out[i] = (out[i] as number) + Math.sin((2 * Math.PI * ff * i) / SR) * amp(i / n) / (freqs.length * 2)
-    }
-  }
-  return out
-}
-
-/** a small Schroeder room so every hit has a tail */
-function reverb(bus: Bus, wet: number): void {
-  const combs = [1557, 1617, 1491, 1422].map((d) => ({ d, buf: new Float32Array(d), i: 0 }))
-  const aps = [225, 556].map((d) => ({ d, buf: new Float32Array(d), i: 0 }))
-  const run = (x: Float32Array, spread: number): Float32Array => {
+/**
+ * BS.1770 integrated loudness at 48 kHz: K-weighting, 400 ms blocks with
+ * 75% overlap, absolute and relative gates. Returns LUFS.
+ */
+export function loudness(l: Float32Array, r: Float32Array): number {
+  const kw = (x: Float32Array): Float32Array => {
     const y = new Float32Array(x.length)
-    const cs = combs.map((c) => ({ ...c, buf: new Float32Array(c.d + spread), d: c.d + spread, i: 0 }))
-    const as = aps.map((a) => ({ ...a, buf: new Float32Array(a.d), i: 0 }))
-    for (let n = 0; n < x.length; n++) {
-      let s = 0
-      for (const c of cs) {
-        const o = c.buf[c.i] as number
-        c.buf[c.i] = (x[n] as number) + o * 0.82
-        c.i = (c.i + 1) % c.d
-        s += o
+    const stages = [
+      [1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585],
+      [1, -2, 1, -1.99004745483398, 0.99007225036621]
+    ]
+    let src = x
+    for (const [b0, b1, b2, a1, a2] of stages as Array<[number, number, number, number, number]>) {
+      let x1 = 0
+      let x2 = 0
+      let y1 = 0
+      let y2 = 0
+      for (let i = 0; i < src.length; i++) {
+        const v = src[i] as number
+        const out = b0 * v + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        x2 = x1
+        x1 = v
+        y2 = y1
+        y1 = out
+        y[i] = out
       }
-      s *= 0.25
-      for (const a of as) {
-        const o = a.buf[a.i] as number
-        const v = s + o * 0.5
-        a.buf[a.i] = v
-        a.i = (a.i + 1) % a.d
-        s = o - v * 0.5
-      }
-      y[n] = s
+      src = y.slice()
     }
-    return y
+    return src
   }
-  const wl = run(bus.l, 0)
-  const wr = run(bus.r, 23)
-  for (let i = 0; i < bus.n; i++) {
-    bus.l[i] = (bus.l[i] as number) + (wl[i] as number) * wet
-    bus.r[i] = (bus.r[i] as number) + (wr[i] as number) * wet
+  const kl = kw(l)
+  const kr = kw(r)
+  const block = Math.round(0.4 * SR)
+  const hop = Math.round(0.1 * SR)
+  const z: number[] = []
+  for (let s = 0; s + block <= kl.length; s += hop) {
+    let e = 0
+    for (let i = s; i < s + block; i++) e += (kl[i] as number) ** 2 + (kr[i] as number) ** 2
+    z.push(e / block)
   }
+  const lufs = (e: number): number => -0.691 + 10 * Math.log10(Math.max(1e-12, e))
+  const abs = z.filter((e) => lufs(e) > -70)
+  const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length)
+  const rel = lufs(mean(abs)) - 10
+  return lufs(mean(abs.filter((e) => lufs(e) > rel)))
 }
 
-/** D major pentatonic over two octaves: chimes stay consonant whatever order they land in */
-const SCALE = [587.33, 659.25, 739.99, 880, 987.77, 1174.66, 1318.51, 1479.98, 1760]
+/** loudness to the web delivery target (−14 LUFS), then a soft ceiling under −1 dBTP */
+function master(bus: Bus): void {
+  for (let pass = 0; pass < 6; pass++) {
+    const g = Math.pow(10, (-14 - loudness(bus.l, bus.r)) / 20)
+    for (let i = 0; i < bus.n; i++) {
+      bus.l[i] = Math.tanh((bus.l[i] as number) * g / 0.85) * 0.85
+      bus.r[i] = Math.tanh((bus.r[i] as number) * g / 0.85) * 0.85
+    }
+  }
+}
 
 export function traceScore(tl: TraceTimeline): { left: Float32Array; right: Float32Array; sampleRate: number } {
   const dur = tl.durationSeconds
@@ -158,81 +147,61 @@ export function traceScore(tl: TraceTimeline): { left: Float32Array; right: Floa
   const s = tl.scene
   const a = s.acts
   const T = (p: number): number => p * dur
-  const panOf = (x: number): number => Math.max(-0.8, Math.min(0.8, (x / tl.width) * 2 - 1))
-  const r = rng(tl.seedUsed)
+  const panOf = (x: number): number => Math.max(-0.7, Math.min(0.7, (x / tl.width) * 2 - 1))
+  const clicks = ['click-1.wav', 'click-2.wav', 'click-3.wav', 'click-4.wav']
 
-  // the room tone: a low D drone that breathes up through the build and drops out for the slam
-  bus.add(0, pad([73.42, 110, 146.83], dur, (u) => {
-    const p = u
-    const build = Math.min(1, p / 0.1) * (0.5 + 0.5 * Math.min(1, p / a.slam[0]))
-    const duck = p > a.slam[0] - 0.014 && p < a.slam[1] + 0.03 ? 0.15 : 1
-    return build * duck * (p > 0.97 ? Math.max(0, (1 - p) / 0.03) : 1)
-  }), 0.16)
-
-  // I: the hero seats — a soft thump and a glass ping; its pins tick on in a sweep
-  bus.add(T(a.land[1]) - 0.005, thump(90, 42, 0.9), 0.55)
-  bus.add(T(a.land[1]), bell(1174.66, 1.6, 2.0, 1.2), 0.08)
-  for (let i = 0; i < 14; i++) {
-    const p = a.heroPads[0] + (i / 13) * (a.heroPads[1] - a.heroPads[0])
-    bus.add(T(p), click(3200 + i * 90, 0.03), 0.05, -0.6 + (i / 13) * 1.2)
+  // the music, re-pitched so its bars stay on the film's beat grid; it sits back
+  // under the build, holds its breath before power-on, and drops on it
+  const rate = MUSIC_SECONDS / dur
+  const [ml, mr] = sound('music.wav').map((ch) => resample(ch, rate)) as [Float32Array, Float32Array]
+  const smooth = (x: number): number => {
+    const t = Math.min(1, Math.max(0, x))
+    return t * t * (3 - 2 * t)
   }
-  // the power planes flood: a rising, opening wash
-  bus.add(T(a.flood[0]), noise(T(a.flood[1] - a.flood[0]) + 0.6, (u) => 180 + 2400 * u * u, (u) => Math.sin(Math.PI * Math.min(1, u * 1.1)) * 0.9, 11), 0.15)
-
-  // II: clocks tick on the bar lines; buses and pairs chime where they land
-  const clocks = s.groups.filter((g) => g.kind === 'clock')
-  const lead = clocks[0]
-  if (lead !== undefined) for (const p of lead.pulses) bus.add(T(p), click(2600, 0.018), 0.07, 0.3)
-  const landings = s.groups.filter((g) => g.kind === 'bus' || g.kind === 'diff').sort((x, y) => x.t + x.d - (y.t + y.d))
-  landings.forEach((g, i) => {
-    const f = SCALE[i % SCALE.length] as number
-    bus.add(T(g.t + g.d), bell(f, 2.2), i === 0 ? 0.2 : 0.09, (r() - 0.5) * 1.2)
-  })
-  const burstAt = new Set<number>()
-  for (const g of s.groups) if (g.kind === 'bus') for (const p of g.pulses) burstAt.add(Math.round(p * 1000))
-  for (const p of burstAt) bus.add(T(p / 1000), noise(0.16, () => 5200, (u) => Math.exp(-u * 6), 31 + p, true), 0.12)
-
-  // III: the stack lifts on a rising whoosh, vias sparkle, a breath in — then the slam
-  const ex = T(a.explode[0])
-  bus.add(ex - 0.15, noise(T(a.explode[1] - a.explode[0]) + 0.5, (u) => 300 + 3500 * u, (u) => Math.sin(Math.PI * u) * 0.8, 41), 0.22)
-  for (let i = 0; i < Math.max(2, s.layers.length); i++) bus.add(ex + i * 0.084, bell(SCALE[3 + i] as number, 1.4, 1.5, 0.6), 0.05)
-  for (let i = 0; i < 26; i++) {
-    const p = a.explode[1] + 0.005 + r() * (a.slam[0] - a.explode[1] - 0.02)
-    bus.add(T(p), click(4200 + r() * 2400, 0.012), 0.025, (r() - 0.5) * 1.6)
+  const level = (p: number): number => {
+    if (p >= a.power[0]) return (1 - 0.3 * smooth((p - a.hold[0]) / (a.hold[1] - a.hold[0]))) * (1 - 0.85 * smooth((p - 23.4 / 24) / (0.6 / 24)))
+    const breath = smooth((p - a.reflow[1]) / (a.power[0] - a.reflow[1] - 0.01))
+    return 0.7 - 0.62 * breath
   }
-  const pre = T(a.slam[0] - 0.014)
-  bus.add(pre, noise(T(a.slam[1] + 0.014 - a.slam[0]) + 0.02, (u) => 400 + 6000 * u * u, (u) => u * u, 51), 0.35)
-  const hit = T(a.slam[1])
-  bus.add(hit, thump(70, 28, 2.2), 1.0)
-  bus.add(hit, noise(0.5, (u) => 3000 * Math.exp(-u * 5) + 200, (u) => Math.exp(-u * 7), 61), 0.5)
-
-  // IV: the mask pours, the UV cures with a hum, parts click down, and the chord resolves
-  bus.add(T(a.mask[0]), noise(T(a.mask[1] - a.mask[0]) + 0.3, () => 1300, (u) => Math.min(1, u * 6) * Math.min(1, (1 - u) * 4) * 0.7, 71), 0.11)
-  const cure = new Float32Array(Math.round(T(a.cure[1] - a.cure[0]) * SR) + 4800)
-  for (let i = 0; i < cure.length; i++) {
-    const t = i / SR
-    cure[i] = Math.sin(2 * Math.PI * (2200 + 30 * Math.sin(2 * Math.PI * 7 * t)) * t) * Math.sin((Math.PI * i) / cure.length)
+  for (let i = 0; i < Math.min(n, ml.length); i++) {
+    const g = level(i / n)
+    bus.l[i] = (bus.l[i] as number) + (ml[i] as number) * g
+    bus.r[i] = (bus.r[i] as number) + (mr[i] as number) * g
   }
-  bus.add(T(a.cure[0]), cure, 0.03)
-  const parts = [...s.parts].filter((p) => p.hero !== true).sort((x, y) => x.t - y.t)
-  const step = Math.max(1, Math.floor(parts.length / 36))
+
+  // object: parts click down as they are set, the hero seats with weight
+  const parts = [...s.parts].sort((x, y) => x.t - y.t)
+  let last = -Infinity
   parts.forEach((p, i) => {
-    if (i % step !== 0) return
-    bus.add(T(p.t), click(1400 + 2600 / Math.sqrt(1 + p.z), 0.025), 0.06, panOf(p.x))
+    const at = T(p.t)
+    if (p.hero === true) {
+      bus.add(at, sound('seat.wav')[0] as Float32Array, 0.55, panOf(p.x))
+      return
+    }
+    // a run of tiny parts stays a texture, not a machine gun: at most twelve a second
+    if (at - last < 1 / 12) return
+    last = at
+    const small = Math.min(1, Math.max(0, 1 - p.z / 30))
+    bus.add(at, resample(sound(clicks[i % 4] as string)[0] as Float32Array, 0.9 + 0.3 * small), 0.32, panOf(p.x))
   })
-  const res = T(a.sweep[0]) - 0.4
-  bus.add(res, pad([146.83, 185, 220, 329.63, 440], dur - res, (u) => Math.min(1, u * 3) * (u > 0.82 ? Math.max(0, (1 - u) / 0.18) : 1)), 0.22)
-  bus.add(T(a.sweep[0]), noise(T(a.sweep[1] - a.sweep[0]) + 0.4, () => 8500, (u) => Math.sin(Math.PI * u), 81, true), 0.08)
-
-  reverb(bus, 0.3)
-  // peak-normalise to −1 dBFS with a soft knee
-  let peak = 1e-9
-  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(bus.l[i] as number), Math.abs(bus.r[i] as number))
-  const g = 0.89 / peak
-  for (let i = 0; i < n; i++) {
-    bus.l[i] = Math.tanh((bus.l[i] as number) * g * 1.1) / Math.tanh(1.1)
-    bus.r[i] = Math.tanh((bus.r[i] as number) * g * 1.1) / Math.tanh(1.1)
+  // reflow: the oven's sizzle, and every part snapping square on its melting paste
+  const [rf0, rf1] = a.reflow
+  const sizzle = (sound('sizzle.wav')[0] as Float32Array).subarray(0, Math.round(T(rf1 - rf0 + 0.01) * SR))
+  const fade = Math.round(0.25 * SR)
+  const sz = Float32Array.from(sizzle, (v, i) => v * Math.min(1, i / fade, (sizzle.length - i) / fade))
+  bus.add(T(rf0) - 0.1, sz, 0.22)
+  last = -Infinity
+  for (const p of [...s.parts].sort((x, y) => x.settle - y.settle)) {
+    const at = T(p.settle)
+    if (at - last < 1 / 16) continue
+    last = at
+    bus.add(at, resample(sound(clicks[Math.round(p.x) % 4] as string)[0] as Float32Array, 1.35), 0.12, panOf(p.x))
   }
+
+  // alive: the switch, on the frame the board powers
+  bus.add(T(a.power[0]) - 0.01, sound('switch.wav')[0] as Float32Array, 0.6)
+
+  master(bus)
   return { left: bus.l, right: bus.r, sampleRate: SR }
 }
 

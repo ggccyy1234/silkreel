@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { compileTimeline } from '@silk-reel/choreo'
 import type { CameraShot, FilmConfig, TraceTimeline } from '@silk-reel/choreo'
 import { makeCam, sampleShot } from '@silk-reel/choreo'
-import { layerLift, linear } from './trace-gl.js'
+import { linear, shotSpan } from './trace-gl.js'
 import { drawMaps } from './trace-maps.js'
 import type { MapSet } from './trace-maps.js'
 import { asCtx, RecordingCtx } from './test-recorder.js'
@@ -63,17 +63,16 @@ describe('camera', () => {
     expect(sampleShot(shots, 0.75).x).toBeGreaterThan(500)
   })
 
-  it('the stack cascades off the top, rises before the slam and lands flat', () => {
-    const ex: [number, number] = [0.5, 0.56]
-    const slam: [number, number] = [0.62, 0.64]
-    expect(layerLift(0.49, 0, 4, ex, slam)).toBe(0)
-    // the top layer leaves first
-    expect(layerLift(0.505, 0, 4, ex, slam)).toBeGreaterThan(layerLift(0.505, 3, 4, ex, slam))
-    // anticipation: just before the fall the stack rises past its hold
-    expect(layerLift(0.6195, 0, 4, ex, slam)).toBeGreaterThan(layerLift(0.59, 0, 4, ex, slam))
-    // impact: flat
-    expect(layerLift(0.64, 0, 4, ex, slam)).toBeLessThan(0.01)
-    expect(layerLift(0.7, 0, 4, ex, slam)).toBeLessThan(0.001)
+  it('motion blur stays inside the shot: the span ends at the next cut', () => {
+    const shots: CameraShot[] = [
+      { t: 0, x: 0, y: 0, zoom: 1, tilt: 0, yaw: 0, aperture: 0 },
+      { t: 0.4, x: 9, y: 0, zoom: 1, tilt: 0, yaw: 0, aperture: 0, cut: true },
+      { t: 0.7, x: 9, y: 0, zoom: 1, tilt: 0, yaw: 0, aperture: 0, cut: true },
+      { t: 1, x: 9, y: 0, zoom: 1, tilt: 0, yaw: 0, aperture: 0 }
+    ]
+    expect(shotSpan(shots, 0.39)).toEqual([0, 0.4])
+    expect(shotSpan(shots, 0.4)).toEqual([0.4, 0.7])
+    expect(shotSpan(shots, 0.9)).toEqual([0.7, 1])
   })
 
   it('linear() undoes the sRGB curve', () => {
@@ -92,36 +91,36 @@ describe('board maps', () => {
     const canvas = { width: 1024, height: 1280, getContext: () => ctx } as unknown as HTMLCanvasElement
     return { canvas, rec }
   }
-  const draw = (p: number, stack: boolean) => {
+  const draw = (p: number) => {
     const top = fake()
     const surf = fake()
-    const st = fake()
-    const se = fake()
-    const maps: MapSet = { top: top.canvas, surf: surf.canvas, fx: fake().canvas, stack: st.canvas, stackE: se.canvas }
-    drawMaps(maps, tl, p, { x: 0, y: 0, w: W, h: W * 1280 / 1024 }, stack)
-    return { top: top.rec, surf: surf.rec, stack: st.rec }
+    const fx = fake()
+    const maps: MapSet = { top: top.canvas, surf: surf.canvas, fx: fx.canvas }
+    drawMaps(maps, tl, p, { x: 0, y: 0, w: W, h: W * 1280 / 1024 })
+    return { top: top.rec, surf: surf.rec, fx: fx.rec }
   }
 
   it('packs channels additively and maps the region into the texture', () => {
-    const { top } = draw(0.4, false)
+    const { top } = draw(0.4)
     expect(top.calls.find((c) => c.method === 'set:globalCompositeOperation' && c.args[0] === 'lighter')).toBeDefined()
     const xf = top.calls.filter((c) => c.method === 'setTransform').at(-1)?.args as number[]
     expect(xf[0]).toBeCloseTo(1024 / W, 6)
   })
 
-  it('draws no copper before the signal act, and copper during it', () => {
-    const strokes = (p: number) => draw(p, false).top.calls.filter((c) => c.method === 'stroke').length
-    expect(strokes(0.4)).toBeGreaterThan(strokes(0.005))
+  it('routes copper out through the drawing act', () => {
+    const strokes = (p: number) => draw(p).top.calls.filter((c) => c.method === 'stroke').length
+    expect(strokes(0.2)).toBeGreaterThan(strokes(0.02))
   })
 
   it('fills the board area and every drill into the surface map', () => {
-    const { surf } = draw(0.5, false)
+    const { surf } = draw(0.5)
     const fills = surf.calls.filter((c) => c.method === 'fill').length
     expect(fills).toBeGreaterThanOrEqual(tl.scene.drills.length + 1)
   })
 
-  it('draws the inner and back layers only for the stack act', () => {
-    expect(draw(0.5, false).stack.calls.length).toBe(0)
-    expect(draw(0.65, true).stack.calls.filter((c) => c.method === 'stroke').length).toBeGreaterThan(0)
+  it('lights cool energy only after power-on', () => {
+    const cool = (p: number) => draw(p).fx.calls.filter((c) => c.method === 'stroke').length
+    expect(cool(tl.scene.acts.power[0] - 0.01)).toBe(0)
+    expect(cool(0.8)).toBeGreaterThan(0)
   })
 })

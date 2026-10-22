@@ -65,6 +65,19 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     await queue.prepare()
   })
 
+  // the site's studio page (another localhost port) queues renders here; only local origins may
+  app.addHook('onRequest', async (request, reply) => {
+    const origin = request.headers.origin
+    if (origin !== undefined && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      reply.header('access-control-allow-origin', origin)
+      reply.header('vary', 'origin')
+      reply.header('access-control-allow-headers', 'content-type')
+      reply.header('access-control-allow-methods', 'GET, POST, OPTIONS')
+    }
+    await Promise.resolve()
+  })
+  app.options('/*', async (_request, reply) => await reply.code(204).send())
+
   app.get('/health', () => Promise.resolve({ ok: true as const, service: 'render-api' }))
 
   app.get('/demos', () => Promise.resolve({ demos: DEMO_BOARDS }))

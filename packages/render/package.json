@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./film": "./src/film.ts",
+    "./trace-gl": "./src/trace-gl.ts",
+    "./preview": "./src/preview.ts"
   },
   "dependencies": {
     "@silk-reel/choreo": "0.1.0",

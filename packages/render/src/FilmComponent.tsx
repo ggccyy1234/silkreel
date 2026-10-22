@@ -25,35 +25,28 @@ const QUALITY: Record<RenderQuality, TraceQuality> = {
   draft: { subframes: 1, mapScale: 1.25 }
 }
 
-/** thin leader lines and small caps: captions that sit on the film, not over it */
+/** a caption set in the frame's top-left safe corner, shadowed so it reads on a white board or a black one */
 export function drawAnnotations(ctx: CanvasRenderingContext2D, anns: Annotation[], W: number, H: number): void {
   const u = Math.min(W, H) / 1080
+  const x = W * 0.075
+  let y = H * 0.085
   for (const a of anns) {
     ctx.save()
     ctx.globalAlpha = a.alpha
-    ctx.strokeStyle = 'rgba(236,240,244,0.75)'
-    ctx.fillStyle = 'rgba(236,240,244,0.95)'
-    ctx.lineWidth = Math.max(1, 1.2 * u)
-    ctx.beginPath()
-    ctx.arc(a.ax, a.ay, 3 * u, 0, Math.PI * 2)
-    ctx.stroke()
-    const dir = a.align === 'left' ? 1 : -1
-    ctx.beginPath()
-    ctx.moveTo(a.ax + dir * 3 * u, a.ay)
-    ctx.lineTo(a.lx, a.ly)
-    ctx.lineTo(a.lx + dir * 26 * u, a.ly)
-    ctx.stroke()
-    ctx.textAlign = a.align
+    ctx.shadowColor = 'rgba(0,0,0,0.55)'
+    ctx.shadowBlur = 18 * u
+    ctx.fillStyle = 'rgba(244,244,240,0.97)'
+    ctx.textAlign = 'left'
     ctx.textBaseline = 'alphabetic'
-    const x = a.lx + dir * 32 * u
-    ctx.font = `600 ${Math.round(19 * u)}px ${FONT}`
-    ctx.fillText(a.text.toUpperCase(), x, a.ly + 6 * u)
+    ctx.font = `600 ${Math.round(46 * u)}px ${FONT}`
+    ctx.fillText(a.text.toUpperCase(), x, y + 46 * u)
     if (a.sub !== undefined) {
-      ctx.globalAlpha = a.alpha * 0.6
-      ctx.font = `${Math.round(14 * u)}px ${FONT}`
-      ctx.fillText(a.sub, x, a.ly + 26 * u)
+      ctx.globalAlpha = a.alpha * 0.78
+      ctx.font = `${Math.round(24 * u)}px ${FONT}`
+      ctx.fillText(a.sub, x, y + 84 * u)
     }
     ctx.restore()
+    y += 110 * u
   }
 }
 

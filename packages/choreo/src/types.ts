@@ -180,6 +180,8 @@ export interface TraceLayer {
   side: 'F' | 'B' | 'inner'
   /** stride 7: x0,y0,x1,y1,widthPx,t0,t1 — (x0,y0) is where growth starts; sorted by t0 */
   segs: number[]
+  /** per seg: e0,e1 — when its energy front crosses it after power-on; −1,−1 when it stays dark */
+  energy: number[]
   /** per seg (segs.length / 7): index into TraceScene.groups, −1 when the seg has no net */
   groups: number[]
 }
@@ -199,6 +201,8 @@ export interface TraceGroup {
 
 /** the board's physical build, resolved to colours */
 export interface TraceMaterial {
+  /** bare copper reflectance (#rrggbb) */
+  copper: string
   /** solder mask albedo (#rrggbb) */
   mask: string
   /** exposed-pad finish albedo */
@@ -226,30 +230,30 @@ export interface TraceMaterial {
  */
 export interface CameraShot {
   t: number; x: number; y: number; zoom: number; tilt: number; yaw: number; aperture: number
+  /** vertical lens shift in NDC: the image moves up without changing the perspective (clears a title band) */
+  shift?: number | undefined
   /** a hard cut lands on this key: no move is drawn into it */
   cut?: boolean | undefined
 }
 
-/** p-ranges of the four acts' set pieces */
+/** p-ranges of the film's set pieces, on the 24-beat grid */
 export interface TraceActs {
-  ignite: [number, number]
-  /** the hero chip descends onto its pads and seats */
-  land: [number, number]
-  heroPads: [number, number]
-  flood: [number, number]
-  signal: [number, number]
-  explode: [number, number]
-  slam: [number, number]
+  /** copper routes out from the hero, seen from above */
+  draw: [number, number]
+  /** the pours fill once the routing is done */
+  pour: [number, number]
   mask: [number, number]
-  /** UV cure: a violet pass hardens the mask */
-  cure: [number, number]
   silk: [number, number]
-  /** pick-and-place: the rest of the parts land */
+  /** the parts are set down on wet paste, the hero first */
   place: [number, number]
-  sweep: [number, number]
+  /** the oven front crosses the board and every part snaps square */
+  reflow: [number, number]
+  /** first power-on: rails, then the clock, then data */
+  power: [number, number]
+  hold: [number, number]
 }
 
-export type PartKind = 'ic' | 'res' | 'cap' | 'ind' | 'diode' | 'led' | 'xtal' | 'conn' | 'switch' | 'can' | 'other'
+export type PartKind = 'ic' | 'res' | 'cap' | 'ind' | 'diode' | 'led' | 'xtal' | 'conn' | 'switch' | 'can' | 'valve' | 'other'
 
 /** a component body, plane px; z is its height */
 export interface TracePart {
@@ -257,6 +261,10 @@ export interface TracePart {
   kind: PartKind
   /** lands at t (drops in just before) */
   t: number
+  /** when the reflow front reaches it and it snaps square */
+  settle: number
+  /** how far off square it sits on the wet paste: dx, dy px, rotation rad */
+  skew: [number, number, number]
   /** laser-etched marking on the top face (ICs) */
   label?: string | undefined
   hero?: boolean | undefined
@@ -267,12 +275,6 @@ export interface TracePart {
 /** a screen-space caption pinned to a board point */
 export interface TraceCallout { t0: number; t1: number; x: number; y: number; text: string; sub?: string | undefined }
 
-/** the exploded stack: one entry per copper layer, top first */
-export interface TraceStack {
-  /** lift between adjacent layers at full explode, px */
-  gap: number
-  labels: string[]
-}
 export interface TracePad {
   x: number; y: number; w: number; h: number; rot: number
   shape: 'rect' | 'round' | 'circle'
@@ -283,7 +285,11 @@ export interface TracePad {
   ring?: boolean | undefined
 }
 export interface TraceVia { x: number; y: number; r: number; t: number }
-export interface TraceZone { fill: FlatPath; side: 'F' | 'B' | 'inner'; t0: number; t1: number }
+export interface TraceZone {
+  fill: FlatPath; side: 'F' | 'B' | 'inner'; t0: number; t1: number
+  /** a power pour glows from e0 (−1: never) */
+  e0: number
+}
 export interface TraceText { text: string; x: number; y: number; size: number; rot: number; t: number }
 export interface CameraKey { t: number; cx: number; cy: number; zoom: number }
 export interface TraceBeats {
@@ -318,7 +324,6 @@ export interface TraceScene {
   acts: TraceActs
   parts: TracePart[]
   callouts: TraceCallout[]
-  stack: TraceStack
 }
 
 export type CompileTimeline = (board: BoardModel, config: FilmConfig) => Timeline

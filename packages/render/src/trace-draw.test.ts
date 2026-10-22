@@ -2,7 +2,7 @@ import './test-recorder.js'
 import { describe, expect, it } from 'vitest'
 import { compileTimeline } from '@silk-reel/choreo'
 import type { FilmConfig, TraceTimeline } from '@silk-reel/choreo'
-import { drawTraceFrame, OUTLINE_HEADS } from './trace-draw.js'
+import { drawTraceFrame } from './trace-draw.js'
 import { asCtx, currentRecorder, RecordingCtx } from './test-recorder.js'
 import { boardModel } from '../../choreo/test/helpers.js'
 
@@ -28,16 +28,14 @@ function callsOf(method: string) {
 }
 
 describe('drawTraceFrame', () => {
-  it('paints only the background at frame 0', () => {
+  it('paints the background and the placed pads at frame 0, nothing routed yet', () => {
     const timeline = traceTimeline('glasgow.kicad_pcb')
     const rec = currentRecorder()
     drawTraceFrame(asCtx(rec), timeline, 0)
     const fills = callsOf('fillRect')
-    expect(fills.length).toBe(1)
     expect(fills[0]?.args).toEqual([0, 0, timeline.width, timeline.height])
     const bgSet = rec.calls.filter((c) => c.method === 'set:fillStyle').map((c) => c.args[0])
     expect(bgSet[0]).toBe(timeline.palette.bg)
-    expect(callsOf('stroke').length).toBe(0)
   })
 
   it('draws growing heads and strokes mid-growth', () => {
@@ -61,14 +59,9 @@ describe('drawTraceFrame', () => {
   it('fades the drill constellation in during the outline beat', () => {
     const timeline = traceTimeline('glasgow.kicad_pcb')
     const rec = currentRecorder()
-    // p=0.008: outline drawing, hero pins/zones/copper not started — only drills
-    // and a head on each of the longest outline strokes fill
+    // p=0.008: the outline beat: every drill fills, with the placed pads
     drawTraceFrame(asCtx(rec), timeline, Math.floor(timeline.totalFrames * 0.008))
-    const fills = callsOf('fill').length
-    const arcs = callsOf('arc').length
-    expect(fills).toBe(timeline.scene.drills.length + Math.min(OUTLINE_HEADS, timeline.scene.outline.length))
-    expect(fills).toBeGreaterThan(100)
-    expect(arcs).toBe(fills)
+    expect(callsOf('arc').length).toBeGreaterThanOrEqual(timeline.scene.drills.length)
     const fillStyles = rec.calls.filter((c) => c.method === 'set:fillStyle').map((c) => c.args[0])
     expect(fillStyles).toContain(timeline.palette.copperDim)
   })

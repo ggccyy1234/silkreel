@@ -118,11 +118,20 @@ function uprightRot(rot: number): number {
   return m > Math.PI / 2 + 1e-9 ? m - Math.PI : m
 }
 
+/** extra controls for callers that draw the film under their own camera */
+export interface GlyphDrawOptions {
+  /** multiplies each placement's visibility, by placement index */
+  alpha?: (index: number) => number
+  /** multiplies the hairline width, so a zoomed camera keeps thin ink */
+  inkScale?: number
+}
+
 export function drawGlyphFrame(
   ctx: CanvasRenderingContext2D,
   timeline: GlyphTimeline,
   scene: Scene,
-  frame: number
+  frame: number,
+  opts: GlyphDrawOptions = {}
 ): number {
   // the decode grid runs at 15 steps a second regardless of output fps —
   // at 30fps 'twos' holds each step for exactly 2 frames (the spec's
@@ -139,18 +148,19 @@ export function drawGlyphFrame(
   const ink = timeline.palette.silk
   const head = timeline.palette.head
   /** the reference's crisp 2px hairline, scaled to this frame's size */
-  const inkPx = (2 * Math.min(timeline.width, timeline.height)) / 1080
+  const inkPx = ((2 * Math.min(timeline.width, timeline.height)) / 1080) * (opts.inkScale ?? 1)
   ctx.lineJoin = 'miter'
   ctx.lineCap = 'butt'
   ctx.miterLimit = 4
 
   let drawn = 0
-  for (const placement of timeline.placements) {
+  for (const [index, placement] of timeline.placements.entries()) {
     const glyph = scene.glyphs.get(placement.glyphId)
     if (glyph === undefined) continue
     const base =
       decodeAlpha(step, placement.inStep, placement.outStep, placement.pattern, timeline.steps, smooth) *
-      blinkAlpha(step, placement.blinks, timeline.steps)
+      blinkAlpha(step, placement.blinks, timeline.steps) *
+      (opts.alpha?.(index) ?? 1)
     if (base <= 0.004) continue
     const c = placement.role === 'hero' ? head : ink
     ctx.strokeStyle = c

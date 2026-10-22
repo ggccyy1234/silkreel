@@ -47,7 +47,7 @@ const NODE_BUILTIN_RESTRICTION = {
 }
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/.vite/**', '**/coverage/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/.vite/**', '**/coverage/**', 'packages/site/src/figure/kit/**', 'packages/site/.astro/**', 'packages/site/scripts/**'] },
   eslint.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {
@@ -107,6 +107,14 @@ export default tseslint.config(
         },
         tsconfigRootDir: import.meta.dirname
       }
+    }
+  },
+  {
+    files: ['packages/site/**/*.mjs'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { window: 'readonly', document: 'readonly', matchMedia: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', IntersectionObserver: 'readonly', requestAnimationFrame: 'readonly' }
     }
   }
 )

@@ -54,6 +54,8 @@ const HEIGHT: Record<PartKind, (w: number, h: number) => number> = {
   conn: (w, h) => Math.min(6, 2.2 + 0.25 * Math.min(w, h)),
   switch: (w, h) => Math.min(4, 1.2 + 0.3 * Math.min(w, h)),
   can: (w, h) => Math.min(9, 1.2 * Math.min(w, h)),
+  // a noval tube stands about 2.2 bulb diameters tall
+  valve: (w, h) => 2.2 * Math.min(w, h),
   other: (w, h) => Math.min(1.5, 0.4 + 0.15 * Math.min(w, h))
 }
 
@@ -83,7 +85,7 @@ export function extractParts(board: BoardModel): PartMm[] {
     const body = bodyOf(fp, pads.map((p) => p.pad), fp.silkRefs.flatMap((id) => silkById.get(id) ?? []))
     if (body === undefined) continue
     const tht = pads.some((p) => p.layers > 1)
-    const kind = kindOf(fp.ref, fp.value, pads.length, tht, body.span)
+    const kind = tht && onCircle(pads.map((p) => p.pad.pos)) ? 'valve' : kindOf(fp.ref, fp.value, pads.length, tht, body.span)
     // two-pad passives sit between their pads, not over them
     let { w, h } = body
     if ((kind === 'res' || kind === 'cap' || kind === 'ind' || kind === 'diode' || kind === 'led') && pads.length === 2 && !tht) {
@@ -95,10 +97,19 @@ export function extractParts(board: BoardModel): PartMm[] {
       w = d
       h = d
     }
+    let centre = body.centre
+    if (kind === 'valve') {
+      // the bulb stands on the pin circle and is about 1.85 times its diameter
+      const pts = pads.map((p) => p.pad.pos)
+      const d = 1.85 * 2 * meanRadius(pts)
+      w = d
+      h = d
+      centre = circleOf(pts)
+    }
     out.push({
       ref: fp.ref,
       value: fp.value,
-      pos: body.centre,
+      pos: centre,
       w,
       h,
       rot: fp.rot,
@@ -110,6 +121,56 @@ export function extractParts(board: BoardModel): PartMm[] {
     })
   }
   return out
+}
+
+const centroid = (pts: Vec2[]): Vec2 => ({
+  x: pts.reduce((s, p) => s + p.x, 0) / pts.length,
+  y: pts.reduce((s, p) => s + p.y, 0) / pts.length
+})
+
+/**
+ * The least-squares circle through the points (Kasa fit). A noval socket
+ * leaves one of its ten pin places empty, so the centroid is off centre.
+ */
+function circleOf(pts: Vec2[]): Vec2 {
+  const m = centroid(pts)
+  let suu = 0
+  let suv = 0
+  let svv = 0
+  let suuu = 0
+  let svvv = 0
+  let suvv = 0
+  let svuu = 0
+  for (const p of pts) {
+    const u = p.x - m.x
+    const v = p.y - m.y
+    suu += u * u
+    suv += u * v
+    svv += v * v
+    suuu += u * u * u
+    svvv += v * v * v
+    suvv += u * v * v
+    svuu += v * u * u
+  }
+  const det = suu * svv - suv * suv
+  if (Math.abs(det) < 1e-9) return m
+  const bu = (suuu + suvv) / 2
+  const bv = (svvv + svuu) / 2
+  return { x: m.x + (bu * svv - bv * suv) / det, y: m.y + (bv * suu - bu * suv) / det }
+}
+
+function meanRadius(pts: Vec2[]): number {
+  const c = circleOf(pts)
+  return pts.reduce((s, p) => s + Math.hypot(p.x - c.x, p.y - c.y), 0) / pts.length
+}
+
+/** seven or more pins on one circle of at least 3 mm radius: a tube socket */
+function onCircle(pts: Vec2[]): boolean {
+  if (pts.length < 7) return false
+  const c = circleOf(pts)
+  const r = pts.map((p) => Math.hypot(p.x - c.x, p.y - c.y))
+  const mean = r.reduce((s, x) => s + x, 0) / r.length
+  return mean > 3 && Math.max(...r.map((x) => Math.abs(x - mean))) < 0.08 * mean
 }
 
 function pitchOf(pts: Vec2[]): number {

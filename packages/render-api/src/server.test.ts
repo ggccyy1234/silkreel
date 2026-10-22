@@ -104,6 +104,18 @@ describe('render-api contract', () => {
     })
   })
 
+  it('lets local pages call it cross-origin, and nobody else', async () => {
+    await withApp(new StubQueue(), async (app) => {
+      const pre = await app.inject({ method: 'OPTIONS', url: '/render', headers: { origin: 'http://127.0.0.1:4400', 'access-control-request-method': 'POST' } })
+      expect(pre.statusCode).toBe(204)
+      expect(pre.headers['access-control-allow-origin']).toBe('http://127.0.0.1:4400')
+      const local = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'http://localhost:4321' } })
+      expect(local.headers['access-control-allow-origin']).toBe('http://localhost:4321')
+      const remote = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'https://example.com' } })
+      expect(remote.headers['access-control-allow-origin']).toBeUndefined()
+    })
+  })
+
   it('rejects malformed render bodies before queue admission', async () => {
     const queue = new StubQueue()
     await withApp(queue, async (app) => {

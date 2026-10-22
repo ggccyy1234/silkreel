@@ -20,6 +20,8 @@ export interface Cam {
   /** column-major view-projection */
   vp: Float32Array
   aperture: number
+  /** vertical lens shift, NDC */
+  shift: number
 }
 
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
@@ -30,7 +32,7 @@ export const norm = (a: V3): V3 => {
   return [a[0] / l, a[1] / l, a[2] / l]
 }
 
-const SHOT_KEYS = ['x', 'y', 'zoom', 'tilt', 'yaw', 'aperture'] as const
+const SHOT_KEYS = ['x', 'y', 'zoom', 'tilt', 'yaw', 'aperture', 'shift'] as const
 
 /**
  * Monotone cubic through the shot keys: the camera glides through a key when
@@ -39,7 +41,7 @@ const SHOT_KEYS = ['x', 'y', 'zoom', 'tilt', 'yaw', 'aperture'] as const
  * cut, and no curve is drawn across it.
  */
 export function sampleShot(shots: CameraShot[], p: number): Omit<CameraShot, 't' | 'cut'> {
-  const out = { x: 0, y: 0, zoom: 1, tilt: 0, yaw: 0, aperture: 0 }
+  const out = { x: 0, y: 0, zoom: 1, tilt: 0, yaw: 0, aperture: 0, shift: 0 }
   if (shots.length === 0) return out
   let k = 0
   while (k + 1 < shots.length && (shots[k + 1] as CameraShot).t <= p) k++
@@ -48,26 +50,26 @@ export function sampleShot(shots: CameraShot[], p: number): Omit<CameraShot, 't'
   const b = nb === undefined || nb.cut === true ? a : nb
   const h = b.t - a.t
   const u = h > 0 ? Math.min(1, Math.max(0, (p - a.t) / h)) : 0
-  const inShot = (i: number): CameraShot | undefined => {
-    const s = shots[i]
-    return s
-  }
+  // zoom moves in log space: a pull-back from 4× to 1× reads at one speed, not accelerating
+  const val = (s: CameraShot, key: (typeof SHOT_KEYS)[number]): number =>
+    key === 'zoom' ? Math.log(Math.max(1e-6, s.zoom)) : key === 'shift' ? (s.shift ?? 0) : s[key]
   for (const key of SHOT_KEYS) {
     const slope = (i: number): number => {
-      const cur = inShot(i)
-      const prev = inShot(i - 1)
-      const next = inShot(i + 1)
+      const cur = shots[i]
+      const prev = shots[i - 1]
+      const next = shots[i + 1]
       // a cut on either side makes this key an end of its shot: it settles
       if (cur === undefined || prev === undefined || next === undefined || cur.cut === true || next.cut === true) return 0
-      const d0 = (cur[key] - prev[key]) / Math.max(1e-6, cur.t - prev.t)
-      const d1 = (next[key] - cur[key]) / Math.max(1e-6, next.t - cur.t)
+      const d0 = (val(cur, key) - val(prev, key)) / Math.max(1e-6, cur.t - prev.t)
+      const d1 = (val(next, key) - val(cur, key)) / Math.max(1e-6, next.t - cur.t)
       return d0 * d1 <= 0 ? 0 : (2 * d0 * d1) / (d0 + d1)
     }
     const m0 = b === a ? 0 : slope(k) * h
     const m1 = b === a ? 0 : slope(k + 1) * h
     const u2 = u * u
     const u3 = u2 * u
-    out[key] = (2 * u3 - 3 * u2 + 1) * a[key] + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * b[key] + (u3 - u2) * m1
+    const v = (2 * u3 - 3 * u2 + 1) * val(a, key) + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * val(b, key) + (u3 - u2) * m1
+    out[key] = key === 'zoom' ? Math.exp(v) : v
   }
   return out
 }
@@ -92,7 +94,8 @@ export function makeCam(shot: Omit<CameraShot, 't' | 'cut'>, W: number, H: numbe
   ]
   const py = 1 / tanY
   const px = 1 / tanX
-  const proj = [px, 0, 0, 0, 0, py, 0, 0, 0, 0, (far + near) / (near - far), -1, 0, 0, (2 * far * near) / (near - far), 0]
+  const shift = shot.shift ?? 0
+  const proj = [px, 0, 0, 0, 0, py, 0, 0, 0, -shift, (far + near) / (near - far), -1, 0, 0, (2 * far * near) / (near - far), 0]
   const vp = new Float32Array(16)
   for (let c = 0; c < 4; c++) {
     for (let rr = 0; rr < 4; rr++) {
@@ -101,7 +104,7 @@ export function makeCam(shot: Omit<CameraShot, 't' | 'cut'>, W: number, H: numbe
       vp[c * 4 + rr] = s
     }
   }
-  return { pos, f, r, u, dist, tanX, tanY, vp, aperture: shot.aperture }
+  return { pos, f, r, u, dist, tanX, tanY, vp, aperture: shot.aperture, shift }
 }
 
 /** NDC of a plane point (px, y down) at height z; w ≤ 0 means behind the camera */
@@ -130,7 +133,7 @@ export function fitZoom(
     const cam = makeCam({ ...shot, zoom: z }, W, H)
     return pts.every(([x, y, zz]) => {
       const q = project(cam, x, y, zz)
-      return q.w > 0 && Math.abs(q.x) <= mx && Math.abs(q.y) <= my
+      return q.w > 0 && Math.abs(q.x) <= mx && Math.abs(q.y - (shot.shift ?? 0)) <= my
     })
   }
   if (!fits(lo)) return lo
