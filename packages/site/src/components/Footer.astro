@@ -64,7 +64,16 @@ const sheets = [
   fold()
   narrow.addEventListener('change', fold)
   notes?.addEventListener('toggle', () => { if (!narrow.matches && !notes.open) notes.open = true })
-  setupFigure()
+  // the bench is a large drawing: it is wired up only as the footer comes near, so it never costs the page's first seconds
+  const fig = document.querySelector('.ft__fig')
+  if (fig) {
+    const near = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return
+      near.disconnect()
+      setupFigure()
+    }, { rootMargin: '150% 0px' })
+    near.observe(fig)
+  }
 </script>
 <style>
   /* the footer is a KiCad drawing sheet: zone markers round the frame, fab notes, and the title block in its corner */

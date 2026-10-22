@@ -2,14 +2,11 @@
    then the whole screen pulls back into the hero strip's first frame ---------- */
 .count {
   --count-bg: 1;
-  --iris: 0px; --ix: 50%; --iy: 50%;
+  --wipe: 0%;
   position: fixed; inset: 0; z-index: 90; overflow: hidden; color: #f4f4f0;
 }
-/* the stock behind the leader: on the land an iris opens in it from the strip's first frame, with a hard edge like a camera's */
-.count::before {
-  content: ''; position: absolute; inset: 0; background: #0b0b0b;
-  mask-image: radial-gradient(circle at var(--ix) var(--iy), transparent var(--iris), #000 calc(var(--iris) + 1px));
-}
+/* the stock behind the leader: on the land it pulls up and away with the board, a hard edge like a frame leaving the gate */
+.count::before { content: ''; position: absolute; inset: 0; background: #0b0b0b; clip-path: inset(0 0 var(--wipe) 0); }
 html:not(.js) .count, html.seen .count, html:not(.motion) .count { display: none; }
 .count__frame { position: absolute; inset: 0; overflow: hidden; background: #0b0b0b; transform-origin: 50% 50%; }
 /* grain: a tile of noise that jumps every frame, like stock under a lamp */
@@ -18,6 +15,7 @@ html:not(.js) .count, html.seen .count, html:not(.motion) .count { display: none
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   animation: count-grain 0.25s steps(4) infinite;
 }
+.count__copy { position: fixed; object-fit: contain; transform-origin: 0 0; pointer-events: none; }
 .count__frame.is-landing::after { opacity: 0; transition: opacity 0.15s; }
 @keyframes count-grain { 0% { translate: 0 0; } 25% { translate: -7% 4%; } 50% { translate: 5% -6%; } 75% { translate: -3% -2%; } 100% { translate: 6% 5%; } }
 .count__film { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity 0.3s var(--soft); }
@@ -26,7 +24,7 @@ html:not(.js) .count, html.seen .count, html:not(.motion) .count { display: none
 .count__beam {
   --a: 0deg;
   position: absolute; left: 50%; top: 50%; width: 66vmax; aspect-ratio: 1; translate: -50% -50%; border-radius: 50%;
-  background: conic-gradient(from calc(var(--a) - 120deg), transparent 0deg, rgb(255 74 61 / 0.05) 60deg, rgb(255 74 61 / 0.32) 119deg, rgb(255 140 120 / 0.9) 120deg, transparent 120.6deg);
+  background: conic-gradient(from calc(var(--a) - 120deg), transparent 0deg, rgb(255 74 61 / 0.03) 60deg, rgb(255 74 61 / 0.18) 119deg, rgb(255 140 120 / 0.9) 120deg, transparent 120.6deg);
   mask-image: radial-gradient(closest-side, #000 99%, transparent 100%);
 }
 .count__perf { position: absolute; top: -60px; bottom: -60px; width: 16px; background: repeating-linear-gradient(180deg, transparent 0 16px, rgb(236 237 233 / 0.92) 16px 36px, transparent 36px 52px); animation: count-run 0.12s linear infinite; }
@@ -44,6 +42,15 @@ html:not(.js) .count, html.seen .count, html:not(.motion) .count { display: none
 .count__n b { font-family: var(--f-display); font-weight: 500; font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.6rem); line-height: 0.8; font-variant-numeric: tabular-nums; color: #f4f4f0; }
 .count__n span { font-size: 12px; letter-spacing: 0.14em; }
 .count__read { right: calc(clamp(14px, 2.4vw, 36px) + 40px); bottom: clamp(18px, 3vh, 32px); max-width: 52vw; font-family: var(--f-display); font-size: clamp(1.25rem, 0.8rem + 1.6vw, 2.6rem); font-weight: 500; letter-spacing: -0.02em; line-height: 1; text-align: right; text-transform: none; color: #f4f4f0; }
+/* the first beat runs in CSS from the first paint, so the leader is moving before any script arrives; the script then takes over in step */
+@property --a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@property --rev { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@keyframes count-sweep { to { --a: 360deg; } }
+@keyframes count-rev { to { --rev: 360deg; } }
+@keyframes count-draw { from { stroke-dashoffset: 1; opacity: 1; } to { stroke-dashoffset: 0; opacity: 1; } }
+.count__beam { animation: count-sweep 0.5s linear 3; }
+.count__board { animation: count-rev 0.5s linear forwards; }
+.count__digit path:first-of-type { animation: count-draw 0.24s cubic-bezier(0.3, 0, 0.2, 1) forwards; }
 /* the board itself: its real top copper, uncovered by the sweep on the first beat */
 .count__board {
   --rev: 0deg;

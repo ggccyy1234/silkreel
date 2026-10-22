@@ -10,7 +10,7 @@ import { acts, boards } from '../data/site'
 import { prefersReducedMotion } from '../engine/env'
 import { ReelGL } from '../reel/reel-gl'
 import type { ReelPose } from '../reel/reel-gl'
-import { FH, FW, GAP, M, N, RED, WS, buildAtlas, buildHead, drawDrawing, isHero } from '../reel/strip'
+import { FH, FW, GAP, LF, M, N, RED, WS, buildAtlas, buildHead, drawDrawing, isHero } from '../reel/strip'
 import { play } from './sound'
 import { rollTo } from './site'
 
@@ -48,7 +48,16 @@ export function setupHome() {
   const counting = !reduced && !seen && count !== null
   if (!counting) count?.remove()
   else { html.classList.add('counting'); try { sessionStorage.setItem('sr-seen', '1') } catch { /* private mode */ } }
-  const t0 = performance.now()
+  let t0 = performance.now()
+  // the first beat started in CSS at first paint: find how far it has run, hand its parts to the script, and start the script's clock there
+  let ran = 0
+  if (counting) {
+    const css = count.getAnimations({ subtree: true })
+    const beam = css.find((a) => a instanceof CSSAnimation && a.animationName === 'count-sweep')
+    ran = Math.min(1.2, Number(beam?.currentTime ?? 0) / 1000)
+    t0 -= ran * 1000
+    for (const a of css) { if (a instanceof CSSAnimation && a.animationName === 'count-draw') a.commitStyles(); a.cancel() }
+  }
   const paintCount = () => {
     const a = (((performance.now() - t0) / 1000 / BEAT) % 1) * Math.PI * 2
     sweep?.style.setProperty('--a', `${((a * 180) / Math.PI).toFixed(1)}deg`)
@@ -87,7 +96,9 @@ export function setupHome() {
     const filmEl = count.querySelector<HTMLCanvasElement>('[data-count-film]')
     if (board) leader.to(board, { opacity: 0.95, duration: 0.3, ease: 'power2.out' }, 2 * BEAT)
     if (filmEl) leader.to(filmEl, { opacity: 0.22, duration: 0.25, ease: 'power1.out' }, 2 * BEAT + 0.05)
-    leader.call(() => land?.(), [], digits.length * BEAT - 0.05)
+    // the land waits (briefly) for the reel, so the frames have somewhere to go
+    leader.seek(ran)
+    leader.call(() => { void Promise.race([reelReady, new Promise((r) => setTimeout(r, 900))]).then(() => land?.()) }, [], digits.length * BEAT - 0.05)
     // behind the numerals the whole film runs past at speed: the leader previews the reel it heads
     const filmCanvas = count.querySelector<HTMLCanvasElement>('[data-count-film]')
     if (filmCanvas) {
@@ -121,8 +132,8 @@ export function setupHome() {
 
   const atlasReady = heroFilm.then(async (film) => {
     await document.fonts.ready
-    // while the leader runs, the atlas yields after every two cells so the countdown never drops a frame
-    const atlas = await buildAtlas(film, atlasT, () => {}, counting ? 2 : 12)
+    // while the leader runs, the atlas works in 5 ms slices so the countdown never drops a frame
+    const atlas = await buildAtlas(film, atlasT, () => {}, counting ? 5 : 40)
     return { film, atlas }
   })
 
@@ -135,15 +146,22 @@ export function setupHome() {
     }
   }
 
-  void atlasReady.then(({ atlas }) => {
+  // the texture upload stalls a frame or two: during the countdown it waits for the held "1", where nothing moves
+  const reelReady = atlasReady.then(async ({ atlas }) => {
+    if (counting) await new Promise((r) => setTimeout(r, Math.max(0, t0 + 1250 - performance.now())))
     if (glCanvas) reel = startReel(glCanvas, atlas)
     if (!reel) html.classList.remove('gl')
     if (reel && glCanvas) {
+      // draw once now and let two frames pass: the GPU does its first-draw work here, inside the held "1", not during the land
+      drawReel()
+      await new Promise((r) => { requestAnimationFrame(() => { requestAnimationFrame(r) }) })
       html.classList.add('reel-live')
       gsap.ticker.add(drawReel)
     }
   }, () => { html.classList.remove('gl') })
 
+  // while the leader lands, the strip's pay-out is driven directly: the board's frames wind onto the reel
+  let wind: { v: number } | null = null
   let drawn = ''
   function drawReel() {
     if (!reel || !hero) return
@@ -155,7 +173,7 @@ export function setupHome() {
     if (hr.bottom > 0) {
       const base = heroPose()
       const scrolled = reduced ? 0 : clamp(-hr.top / Math.max(1, hr.height), 0, 1)
-      pose = { ...base, ly: base.ly + hr.top, ex: clamp(ex + scrolled * 9, 0, N - 1) }
+      pose = { ...base, ly: base.ly + hr.top, ex: clamp((wind ? wind.v : ex) + scrolled * 9, 0, N - 1) }
     }
     /* off screen the canvas would keep its last frame; hide it instead */
     if (glCanvas) glCanvas.style.visibility = pose ? '' : 'hidden'
@@ -172,28 +190,46 @@ export function setupHome() {
     gsap.ticker.remove(paintCount)
     const frame = $('[data-count-frame]')
     const p = heroPose()
-    const box = { x: p.cx + (GAP / 2) * p.k, y: p.ly - (WS / 2) * p.k + M * p.k, w: FW * p.k, h: FH * p.k }
-    const r = frame?.getBoundingClientRect()
+    // six frames of the leader, left to right, as they sit with six drawings paid out ahead of PICTURE START
+    const CELLS = 6
+    const cellAt = (i: number) => ({ x: p.cx + (i * LF + GAP / 2) * p.k, y: p.ly - (WS / 2 - M) * p.k, w: FW * p.k, h: FH * p.k })
+    wind = { v: CELLS }
     const tl = gsap.timeline({ onComplete: () => { stopLeaderFilm(); count.remove(); html.classList.remove('counting') } })
-    if (frame && r && box.x + box.w > 0) {
-      tl.to(frame, { x: box.x + box.w / 2 - (r.left + r.width / 2), y: box.y + box.h / 2 - (r.top + r.height / 2), scaleX: box.w / r.width, scaleY: box.h / r.height, duration: 0.85, ease: 'power3.inOut' }, 0)
-    }
     tl.to(count.querySelectorAll('.count__digit, .count__perf'), { opacity: 0, duration: 0.18, ease: 'power1.out' }, 0.05)
     tl.to(count.querySelectorAll('.count__k, .count__n, .count__read, .count__dial, .count__beam, .count__film'), { opacity: 0, duration: 0.2, ease: 'power1.out' }, 0)
-    // only the copper plate flies: the stock, its grain and the scrim go at once
     frame?.classList.add('is-landing')
     if (frame) tl.set(frame, { backgroundColor: 'rgb(11 11 11 / 0)' }, 0)
-    // the iris opens on the frame the board lands in; on a phone that frame is off screen, so it opens where the board ends up
-    const onScreen = box.x > 0
-    const ix = onScreen ? box.x + box.w / 2 : innerWidth / 2
-    const iy = onScreen ? box.y + box.h / 2 : innerHeight / 2
-    count.style.setProperty('--ix', `${ix.toFixed(1)}px`)
-    count.style.setProperty('--iy', `${iy.toFixed(1)}px`)
-    tl.to(count, { '--iris': `${String(Math.ceil(Math.hypot(innerWidth, innerHeight) + 40))}px`, duration: 0.85, ease: 'power2.inOut' }, 0.05)
-    // the strip winds in under the board, so the frame it lands in arrives with it
-    ex = 5
-    // the board hands the frame back to PICTURE START as the iris clears the screen
-    tl.to(frame, { opacity: 0, duration: 0.3, ease: 'power1.inOut' }, 0.7)
+    // the lit board prints itself into each frame of the leader, then each print develops into that frame's drawing
+    const plate = $('[data-count-board]')
+    const pr = plate?.getBoundingClientRect()
+    const midCell = cellAt((CELLS - 1) / 2)
+    const copies: { el: HTMLImageElement; i: number; x0: number }[] = []
+    if (plate && pr) {
+      tl.set(plate, { opacity: 0 }, 0)
+      for (let i = 0; i < CELLS; i++) {
+        const c = cellAt(i)
+        const copy = document.createElement('img')
+        copy.src = (plate as HTMLImageElement).src
+        copy.alt = ''
+        copy.className = 'count__copy'
+        Object.assign(copy.style, { left: `${String(pr.left)}px`, top: `${String(pr.top)}px`, width: `${String(pr.width)}px`, height: `${String(pr.height)}px` })
+        count.append(copy)
+        // first as one plate down to the strip, then dealt out frame by frame
+        tl.to(copy, { x: midCell.x - pr.left, y: midCell.y - pr.top, scaleX: midCell.w / pr.width, scaleY: midCell.h / pr.height, duration: 0.45, ease: 'power3.inOut' }, 0)
+        tl.to(copy, { x: c.x - pr.left, duration: 0.3, ease: 'power3.inOut' }, 0.4 + 0.02 * Math.abs(i - (CELLS - 1) / 2))
+        copies.push({ el: copy, i, x0: pr.left })
+      }
+    }
+    tl.to(count, { '--wipe': '100%', duration: 0.6, ease: 'power3.inOut' }, 0.05)
+    // the copper prints ride the strip as it winds, and each goes out as it reaches the reel
+    const ride = () => {
+      if (!wind) return
+      for (const c of copies) {
+        const x = cellAt(c.i - (CELLS - wind.v)).x
+        gsap.set(c.el, { x: x - c.x0, opacity: clamp((x - p.cx) / (LF * p.k) + 0.5, 0, 1) })
+      }
+    }
+    tl.to(wind, { v: 0, duration: 0.8, ease: 'power2.inOut', onUpdate: ride, onComplete: () => { ex = 0; wind = null } }, 0.7)
   } : null
   /* a click or a key during the countdown runs it out at once */
   if (counting) {

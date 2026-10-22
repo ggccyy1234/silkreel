@@ -79,16 +79,18 @@ export function drawCell(ctx: CanvasRenderingContext2D, film: Film, d: number, x
 const tick = () => new Promise<void>((r) => { requestAnimationFrame(() => { setTimeout(r, 0) }) })
 
 /** all 168 drawings on cells of stock, 14 to a row; built in slices so the countdown keeps time */
-export async function buildAtlas(film: Film, t: number, onProgress: (p: number) => void, every = 12) {
+export async function buildAtlas(film: Film, t: number, onProgress: (p: number) => void, budget = 40) {
   const c = document.createElement('canvas')
   c.width = Math.ceil(COLS * LF * t)
   c.height = Math.ceil(Math.ceil(N / COLS) * WS * t)
   const ctx = c.getContext('2d')
   if (!ctx) throw new Error('no 2d context')
   await tick()
+  let since = performance.now()
   for (let d = 0; d < N; d++) {
     drawCell(ctx, film, d, (d % COLS) * LF * t, Math.floor(d / COLS) * WS * t, t)
-    if (d % every === every - 1) { onProgress((d + 1) / N); await tick() }
+    // yield once the slice has used its budget (ms), so the page keeps painting
+    if (performance.now() - since > budget) { onProgress((d + 1) / N); await tick(); since = performance.now() }
   }
   onProgress(1)
   return c
