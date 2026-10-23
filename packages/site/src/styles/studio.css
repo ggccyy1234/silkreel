@@ -69,7 +69,7 @@
 .st__stats { display: grid; grid-template-columns: repeat(5, auto); justify-content: space-between; gap: 10px; margin: 0 18px; padding-top: 16px; border-top: 1.5px solid var(--c-ink); }
 .st__stats div { display: grid; gap: 2px; }
 .st__stats dt { font-size: var(--t-label); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--c-muted); }
-.st__stats dt { font-size: 0.625rem; }
+.st__stats dt { font-size: 0.6875rem; }
 .st__stats dd { font-size: 0.9375rem; font-weight: 500; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 
 /* ---------- B: the monitor ---------- */
@@ -99,7 +99,7 @@
 .st__acts { position: relative; height: 18px; }
 .st__act {
   position: absolute; top: 0; height: 100%; padding-left: 8px; overflow: hidden; white-space: nowrap; border-left: 1px solid var(--c-line-2);
-  font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--c-dim); transition: color var(--t2) var(--soft);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--c-dim); transition: color var(--t2) var(--soft);
 }
 .st__act b { font-weight: 600; color: var(--c-dim); margin-right: 4px; }
 .st__act.is-on { color: #f4f4f0; }
@@ -138,7 +138,7 @@
 .st__looks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .st__look { position: relative; display: grid; align-content: start; gap: 6px; padding: 12px; cursor: pointer; box-shadow: inset 0 0 0 1px var(--c-line-2); transition: background-color var(--t2) var(--soft), color var(--t2) var(--soft), box-shadow var(--t2) var(--soft); }
 .st__look-n { font-size: 1rem; font-weight: 600; letter-spacing: -0.02em; }
-.st__look-t { font-size: 0.6875rem; line-height: 1.45; color: var(--c-muted); }
+.st__look-t { font-size: 0.75rem; line-height: 1.45; color: var(--c-muted); }
 .st__look:has(input:checked) { background: var(--c-ink); color: var(--c-bg); box-shadow: inset 0 3px 0 var(--pencil); }
 .st__look:has(input:checked) .st__look-t { color: rgb(var(--opal-rgb) / 0.72); }
 @media (hover: hover) { .st__look:not(:has(input:checked)):hover { box-shadow: inset 0 0 0 1px var(--c-ink); } }
@@ -255,7 +255,7 @@
   .st__out { padding-top: 0; }
 }
 @media (max-width: 700px) {
-  .st { --top: 61px; grid-template-columns: minmax(0, 1fr); grid-template-areas: 'main' 'out' 'board' 'cut'; }
+  .st { --top: 61px; grid-template-columns: minmax(0, 1fr); grid-template-areas: 'main' 'board' 'cut' 'out'; }
   .st__monitor { height: min(64svh, calc((100vw - 28px) / var(--arn) + 16px)); padding: 4px 14px 12px; }
   .st__k--dark, .st__score, .st__transport { padding-inline: 14px; }
   .st__keys { display: none; }
@@ -264,6 +264,6 @@
   .st__rail--board { border-right: 0; border-bottom: 1px solid var(--c-ink); }
   .st__boards { grid-auto-flow: column; grid-auto-columns: 72%; overflow-x: auto; scroll-snap-type: x mandatory; mask-image: linear-gradient(90deg, #000 calc(100% - 48px), transparent); }
   .st__board { scroll-snap-align: start; border-right: 1px solid var(--c-line); }
-  .st__act { font-size: 9px; padding-left: 4px; }
+  .st__act { font-size: 10px; padding-left: 4px; }
   .st__act b { display: none; }
 }

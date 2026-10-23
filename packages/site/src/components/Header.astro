@@ -103,8 +103,16 @@ const links = [
     .hd__sound .hd__meter i { height: 8px; }
     .hd__nav { justify-content: center; gap: 0; }
     .hd__nav a { padding: 0 7px; }
-    .hd__cta { padding: 0 10px; }
+    .hd__cta { padding: 0 10px; font-size: 0.6875rem; letter-spacing: 0.08em; white-space: nowrap; }
     /* the bench is a home page section you scroll to; the studio link gives way to the call to action, except on the studio itself */
     .hd__nav a[data-nav='make'], .hd__nav a[data-nav='studio']:not([aria-current]), .hd__nav:has(a[data-nav='studio'][aria-current]) a[data-nav='film'] { display: none; }
   }
+  /* the smallest phones: the same row, packed tighter */
+  @media (max-width: 380px) {
+    .hd__nav a { padding: 0 4px; }
+    .hd__cta { padding: 0 7px; letter-spacing: 0.04em; }
+    .hd__sound { padding: 0; }
+    .hd__brand { font-size: 0.9375rem; }
+  }
+  @media (max-width: 340px) { .hd__nav a[data-nav='studio'][aria-current] { display: none; } }
 </style>

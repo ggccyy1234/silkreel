@@ -35,7 +35,7 @@ html:not(.js) .count, html.seen .count, html:not(.motion) .count { display: none
 .count__digit path { stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; }
 .count__digit circle { fill: #ff4a3d; stroke: none; opacity: 0; filter: drop-shadow(0 0 6px #ff4a3d) drop-shadow(0 0 14px rgb(255 74 61 / 0.7)); }
 .count__k, .count__read, .count__n { position: absolute; font-family: var(--f-mono); letter-spacing: 0.14em; text-transform: uppercase; color: rgb(244 244 240 / 0.78); }
-.count__k { top: clamp(18px, 3vh, 32px); font-size: 11px; font-weight: 600; }
+.count__k { top: clamp(18px, 3vh, 32px); font-size: 12px; font-weight: 600; }
 .count__k--tl { left: calc(clamp(14px, 2.4vw, 36px) + 40px); }
 .count__k--tr { right: calc(clamp(14px, 2.4vw, 36px) + 40px); }
 .count__n { left: calc(clamp(14px, 2.4vw, 36px) + 40px); bottom: clamp(18px, 3vh, 32px); display: flex; align-items: baseline; gap: 10px; letter-spacing: -0.02em; }
@@ -149,7 +149,7 @@ html.gl .hero__poster { visibility: hidden; }
 .counts-row::after { content: ''; position: absolute; left: 0; right: 0; height: 18px; background: repeating-linear-gradient(90deg, transparent 0 22px, #fff 22px 38px, transparent 38px 48px); }
 .counts-row::after { bottom: 16px; }
 .counts dt { color: #a9a9a3; }
-.counts__by { font-size: 11px; }
+.counts__by { font-size: 12px; }
 .counts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px; }
 .counts div { display: grid; gap: 6px; }
 .counts dt { order: 2; }
@@ -267,7 +267,7 @@ html:not(.motion) .gate__keys { display: none; }
   .make__title { font-size: 2.6rem; }
   .monitor { padding: 16px 12px 12px; }
   .monitor__stage { height: min(46svh, calc((100vw - 2 * var(--gutter) - 24px) / (var(--ar)))); }
-  .monitor__read { font-size: 10px; }
+  .monitor__read { font-size: 11px; }
   .cmd { padding: 20px 16px 22px; }
   .cmd__line { font-size: 1rem; gap: 8px 0.9ch; }
   .make__acts { display: grid; grid-template-columns: minmax(0, 1fr); }
