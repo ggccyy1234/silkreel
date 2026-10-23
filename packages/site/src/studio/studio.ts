@@ -233,6 +233,8 @@ export function setupStudio() {
     const p = f / t.totalFrames
     if (tcEl) tcEl.textContent = tc(f / t.fps)
     if (frameEl) frameEl.textContent = pad(f, 3)
+    // the gate's sprockets advance one hole for every two frames, as the film is held on twos
+    stage.parentElement?.style.setProperty('--roll', `${String(-(Math.floor(f / 2) % 1000) * (innerWidth <= 700 ? 20 : 26))}px`)
     if (beatEl) beatEl.textContent = pad(Math.floor(p * 24) + 1)
     const i = actsNow.findIndex((x) => p >= x.a && p < x.b)
     if (actEl) actEl.textContent = actsNow[i]?.name ?? '·'
