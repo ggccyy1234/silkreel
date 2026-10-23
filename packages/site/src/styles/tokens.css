@@ -1,4 +1,7 @@
-@font-face { font-family: 'Instrument Sans'; src: url('/fonts/instrument-sans-var.woff2') format('woff2-variations'), url('/fonts/instrument-sans-var.woff2') format('woff2'); font-weight: 400 700; font-stretch: 75% 100%; font-style: normal; font-display: swap; }
+/* Osifont: ISO 3098 engineering lettering (LGPL 3 with font exception), the drawing's own hand */
+@font-face { font-family: 'Osifont'; src: url('/fonts/osifont.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+/* Archivo (OFL): the grotesk for reading */
+@font-face { font-family: 'Archivo'; src: url('/fonts/archivo-var.woff2') format('woff2-variations'), url('/fonts/archivo-var.woff2') format('woff2'); font-weight: 100 900; font-stretch: 62% 125%; font-style: normal; font-display: swap; }
 @font-face { font-family: 'JetBrains Mono'; src: url('/fonts/jetbrains-mono-400-normal.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: 'JetBrains Mono'; src: url('/fonts/jetbrains-mono-500-normal.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
 @font-face { font-family: 'JetBrains Mono'; src: url('/fonts/jetbrains-mono-600-normal.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
@@ -8,19 +11,29 @@
 @font-face { font-family: 'SilkMono'; src: url('/fonts/jetbrains-mono-500-normal.woff2') format('woff2'); font-weight: 500; font-display: block; }
 
 :root {
-  /* the lightbox: opal glass lit from below, black stock on it, an editor's red grease pencil */
-  --opal: #ecede9;
+  /* the drawing office: drafting paper with a blue grid, blueprint blue for the drawings, white line work, one redline */
+  --paper: #ecebe4;
+  --blue: #1d4fa3;
+  --line: #eef3ff;
+  --ink: #163a78;
+  --redline: #d7261e;
+  --paper-rgb: 236 235 228;
+  --blue-rgb: 29 79 163;
+  --line-rgb: 238 243 255;
+  --ink-rgb-v: 22 58 120;
+  /* black stock: only inside a film frame */
   --stock: #0b0b0b;
-  --pencil: #d7261e;
-  --opal-rgb: 236 237 233;
   --stock-rgb: 11 11 11;
+  --opal: var(--paper);
+  --opal-rgb: var(--paper-rgb);
+  --pencil: var(--redline);
 
-  --c-bg: var(--opal);
-  --c-ink: var(--stock);
-  --ink-rgb: var(--stock-rgb);
-  --bg-rgb: var(--opal-rgb);
-  --c-muted: #4a4a46;
-  --c-dim: #4f4f4b;
+  --c-bg: var(--paper);
+  --c-ink: var(--ink);
+  --ink-rgb: var(--ink-rgb-v);
+  --bg-rgb: var(--paper-rgb);
+  --c-muted: #3f5683;
+  --c-dim: #4a5e88;
   --c-red: #c4221a;
   --c-line: rgb(var(--ink-rgb) / 0.14);
   --c-line-2: rgb(var(--ink-rgb) / 0.3);
@@ -29,9 +42,10 @@
   --c-fg: var(--c-ink);
   --c-led: var(--c-red);
 
-  /* type roles: the sans speaks, the mono is for what you type and what the film counts (commands, flags, numbers, timecode) */
-  --f-display: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
-  --f-body: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+  /* type roles: Osifont letters the drawing (headlines, spec labels, figure numbers), Archivo reads, the mono is only for what you type */
+  --f-display: 'Osifont', 'Archivo', ui-sans-serif, sans-serif;
+  --f-label: 'Osifont', 'Archivo', ui-sans-serif, sans-serif;
+  --f-body: 'Archivo', ui-sans-serif, system-ui, sans-serif;
   --f-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
 
   /* one scale, about 1.33 between steps; nothing set below 13 px except the mono timecode */
@@ -69,16 +83,20 @@
 }
 
 /* a length of stock laid on the glass: the page's dark sections */
+/* a blueprint: white line work on blue, the page's dark sections */
 .pos {
-  --c-bg: var(--stock);
-  --c-ink: var(--opal);
-  --ink-rgb: var(--opal-rgb);
-  --bg-rgb: var(--stock-rgb);
-  --c-muted: #a9a9a3;
-  --c-dim: #9a9a94;
-  --c-red: #ff4a3d;
-  --c-line: rgb(var(--ink-rgb) / 0.14);
-  --c-line-2: rgb(var(--ink-rgb) / 0.3);
+  --c-bg: var(--blue);
+  --c-ink: var(--line);
+  --ink-rgb: var(--line-rgb);
+  --bg-rgb: var(--blue-rgb);
+  --c-muted: #c3d3f2;
+  --c-dim: #b4c6ec;
+  --c-red: #ff8a7d;
+  --c-line: rgb(var(--ink-rgb) / 0.18);
+  --c-line-2: rgb(var(--ink-rgb) / 0.4);
   background: var(--c-bg);
   color: var(--c-ink);
 }
+/* the drafting grid: only on a surface that is a drawing sheet */
+.grid { background-image: linear-gradient(rgb(var(--ink-rgb) / 0.07) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--ink-rgb) / 0.07) 1px, transparent 1px); background-size: 24px 24px; background-position: -1px -1px; }
+
