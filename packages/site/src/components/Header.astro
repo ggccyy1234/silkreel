@@ -92,20 +92,19 @@ const links = [
   @keyframes hd-bar { from { height: 2px; } to { height: 12px; } }
   .hd__cta { --h: 36px; padding: 0 14px; font-family: var(--f-mono); font-size: var(--t-label); letter-spacing: 0.1em; text-transform: uppercase; }
 
-  /* on a phone the bar is one row: the name, Film, Docs and the call to action; the sound toggle keeps only its meter */
+  /* on a phone the bar is one row and the same on every page: the name, Film, Studio, Docs and the sound toggle */
   @media (max-width: 760px) {
     .hd { grid-template-columns: auto 1fr auto; gap: 0; padding-block: 8px; }
     .hd__brand { min-height: 44px; }
     .hd__brand :global(.hd__mark), .hd__b { display: none; }
     .hd__sound { height: 44px; justify-content: center; gap: 5px; padding: 0 4px; }
-    .hd__sound-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .hd__end { gap: 2px; }
     .hd__sound .hd__meter i { height: 8px; }
     .hd__nav { justify-content: center; gap: 0; }
     .hd__nav a { padding: 0 7px; }
     .hd__cta { padding: 0 10px; font-size: 0.6875rem; letter-spacing: 0.08em; white-space: nowrap; }
-    /* the bench is a home page section you scroll to; the studio link gives way to the call to action, except on the studio itself */
-    .hd__nav a[data-nav='make'], .hd__nav a[data-nav='studio']:not([aria-current]), .hd__nav:has(a[data-nav='studio'][aria-current]) a[data-nav='film'] { display: none; }
+    /* Make is a home section you scroll to, and the Studio link does the call to action's job */
+    .hd__nav a[data-nav='make'], .hd__cta { display: none; }
   }
   /* the smallest phones: the same row, packed tighter */
   @media (max-width: 380px) {
@@ -114,5 +113,5 @@ const links = [
     .hd__sound { padding: 0; }
     .hd__brand { font-size: 0.9375rem; }
   }
-  @media (max-width: 340px) { .hd__nav a[data-nav='studio'][aria-current] { display: none; } }
+  @media (max-width: 360px) { .hd__sound-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
 </style>

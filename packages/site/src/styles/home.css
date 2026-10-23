@@ -270,7 +270,7 @@ html:not(.motion) .gate__keys { display: none; }
   .make__title { font-size: 2.6rem; }
   .monitor { padding: 16px 12px 12px; }
   .monitor__stage { height: min(46svh, calc((100vw - 2 * var(--gutter) - 24px) / (var(--ar)))); }
-  .monitor__read { font-size: 11px; }
+  .monitor__read { font-size: 12px; }
   .cmd { padding: 20px 16px 22px; }
   .cmd__line { font-size: 1rem; gap: 8px 0.9ch; }
   .make__acts { display: grid; grid-template-columns: minmax(0, 1fr); }

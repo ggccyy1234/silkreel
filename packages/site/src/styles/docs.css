@@ -76,7 +76,7 @@
 .docs__table { width: 100%; border-collapse: collapse; font-size: var(--t-s); }
 .docs__table thead th { border-bottom: 1.5px solid var(--c-ink); }
 .docs__table th, .docs__table td { text-align: left; padding: 14px 16px 14px 0; border-bottom: 1px solid var(--c-line); vertical-align: top; }
-.docs__table thead th { font-family: var(--f-mono); font-size: 0.6875rem; font-weight: 400; color: var(--c-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.docs__table thead th { font-family: var(--f-mono); font-size: 0.75rem; font-weight: 400; color: var(--c-dim); text-transform: uppercase; letter-spacing: 0.06em; }
 .docs__table td { color: var(--c-muted); }
 
 .routes { list-style: none; padding: 0; display: grid; border-top: 1.5px solid var(--c-ink); }

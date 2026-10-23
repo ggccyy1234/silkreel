@@ -69,7 +69,7 @@
 .st__stats { display: grid; grid-template-columns: repeat(5, auto); justify-content: space-between; gap: 10px; margin: 0 18px; padding-top: 16px; border-top: 1.5px solid var(--c-ink); }
 .st__stats div { display: grid; gap: 2px; }
 .st__stats dt { font-size: var(--t-label); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--c-muted); }
-.st__stats dt { font-size: 0.6875rem; }
+.st__stats dt { font-size: 0.75rem; }
 .st__stats dd { font-size: 0.9375rem; font-weight: 500; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 
 /* ---------- B: the monitor ---------- */
@@ -103,7 +103,7 @@
 .st__acts { position: relative; height: 18px; }
 .st__act {
   position: absolute; top: 0; height: 100%; padding-left: 8px; overflow: hidden; white-space: nowrap; border-left: 1px solid var(--c-line-2);
-  font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--c-dim); transition: color var(--t2) var(--soft);
+  font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--c-dim); transition: color var(--t2) var(--soft);
 }
 .st__act b { font-weight: 600; color: var(--c-dim); margin-right: 4px; }
 .st__act.is-on { color: #f4f4f0; }
@@ -140,7 +140,7 @@
 .st__f[hidden] { display: none; }
 .st__f legend { float: left; width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 12px; font-size: var(--t-label); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
 .st__f legend + * { clear: both; }
-.st__f legend code { font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--c-red); }
+.st__f legend code { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--c-red); }
 .st__f input[type='radio'], .st__f input[type='checkbox'] { position: absolute; opacity: 0; pointer-events: none; }
 .st__f label:not(.st__in):has(input:focus-visible) { outline: 2px solid var(--c-ink); outline-offset: 2px; }
 
@@ -176,7 +176,7 @@
 .st__check { position: relative; display: inline-flex; align-items: center; gap: 10px; min-height: 32px; font-size: var(--t-xs); cursor: pointer; }
 .st__check span::before { content: ''; display: inline-block; width: 14px; height: 14px; margin-right: 10px; vertical-align: -2px; box-shadow: inset 0 0 0 1.5px var(--c-ink); transition: background-color var(--t2) var(--soft), box-shadow var(--t2) var(--soft); }
 .st__check:has(input:checked) span::before { background: var(--pencil); box-shadow: inset 0 0 0 1.5px var(--pencil), inset 0 0 0 4px var(--c-bg); }
-.st__check code { font-size: 10px; color: var(--c-red); }
+.st__check code { font-size: 11px; color: var(--c-red); }
 
 .st__range { display: grid; grid-template-columns: 70px minmax(0, 1fr) 52px; align-items: center; gap: 10px; font-size: var(--t-xs); }
 .st__range[hidden] { display: none; }
