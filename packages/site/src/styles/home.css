@@ -63,7 +63,7 @@ html:not(.js) .count, html.seen .count, html:not(.motion) .count { display: none
 html.reel-live .reel-gl { opacity: 1; }
 
 .sec__title { font-family: var(--f-display); font-weight: 500; font-size: var(--t-xl); line-height: 1.08; letter-spacing: -0.045em; }
-.sec__body { max-width: 44ch; font-size: var(--t-s); line-height: 1.7; color: var(--c-muted); }
+.sec__body { max-width: 44ch; font-size: 1rem; line-height: 1.65; color: var(--c-muted); }
 
 /* ---------- hero ---------- */
 .hero { --k: clamp(0.7px, calc(100vw / 1440), 1.3px); position: relative; height: 100svh; min-height: 620px; overflow: clip; }
@@ -98,7 +98,7 @@ html.gl .hero__poster { visibility: hidden; }
 .gate.is-playing .gate__beam polygon { opacity: 1; }
 .gate__head { position: absolute; left: var(--scr-l); right: var(--gutter); top: clamp(84px, 11vh, 120px); display: flex; justify-content: space-between; align-items: flex-end; gap: 32px; }
 .gate__title { font-family: var(--f-display); font-weight: 500; font-size: clamp(1.8rem, 0.9rem + 2vw, 2.8rem); line-height: 1.15; letter-spacing: -0.045em; }
-.gate__body { max-width: 40ch; font-size: var(--t-s); line-height: 1.7; color: var(--c-muted); }
+.gate__body { max-width: 40ch; font-size: 1rem; line-height: 1.65; color: var(--c-muted); }
 .gate__screen { position: absolute; left: var(--scr-l); right: var(--gutter); top: 50%; aspect-ratio: 16 / 9; translate: 0 -42%; background: var(--stock); outline: 1px solid var(--pencil); max-height: 58svh; }
 .gate__screen canvas { width: 100%; height: 100%; }
 .gate__read {
@@ -159,6 +159,8 @@ html.gl .hero__poster { visibility: hidden; }
 /* ---------- one command: the words are the controls, the film above them answers ---------- */
 .make { position: relative; z-index: 1; background: var(--c-bg); padding: clamp(64px, 9vh, 112px) var(--gutter) clamp(16px, 3vh, 32px); }
 .make__head { padding: 0; }
+/* the looks section breaks the left-headline, right-paragraph rhythm: its copy hangs under the headline, on the same edge */
+.looks__head { flex-direction: column; align-items: flex-start; gap: 22px; }
 .make__title { font-family: var(--f-display); font-weight: 500; font-size: clamp(2.4rem, 1rem + 4.4vw, 5rem); line-height: 1.06; letter-spacing: -0.05em; }
 .monitor { --ar: 16 / 9; display: grid; justify-items: center; gap: 14px; margin-top: clamp(40px, 7vh, 72px); padding: 28px 24px 16px; background: var(--film-bg, var(--stock)); transition: background-color var(--t3) var(--soft); }
 .monitor__stage { position: relative; aspect-ratio: var(--ar); height: min(68svh, calc((100vw - 2 * var(--gutter) - 48px) / (var(--ar)))); max-width: 100%; }
