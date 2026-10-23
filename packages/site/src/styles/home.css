@@ -44,23 +44,17 @@ html:not(.js) .count, html.seen .count, html:not(.motion) .count { display: none
 .count__read { right: calc(clamp(14px, 2.4vw, 36px) + 40px); bottom: clamp(18px, 3vh, 32px); max-width: 52vw; font-family: var(--f-display); font-size: clamp(1.25rem, 0.8rem + 1.6vw, 2.6rem); font-weight: 500; letter-spacing: -0.02em; line-height: 1; text-align: right; text-transform: none; color: #f4f4f0; }
 /* the first beat runs in CSS from the first paint, so the leader is moving before any script arrives; the script then takes over in step */
 @property --a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
-@property --rev { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 @keyframes count-sweep { to { --a: 360deg; } }
-@keyframes count-rev { to { --rev: 360deg; } }
 @keyframes count-draw { from { stroke-dashoffset: 1; opacity: 1; } to { stroke-dashoffset: 0; opacity: 1; } }
 .count__beam { animation: count-sweep 0.5s linear 3; }
-.count__board { animation: count-rev 0.5s linear forwards; }
 .count__digit path:first-of-type { animation: count-draw 0.24s cubic-bezier(0.3, 0, 0.2, 1) forwards; }
 /* power-on: on the last beat the copper lights outward from U4, the chip the film is about */
 @property --pow { syntax: '<length-percentage>'; inherits: false; initial-value: 0%; }
 .count__board.count__lit { --pow: 0%; animation: none; opacity: 0; filter: brightness(1.35) saturate(1.3); mask-image: radial-gradient(circle at 20.9% 50.9%, #000 var(--pow), transparent calc(var(--pow) + 9%)); }
-/* the board itself: its real top copper, uncovered by the sweep on the first beat */
-.count__board {
-  --rev: 0deg;
-  position: absolute; left: 50%; top: 50%; width: min(84vw, 150vh); translate: -50% -50%; opacity: 0.62;
-  mask-image: conic-gradient(#000 var(--rev), transparent var(--rev));
-  will-change: mask-image;
-}
+/* the board itself: its traces route out from U4 on the canvas over the first two beats; the copper plate with its pads arrives with the power-on */
+.count__board, .count__routes, .count__pulse { position: absolute; left: 50%; top: 50%; width: min(84vw, 150vh); aspect-ratio: 1610 / 848; translate: -50% -50%; }
+.count__board { opacity: 0; }
+.count__routes, .count__pulse { pointer-events: none; }
 
 /* ---------- the reel: one fixed GL canvas behind the transparent sections ---------- */
 .reel-gl { position: fixed; inset: 0; width: 100%; height: 100%; z-index: var(--z-world); opacity: 0; transition: opacity 0.5s var(--soft); pointer-events: none; }
@@ -233,7 +227,7 @@ html:not(.motion) .gate__keys { display: none; }
 /* ---------- tablet and phone ---------- */
 @media (max-width: 760px) {
   .count__digit { height: 44vh; }
-  .count__board { width: min(150vw, 82vh); rotate: 90deg; }
+  .count__board, .count__routes, .count__pulse { width: min(150vw, 82vh); rotate: 90deg; }
   .count__k--tr { display: none; }
   .count__read { left: calc(clamp(14px, 2.4vw, 36px) + 32px); right: calc(clamp(14px, 2.4vw, 36px) + 32px); max-width: none; bottom: calc(clamp(18px, 3vh, 32px) + 44px); text-align: left; font-size: 1.25rem; }
   .count__n, .count__k--tl { left: calc(clamp(14px, 2.4vw, 36px) + 32px); }

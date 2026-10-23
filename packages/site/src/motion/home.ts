@@ -61,9 +61,49 @@ export function setupHome() {
   const paintCount = () => {
     const a = (((performance.now() - t0) / 1000 / BEAT) % 1) * Math.PI * 2
     sweep?.style.setProperty('--a', `${((a * 180) / Math.PI).toFixed(1)}deg`)
-    // the first turn of the sweep uncovers the board; after that it stays
-    const turned = Math.min(1, (performance.now() - t0) / 1000 / BEAT)
-    board?.style.setProperty('--rev', `${(turned * 360).toFixed(1)}deg`)
+    routeTo((performance.now() - t0) / 1000)
+  }
+  /* the board's traces route out from U4: each is drawn as the growing copper reaches it, and on the last beat light runs down them */
+  const routesEl = document.querySelector<HTMLCanvasElement>('[data-count-routes]')
+  const pulseEl = document.querySelector<HTMLCanvasElement>('[data-count-pulse]')
+  let routes: { r: number; t: number[] }[] = []
+  let routed = 0
+  let pulsed = 0
+  let px = 1
+  const trace = (ctx: CanvasRenderingContext2D | null | undefined, t: number[], k: number) => {
+    if (!ctx) return
+    ctx.lineWidth = Math.max(1.2, (t[0] ?? 3) * px * k)
+    ctx.beginPath()
+    ctx.moveTo((t[1] ?? 0) * px, (t[2] ?? 0) * px)
+    for (let i = 3; i < t.length; i += 2) ctx.lineTo((t[i] ?? 0) * px, (t[i + 1] ?? 0) * px)
+    ctx.stroke()
+  }
+  const routeTo = (sec: number) => {
+    const grow = 130 * Math.min(1, sec)
+    const rctx = routesEl?.getContext('2d')
+    while (routed < routes.length && (routes[routed]?.r ?? 999) <= grow) trace(rctx, routes[routed++]?.t ?? [], 1)
+    const pt = (sec - 2 * BEAT) / 0.28
+    if (pt <= 0) return
+    const pctx = pulseEl?.getContext('2d')
+    while (pulsed < routes.length && (routes[pulsed]?.r ?? 999) <= 130 * Math.min(1, pt)) trace(pctx, routes[pulsed++]?.t ?? [], 1.8)
+  }
+  if (counting && routesEl && pulseEl) {
+    void fetch('/films/icebreaker-routes.json').then((r) => r.json() as Promise<{ w: number; h: number; u4: [number, number]; t: number[][] }>).then((R) => {
+      const norm = Math.hypot(R.w, R.h) / Math.SQRT2
+      routes = R.t.map((t) => {
+        let d = Infinity
+        for (let i = 1; i < t.length; i += 2) d = Math.min(d, Math.hypot((t[i] ?? 0) - R.u4[0], (t[i + 1] ?? 0) - R.u4[1]))
+        return { r: (d / norm) * 100, t }
+      })
+      const dpr = Math.min(2, devicePixelRatio || 1)
+      for (const [el, color] of [[routesEl, '#d79a68'], [pulseEl, '#fff3e4']] as const) {
+        el.width = Math.round(el.clientWidth * dpr)
+        el.height = Math.round(el.clientHeight * dpr)
+        const ctx = el.getContext('2d')
+        if (ctx) { ctx.strokeStyle = color; ctx.lineCap = 'round'; ctx.lineJoin = 'round' }
+      }
+      px = routesEl.width / R.w
+    }, () => {})
   }
   const leader = gsap.timeline({ paused: !counting })
   let stopLeaderFilm = () => {}
@@ -97,7 +137,8 @@ export function setupHome() {
     if (board) leader.to(board, { opacity: 0.95, duration: 0.3, ease: 'power2.out' }, 2 * BEAT)
     // U4 takes the light: the lit copper spreads out from the chip across the board
     const lit = $('[data-count-lit]')
-    if (lit) leader.fromTo(lit, { opacity: 1, '--pow': '0%' }, { '--pow': '120%', duration: 0.55, ease: 'power2.in' }, 2 * BEAT + 0.08)
+    if (lit) leader.fromTo(lit, { opacity: 1, '--pow': '0%' }, { '--pow': '130%', duration: 0.28, ease: 'power1.out' }, 2 * BEAT)
+    if (pulseEl) leader.to(pulseEl, { opacity: 0, duration: 0.45, ease: 'power1.in' }, 2 * BEAT + 0.3)
     if (filmEl) leader.to(filmEl, { opacity: 0.22, duration: 0.25, ease: 'power1.out' }, 2 * BEAT + 0.05)
     // the land waits (briefly) for the reel, so the frames have somewhere to go
     leader.seek(ran)
@@ -208,7 +249,7 @@ export function setupHome() {
     const midCell = cellAt((CELLS - 1) / 2)
     const copies: { el: HTMLImageElement; i: number; x0: number }[] = []
     if (plate && pr) {
-      tl.set([plate, $('[data-count-lit]')], { opacity: 0 }, 0)
+      tl.set([plate, $('[data-count-lit]'), routesEl, pulseEl], { opacity: 0 }, 0)
       for (let i = 0; i < CELLS; i++) {
         const c = cellAt(i)
         const copy = document.createElement('img')
