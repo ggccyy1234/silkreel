@@ -140,6 +140,10 @@ html:not(.motion) :is(a, button) .roll__a { translate: none; }
 ::view-transition-old(root), ::view-transition-new(root) { mix-blend-mode: normal; transform-origin: 50% 50%; }
 ::view-transition-old(root) { animation: frame-out 0.9s cubic-bezier(0.65, 0, 0.35, 1) both; }
 ::view-transition-new(root) { animation: frame-in 0.9s cubic-bezier(0.65, 0, 0.35, 1) both; }
+/* the header holds still over the film and swaps at the cut, so the two CTA labels never cross-fade into each other */
+::view-transition-group(header) { animation: none; }
+::view-transition-old(header) { animation: none; opacity: 0; }
+::view-transition-new(header) { animation: none; }
 @keyframes frame-out {
   0% { scale: 1; translate: 0 0; }
   28% { scale: 0.84; translate: 0 0; filter: brightness(0.85); }

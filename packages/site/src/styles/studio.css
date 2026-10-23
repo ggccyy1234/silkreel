@@ -267,7 +267,8 @@
   .st { --top: 61px; grid-template-columns: minmax(0, 1fr); grid-template-areas: 'main' 'board' 'cut' 'out'; }
   .st__monitor { height: min(64svh, calc((100vw - 64px) / var(--arn) + 16px)); padding: 4px 32px 12px; }
   /* the monitor rides along under the header while the cut controls scroll, so every change shows as it is made */
-  .st__main { position: sticky; top: var(--top); z-index: 2; }
+  .st__main { position: sticky; top: var(--top); z-index: 3; }
+  .st__k { position: static; }
   .st__main .st__k--dark { display: none; }
   .st__monitor { height: min(36svh, calc((100vw - 64px) / var(--arn) + 16px)); }
   .st__perf { width: 8px; background-size: 8px 20px; background-image: linear-gradient(rgb(236 237 233 / 0.85) 0 11px, transparent 11px); }

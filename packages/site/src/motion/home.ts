@@ -484,7 +484,7 @@ export function setupHome() {
     void heroFilm.then((film) => { look.show(film, { decode: false }); if (reduced) look.scrub(182); else look.seek(182) })
     new IntersectionObserver(([e]) => {
       const on = e?.isIntersecting === true && !reduced
-      if (on) { look.play(); void lookVideo?.play().catch(() => { /* the poster stays */ }) } else { look.pause(); lookVideo?.pause() }
+      if (on) { look.play(); void lookVideo?.play().catch(() => { /* the poster stays */ }) } else { look.pause(); look.seek(182); lookVideo?.pause() }
     }, { threshold: 0.25 }).observe(lookCanvas)
   }
   if (reduced && lookVideo) lookVideo.controls = true

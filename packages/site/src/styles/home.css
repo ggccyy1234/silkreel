@@ -157,7 +157,7 @@ html.gl .hero__poster { visibility: hidden; }
 .counts__by { margin-left: auto; text-align: right; }
 
 /* ---------- one command: the words are the controls, the film above them answers ---------- */
-.make { position: relative; z-index: 1; background: var(--c-bg); padding: clamp(64px, 9vh, 112px) var(--gutter) clamp(16px, 3vh, 32px); }
+.make { position: relative; z-index: 1; background: var(--c-bg); padding: clamp(40px, 6vh, 72px) var(--gutter) clamp(16px, 3vh, 32px); }
 .make__head { padding: 0; }
 /* the looks section breaks the left-headline, right-paragraph rhythm: its copy hangs under the headline, on the same edge */
 .looks__head { flex-direction: column; align-items: flex-start; gap: 22px; }
