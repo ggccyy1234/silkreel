@@ -31,7 +31,7 @@ const GROUND = '#ecede9'
 function heroPose(): Omit<ReelPose, 'ex'> {
   if (phone()) return { k: 0.45, cx: -84, ly: 356, leader: innerWidth + 200 }
   const k = clamp(innerWidth / 1440, 0.7, 1.3)
-  return { k, cx: innerWidth * 0.05, ly: 110 + 91 * k, leader: innerWidth * 1.1 }
+  return { k, cx: innerWidth * 0.05, ly: 78 + 91 * k, leader: innerWidth * 1.1 }
 }
 
 export function setupHome() {
