@@ -127,8 +127,14 @@ html.gl .hero__poster { visibility: hidden; }
 .beats__fill { position: absolute; left: 0; top: 0; width: 100%; height: 2px; background: var(--pencil); transform-origin: 0 50%; scale: 0 1; pointer-events: none; }
 
 /* ---------- two looks on one length of stock ---------- */
-.looks { position: relative; z-index: 1; background: var(--c-bg); padding: clamp(48px, 7vh, 80px) 0 clamp(64px, 9vh, 112px); overflow: clip; }
-.looks__head, .make__head { display: flex; justify-content: space-between; align-items: flex-end; gap: 40px; padding: 0 var(--gutter); }
+.looks { position: relative; z-index: 1; background: var(--c-bg); padding: clamp(24px, 4vh, 40px) 0 clamp(64px, 9vh, 112px); overflow: clip; }
+/* the looks open inside the stock: one line of type set across both frames, the seam between them running down from it in red */
+.looks__head { display: grid; justify-items: center; gap: 18px; padding: clamp(24px, 5vh, 56px) var(--gutter) clamp(28px, 5vh, 52px); text-align: center; }
+.looks__title { font-family: var(--f-display); font-weight: 500; font-size: clamp(2.4rem, 0.6rem + 5.4vw, 6.4rem); line-height: 1; letter-spacing: -0.055em; color: #f4f4f0; }
+.looks__title span:last-child { color: #ff4a3d; }
+.looks__body { max-width: 52ch; font-size: 1rem; line-height: 1.6; color: #a9a9a3; }
+.looks__run { position: relative; }
+.looks__run::before { content: ''; position: absolute; left: 50%; top: calc(-1 * clamp(28px, 5vh, 52px)); bottom: 0; width: 1px; background: #ff4a3d; opacity: 0.7; }
 .stock {
   position: relative; margin-top: clamp(48px, 8vh, 88px); background: var(--stock); padding: 60px 0 64px;
 }
@@ -158,18 +164,20 @@ html.gl .hero__poster { visibility: hidden; }
 
 /* ---------- one command: the words are the controls, the film above them answers ---------- */
 .make { position: relative; z-index: 1; background: var(--c-bg); padding: clamp(40px, 6vh, 72px) var(--gutter) clamp(16px, 3vh, 32px); }
-.make__head { padding: 0; }
 /* the looks section breaks the left-headline, right-paragraph rhythm: its copy hangs under the headline, on the same edge */
-.looks__head { flex-direction: column; align-items: flex-start; gap: 22px; }
-.make__title { font-family: var(--f-display); font-weight: 500; font-size: clamp(2.4rem, 1rem + 4.4vw, 5rem); line-height: 1.06; letter-spacing: -0.05em; }
-.monitor { --ar: 16 / 9; display: grid; justify-items: center; gap: 14px; margin-top: clamp(40px, 7vh, 72px); padding: 28px 24px 16px; background: var(--film-bg, var(--stock)); transition: background-color var(--t3) var(--soft); }
+/* the command is the headline here: the section title sits over it as a caption and the line itself is set at display size */
+.make__head { display: grid; grid-template-columns: auto minmax(0, 44ch); justify-content: space-between; align-items: baseline; gap: 12px 40px; padding-bottom: 20px; border-bottom: 1px solid var(--c-ink); }
+.make__title { font-family: var(--f-display); font-weight: 500; font-size: clamp(1.4rem, 0.9rem + 1.2vw, 2.1rem); line-height: 1.1; letter-spacing: -0.04em; }
+.make__body { font-size: 1rem; line-height: 1.6; color: var(--c-muted); }
+.make__run { margin-top: clamp(24px, 4vh, 40px); }
+.monitor { --ar: 16 / 9; display: grid; justify-items: center; gap: 14px; padding: 28px 24px 16px; background: var(--film-bg, var(--stock)); transition: background-color var(--t3) var(--soft); }
 .monitor__stage { position: relative; aspect-ratio: var(--ar); height: min(68svh, calc((100vw - 2 * var(--gutter) - 48px) / (var(--ar)))); max-width: 100%; }
 .monitor canvas, .monitor video { position: absolute; inset: 0; width: 100%; height: 100%; }
 .monitor video { object-fit: cover; }
 .monitor [hidden] { display: none; }
 .monitor__read { justify-self: stretch; display: flex; justify-content: space-between; gap: 16px; color: #9a9a94; }
-.cmd { display: flex; flex-direction: column; align-items: flex-start; gap: 12px 32px; padding: 26px 24px 30px; background: var(--stock); box-shadow: inset 0 1px 0 #262624; }
-.cmd__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 0.9ch; font-family: var(--f-mono); font-size: clamp(1.0625rem, 0.6rem + 1.05vw, 1.625rem); line-height: 1.5; color: #f4f4f0; }
+.cmd { display: flex; flex-direction: column; align-items: flex-start; gap: 16px 32px; padding: clamp(28px, 5vh, 56px) clamp(24px, 3vw, 48px) 20px; background: var(--stock); }
+.cmd__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 0.9ch; font-family: var(--f-mono); font-size: clamp(1.25rem, 0.3rem + 2.5vw, 3rem); line-height: 1.3; letter-spacing: -0.03em; color: #f4f4f0; }
 .cmd__p { color: #ff4a3d; }
 .cmd__fixed { color: #8a8a84; }
 .tok {
@@ -242,7 +250,7 @@ html:not(.motion) .gate__keys { display: none; }
   .hero__say { left: var(--gutter); right: var(--gutter); top: 84px; max-width: none; justify-items: start; text-align: left; gap: 14px; }
   .hero__title { font-size: 2.05rem; }
   .hero__label { display: none; }
-  .looks__head, .make__head { flex-direction: column; align-items: flex-start; gap: 18px; }
+  .make__head { grid-template-columns: minmax(0, 1fr); }
   /* on a phone the screen takes the width and the strip runs across under it; the light goes up */
   /* the title, screen, strip and readout stand as one block, centred in the pinned screen */
   .gate__pin { --sh: 150px; --scr-w: min(calc(100vw - 2 * var(--gutter)), calc((100svh - 506px) * 16 / 9)); --top: max(72px, calc((100svh - var(--scr-w) * 9 / 16 - var(--sh) - 330px) / 2 + 20px)); --strip-t: calc(var(--top) + 92px + var(--scr-w) * 9 / 16 + 72px); }
@@ -263,11 +271,11 @@ html:not(.motion) .gate__keys { display: none; }
   .beats__act { padding-top: 12px; }
   .beats__name { display: none; }
   .looks__run { grid-template-columns: 1fr; row-gap: 48px; }
+  .looks__run::before { display: none; }
   .look__k { flex-wrap: wrap; gap: 4px 16px; }
   .counts-row { grid-template-columns: 1fr; }
   .counts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 16px; }
   .counts__by { margin-left: 0; text-align: left; }
-  .make__title { font-size: 2.6rem; }
   .monitor { padding: 16px 12px 12px; }
   .monitor__stage { height: min(46svh, calc((100vw - 2 * var(--gutter) - 24px) / (var(--ar)))); }
   .monitor__read { font-size: 12px; }

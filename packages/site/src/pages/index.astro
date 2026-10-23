@@ -101,11 +101,11 @@ const frameIcon = (id: string, size = 18) => {
   </section>
 
   <section class="looks" id="board" aria-labelledby="looks-title">
-    <div class="looks__head">
-      <h2 id="looks-title" class="sec__title">Two looks.<br />One board.</h2>
-      <p class="sec__body">Point silk reel at a board file and pick a style. Both read every trace, pad and via from the file. Nothing is drawn by hand.</p>
-    </div>
     <div class="stock">
+      <div class="looks__head">
+        <h2 id="looks-title" class="looks__title"><span>Two looks.</span> <span>One board.</span></h2>
+        <p class="looks__body">Point silk reel at a board file and pick a style. Both read every trace, pad and via from the file. Nothing is drawn by hand.</p>
+      </div>
       <div class="looks__run">
         <figure class="look" data-look="trace">
           <figcaption class="look__k silk"><span><b>A</b> · --style trace</span><span>Video render · 12 s</span></figcaption>
@@ -133,26 +133,28 @@ const frameIcon = (id: string, size = 18) => {
 
   <section class="make" id="make" aria-labelledby="make-title">
     <div class="make__head">
-      <h2 id="make-title" class="make__title">One command.<br /> Any board.</h2>
-      <p class="sec__body">Every word of the command is a control. Change one and the film above it changes. Copy the line and your terminal renders that film.</p>
+      <h2 id="make-title" class="make__title">One command. Any board.</h2>
+      <p class="make__body">Every word of the command is a control. Change one and the film under it changes. Copy the line and your terminal renders that film.</p>
     </div>
-    <div class="monitor" data-monitor>
-      <div class="monitor__stage" data-monitor-stage>
-        <canvas data-monitor-film role="img" aria-label="The film for the command below"></canvas>
-        <video data-monitor-video muted loop playsinline preload="none" aria-label="The trace film for the command below, a video render" hidden></video>
+    <div class="make__run">
+      <div class="cmd" id="get" data-cmd>
+        <p class="cmd__line">
+          <span class="cmd__p" aria-hidden="true">$</span>
+          <span class="cmd__fixed">npm run reel --</span>
+          <button type="button" class="tok" popovertarget="pick-board" data-tok="board" aria-label="Board: icebreaker.kicad_pcb. Change the board"><span data-roll data-tok-v>icebreaker.kicad_pcb</span></button>
+          <button type="button" class="tok" popovertarget="pick-style" data-tok="style" aria-label="Style: glyph. Change the style"><span class="tok__f">--style</span> <span data-roll data-tok-v>glyph</span></button>
+          <button type="button" class="tok" popovertarget="pick-aspect" data-tok="aspect" aria-label="Aspect: 16:9. Change the aspect"><span class="tok__f">--aspect</span> <span data-roll data-tok-v>16:9</span></button>
+          <button type="button" class="tok" popovertarget="pick-palette" data-tok="palette" aria-label="Palette: mono. Change the palette"><span class="tok__f">--palette</span> <span data-roll data-tok-v>mono</span></button>
+        </p>
+        <p class="cmd__note silk" data-cmd-note>Tap any word to change it</p>
       </div>
-      <p class="monitor__read silk" aria-hidden="true"><span data-monitor-read>Glyph · drawn live in this tab</span><span data-monitor-tc>00:00.00</span></p>
-    </div>
-    <div class="cmd" id="get" data-cmd>
-      <p class="cmd__line">
-        <span class="cmd__p" aria-hidden="true">$</span>
-        <span class="cmd__fixed">npm run reel --</span>
-        <button type="button" class="tok" popovertarget="pick-board" data-tok="board" aria-label="Board: icebreaker.kicad_pcb. Change the board"><span data-roll data-tok-v>icebreaker.kicad_pcb</span></button>
-        <button type="button" class="tok" popovertarget="pick-style" data-tok="style" aria-label="Style: glyph. Change the style"><span class="tok__f">--style</span> <span data-roll data-tok-v>glyph</span></button>
-        <button type="button" class="tok" popovertarget="pick-aspect" data-tok="aspect" aria-label="Aspect: 16:9. Change the aspect"><span class="tok__f">--aspect</span> <span data-roll data-tok-v>16:9</span></button>
-        <button type="button" class="tok" popovertarget="pick-palette" data-tok="palette" aria-label="Palette: mono. Change the palette"><span class="tok__f">--palette</span> <span data-roll data-tok-v>mono</span></button>
-      </p>
-      <p class="cmd__note silk" data-cmd-note>Tap any word to change it</p>
+      <div class="monitor" data-monitor>
+        <div class="monitor__stage" data-monitor-stage>
+          <canvas data-monitor-film role="img" aria-label="The film for the command above"></canvas>
+          <video data-monitor-video muted loop playsinline preload="none" aria-label="The trace film for the command above, a video render" hidden></video>
+        </div>
+        <p class="monitor__read silk" aria-hidden="true"><span data-monitor-read>Glyph · drawn live in this tab</span><span data-monitor-tc>00:00.00</span></p>
+      </div>
     </div>
     <div class="make__acts">
       <button type="button" class="btn btn--solid" data-copy={site.command} data-cmd-copy><span data-copy-label data-roll>Copy the command</span></button>
