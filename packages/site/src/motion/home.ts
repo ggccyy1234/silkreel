@@ -82,7 +82,7 @@ export function setupHome() {
     const grow = 130 * Math.min(1, sec)
     const rctx = routesEl?.getContext('2d')
     while (routed < routes.length && (routes[routed]?.r ?? 999) <= grow) trace(rctx, routes[routed++]?.t ?? [], 1)
-    const pt = (sec - 2 * BEAT) / 0.28
+    const pt = (sec - 2 * BEAT) / 0.32
     if (pt <= 0) return
     const pctx = pulseEl?.getContext('2d')
     while (pulsed < routes.length && (routes[pulsed]?.r ?? 999) <= 130 * Math.min(1, pt)) trace(pctx, routes[pulsed++]?.t ?? [], 1.8)
@@ -138,7 +138,7 @@ export function setupHome() {
     // U4 takes the light: the lit copper spreads out from the chip across the board
     const lit = $('[data-count-lit]')
     if (lit) leader.fromTo(lit, { opacity: 1, '--pow': '0%' }, { '--pow': '130%', duration: 0.28, ease: 'power1.out' }, 2 * BEAT)
-    if (pulseEl) leader.to(pulseEl, { opacity: 0, duration: 0.45, ease: 'power1.in' }, 2 * BEAT + 0.3)
+    if (pulseEl) leader.to(pulseEl, { opacity: 0, duration: 0.6, ease: 'power2.out' }, 2 * BEAT + 0.32)
     if (filmEl) leader.to(filmEl, { opacity: 0.22, duration: 0.25, ease: 'power1.out' }, 2 * BEAT + 0.05)
     // the land waits (briefly) for the reel, so the frames have somewhere to go
     leader.seek(ran)
