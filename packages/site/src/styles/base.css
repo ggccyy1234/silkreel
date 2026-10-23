@@ -110,26 +110,26 @@ html:not(.motion) :is(a, button) .roll__a { translate: none; }
     linear-gradient(var(--hole) 0 20px, transparent 20px) 2.4vw 0 / 14px 34px repeat-y,
     linear-gradient(var(--hole) 0 20px, transparent 20px) calc(100% - 2.4vw) 0 / 14px 34px repeat-y,
     #0b0b0b;
-  animation: frame-perf 0.9s cubic-bezier(0.65, 0, 0.35, 1) both;
+  animation: frame-perf 0.62s var(--pull) both;
 }
 ::view-transition-old(root), ::view-transition-new(root) { mix-blend-mode: normal; transform-origin: 50% 50%; }
-::view-transition-old(root) { animation: frame-out 0.9s cubic-bezier(0.65, 0, 0.35, 1) both; }
-::view-transition-new(root) { animation: frame-in 0.9s cubic-bezier(0.65, 0, 0.35, 1) both; }
+::view-transition-old(root) { animation: frame-out 0.62s var(--pull) both; }
+::view-transition-new(root) { animation: frame-in 0.62s var(--pull) both; }
 /* the header holds still over the film and swaps at the cut, so the two CTA labels never cross-fade into each other */
 ::view-transition-group(header) { animation: none; }
 ::view-transition-old(header) { animation: none; opacity: 0; }
 ::view-transition-new(header) { animation: none; }
 @keyframes frame-out {
   0% { scale: 1; translate: 0 0; }
-  28% { scale: 0.84; translate: 0 0; filter: brightness(0.85); }
-  100% { scale: 0.84; translate: 0 calc(-84% - 64px); filter: brightness(0.6); }
+  25% { scale: 0.9; translate: 0 0; }
+  100% { scale: 0.9; translate: 0 calc(-90% - 48px); }
 }
 @keyframes frame-in {
-  0% { scale: 0.84; translate: 0 calc(84% + 64px); }
-  72% { scale: 0.84; translate: 0 0; }
+  0% { scale: 0.9; translate: 0 calc(90% + 48px); }
+  75% { scale: 0.9; translate: 0 0; }
   100% { scale: 1; translate: 0 0; }
 }
-@keyframes frame-perf { 0%, 28% { background-position: 2.4vw 0, calc(100% - 2.4vw) 0, 0 0; } 72%, 100% { background-position: 2.4vw calc(-84vh - 64px), calc(100% - 2.4vw) calc(-84vh - 64px), 0 0; } }
+@keyframes frame-perf { 0%, 25% { background-position: 2.4vw 0, calc(100% - 2.4vw) 0, 0 0; } 75%, 100% { background-position: 2.4vw calc(-90vh - 48px), calc(100% - 2.4vw) calc(-90vh - 48px), 0 0; } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }

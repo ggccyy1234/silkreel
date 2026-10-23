@@ -3,12 +3,11 @@ import Base from '../layouts/Base.astro'
 import Footer from '../components/Footer.astro'
 import '../styles/docs.css'
 ---
-<Base title="Not found" image="/og-404.png" description="No board at this address. The film and the docs are one click away." noindex>
+<Base title="Not found" image="/og-404.png" description="There is no page at this address. Go back to the film or read the docs." noindex>
   <section class="lost">
     <div class="lost__say">
-      <p class="lost__code silk">404 · no frame at this address</p>
       <h1 class="xl">This page never powered on.</h1>
-      <p class="lede">The link has no board behind it. The film and the docs are where they always are.</p>
+      <p class="lede">There is no page at this address.</p>
       <div class="lost__actions">
         <a class="btn btn--solid" href="/">Back to the film</a>
         <a class="btn" href="/docs/">Read the docs</a>
@@ -16,7 +15,6 @@ import '../styles/docs.css'
     </div>
     <div class="lost__frame" aria-hidden="true">
       <canvas class="lost__film" data-lost></canvas>
-      <p class="silk">Video board · frame held · no signal</p>
     </div>
   </section>
   <Footer slot="footer" />

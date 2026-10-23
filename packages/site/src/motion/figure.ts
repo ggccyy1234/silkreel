@@ -50,35 +50,30 @@ export function setupFigure() {
     keys: root.querySelector<SVGPathElement>(`.sr-keys[data-pack="${p.name}"]`)
   }))
   const wheels = [...root.querySelectorAll<SVGGElement>('[data-wheel]')]
-  // the screen shows the frame in the gate: the film's own frame, drawn as the counter reads it
+  // the screen shows the frame in the gate: the film's own frame, drawn as the counter reads it straight onto a canvas
+  // that replaces the still <image> inside the screen's own matrix, so it moves and sorts with the screen head
   const pic = root.querySelector<SVGImageElement>('[data-pic]')
   const hero = root.querySelector<SVGPathElement>('[data-hero]')
   const [heroIn, heroOut] = FIGURE.hero
   const shot = document.createElement('canvas')
   shot.width = 512
   shot.height = 288
+  shot.style.cssText = 'display:block;width:100%;height:100%'
   let reel: Film | null = null
   let shown = -1
-  let url = ''
-  let busy = false
-  // the encode runs off the main thread; a frame asked for meanwhile is drawn when it finishes
   function picture() {
-    if (!reel || !pic || busy) return
+    if (!reel) return
     const n = ((Math.floor(s / pitch) % frames) + frames) % frames
     if (n === shown) return
     shown = n
-    busy = true
     drawStill(shot, reel, n, ROOM, 1.45)
     hero?.classList.toggle('is-on', n >= heroIn && n <= heroOut)
-    shot.toBlob((blob) => {
-      busy = false
-      if (!blob) return
-      const next = URL.createObjectURL(blob)
-      pic.setAttribute('href', next)
-      if (url) URL.revokeObjectURL(url)
-      url = next
-      picture()
-    }, 'image/jpeg', 0.86)
+    if (pic?.isConnected) {
+      const view = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject')
+      for (const name of ['x', 'y', 'width', 'height', 'transform']) view.setAttribute(name, pic.getAttribute(name) ?? '0')
+      view.appendChild(shot)
+      pic.replaceWith(view)
+    }
   }
   void fixtureFilm('icebreaker', '16:9').then((f) => { reel = f; picture() })
 
@@ -118,29 +113,37 @@ export function setupFigure() {
     }
   }
 
+  // an attribute is written only when its value changed
+  const last = new WeakMap<Element, string>()
+  const set = (el: Element | null, name: string, value: string) => {
+    if (!el || last.get(el) === value) return
+    last.set(el, value)
+    el.setAttribute(name, value)
+  }
+
   function turn() {
     const adv = ((s % pitch) + pitch) % pitch
     for (const c of chunks) {
-      c.frames?.setAttribute('d', D.frames(cam, film, c.s0, c.s1, adv))
-      c.perf?.setAttribute('d', D.perfs(cam, film, c.s0, c.s1, adv))
+      set(c.frames, 'd', D.frames(cam, film, c.s0, c.s1, adv))
+      set(c.perf, 'd', D.perfs(cam, film, c.s0, c.s1, adv))
     }
     for (const r of rollers) {
       const angle = D.rollerAngle(r.data, s)
       const drum = { ...r.data, r: r.data.r - 0.3 }
-      r.teeth?.setAttribute('d', D.teeth(cam, drum, angle))
-      r.slot?.setAttribute('d', D.slot(cam, r.data, angle))
+      set(r.teeth, 'd', D.teeth(cam, drum, angle))
+      set(r.slot, 'd', D.slot(cam, r.data, angle))
       if (r.crank) {
         const [x, y] = D.crankOffset(cam, r.data, angle)
-        r.crank.setAttribute('transform', `translate(${x.toFixed(2)} ${y.toFixed(2)})`)
+        set(r.crank, 'transform', `translate(${x.toFixed(1)} ${y.toFixed(1)})`)
       }
     }
     for (const p of packs) {
       const angle = D.packAngle(p.data, s)
-      p.holes?.setAttribute('d', D.holes(cam, p.data, angle))
-      p.keys?.setAttribute('d', D.keys(cam, p.data, angle))
+      set(p.holes, 'd', D.holes(cam, p.data, angle))
+      set(p.keys, 'd', D.keys(cam, p.data, angle))
     }
     const reading = D.wheels(s / pitch, frames, wheels.length)
-    wheels.forEach((el, i) => { el.setAttribute('transform', `translate(0 ${(-(reading[i] ?? 0) * FIGURE.counter.digit).toFixed(2)})`) })
+    wheels.forEach((el, i) => { set(el, 'transform', `translate(0 ${(-(reading[i] ?? 0) * FIGURE.counter.digit).toFixed(1)})`) })
     picture()
   }
 

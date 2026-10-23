@@ -8,7 +8,7 @@ export type ToWorker =
   | { type: 'compile'; req: number; id: string; config: FilmConfig }
   | { type: 'board'; req: number; id: string }
 
-export interface BoardStats { name: string; footprints: number; traces: number; pads: number; vias: number; layers: number }
+export interface BoardStats { name: string }
 
 export type FromWorker =
   | { type: 'loaded'; id: string; stats: BoardStats }
@@ -24,11 +24,9 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   try {
     if (m.type === 'load') {
       const board = parseKicadPcb(m.text, m.name)
+      if (!board.footprints.length && !board.stats.traces) throw new Error('it holds no parts or traces')
       boards.set(m.id, board)
-      post({
-        type: 'loaded', id: m.id,
-        stats: { name: board.source.boardName || m.name, footprints: board.footprints.length, traces: board.stats.traces, pads: board.stats.pads, vias: board.stats.vias, layers: Object.keys(board.copper).length }
-      })
+      post({ type: 'loaded', id: m.id, stats: { name: board.source.boardName || m.name } })
       return
     }
     const board = boards.get(m.id)

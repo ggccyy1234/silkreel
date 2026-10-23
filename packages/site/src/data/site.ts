@@ -2,7 +2,7 @@ export const site = {
   name: 'silk reel',
   url: 'https://silkreel.dev',
   line: 'KiCad in. Film out.',
-  description: 'silk reel turns a KiCad board file into a film of that board: the lit board under a camera, or its own parts set as a looping glyph film, in any aspect and format.',
+  description: 'Turn a KiCad board file into a release film: the lit board under a camera, or its parts set as a looping glyph film. Any aspect, any format.',
   command: 'npm run reel -- board.kicad_pcb'
 }
 

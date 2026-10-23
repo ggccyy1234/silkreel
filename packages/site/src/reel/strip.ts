@@ -96,7 +96,7 @@ export async function buildAtlas(film: Film, t: number, onProgress: (p: number) 
   return c
 }
 
-/** the head leader: blank stock, PICTURE START, then the name printed on the film */
+/** the head leader: blank stock, then the name printed on the film */
 export function buildHead(t: number, title = 'silk reel') {
   const c = document.createElement('canvas')
   c.width = Math.ceil(HEAD * t)
@@ -107,23 +107,9 @@ export function buildHead(t: number, title = 'silk reel') {
   ctx.fillRect(0, 0, c.width, c.height)
   ctx.fillStyle = LIGHT
   for (let x = LF / 8; x < HEAD; x += LF / 4) for (const py of PERF_Y) perf(ctx, x * t, py * t, t)
-  ctx.strokeStyle = '#e1e1e1'
-  ctx.lineWidth = 2 * t
-  ctx.strokeRect((GAP / 2) * t, M * t, FW * t, FH * t)
-  ctx.fillStyle = '#f0f0f0'
-  ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.font = `700 ${17 * t}px ${MONO}`
-  ctx.fillText('PICTURE', (GAP / 2 + FW / 2) * t, (M + FH / 2 - 11) * t)
-  ctx.fillText('START', (GAP / 2 + FW / 2) * t, (M + FH / 2 + 11) * t)
-  ctx.textAlign = 'left'
   ctx.font = `500 ${FH * 0.92 * t}px ${MONO}`
   ctx.fillStyle = '#f4f4f0'
   ctx.fillText(title, (LF + 70) * t, (M + FH / 2 + FH * 0.04) * t)
-  const spec = 'HEAD  ·  ICEBREAKER  ·  GLYPH  ·  336 FRAMES  ·  30 FPS  ·  SEED 042  ·  WOUND HEADS OUT'
-  ctx.font = `700 ${9 * t}px ${MONO}`
-  ctx.fillStyle = '#e1e1e1'
-  const sw = ctx.measureText(spec).width
-  for (let x = (LF * 0.25 - 7) * t; x < c.width; x += sw + 60 * t) ctx.fillText(spec, x, 8.5 * t)
   return c
 }

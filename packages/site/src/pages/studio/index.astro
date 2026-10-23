@@ -4,139 +4,139 @@ import { PALETTES } from '@silk-reel/choreo'
 import { aspects, boards, formats, inks } from '../../data/site'
 import '../../styles/studio.css'
 
-const n = (v: number) => v.toLocaleString('en-US')
 const frameIcon = (id: string, size = 22) => {
   const [w, h] = id.split(':').map(Number) as [number, number]
   const k = size / Math.max(w, h)
   return `width:${(w * k).toFixed(1)}px;height:${(h * k).toFixed(1)}px`
 }
 const looks = [
-  { id: 'trace', name: 'Trace', text: 'The lit board under a camera. Copper routes out, parts land, the board powers on.' },
-  { id: 'glyph', name: 'Glyph', text: 'Every part set as type, in four acts on 24 beats, looping with no seam.' }
+  { id: 'trace', name: 'Trace', text: 'The lit board' },
+  { id: 'glyph', name: 'Glyph', text: 'Parts set as type' }
 ] as const
 ---
-<Base title="Studio" description="Make a release film from a KiCad board in your browser: pick a board, cut the film live, record it here or queue a full render." image="/og.png">
-  <div class="st" data-studio>
-    <h1 class="sr-only">silk reel studio</h1>
+<Base title="Studio" description="Drop a KiCad board and watch its release film play in your browser. Change the look, then record it or copy the command." image="/og.png">
+  <div class="st" data-studio data-mode="empty">
+    <h1 class="sr-only">Studio</h1>
+    <p class="sr-only" role="status" data-status></p>
 
-    <aside class="st__rail st__rail--board" aria-labelledby="st-board">
-      <p class="st__k"><span class="st__z" aria-hidden="true">A</span><span id="st-board">Board</span></p>
-      <div class="st__boards" role="radiogroup" aria-labelledby="st-board">
-        {boards.map((b, i) => (
-          <button type="button" role="radio" class="st__board" data-board={b.id} aria-checked={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1}>
-            <span class="st__bname">{b.name}</span>
-            <span class="st__bwhat">{b.what}</span>
-            <span class="st__bn">{n(b.footprints)}<small> parts</small></span>
-          </button>
-        ))}
-      </div>
-      <input class="sr-only" type="file" accept=".kicad_pcb" tabindex="-1" aria-hidden="true" data-file />
-      <div class="st__drop" data-dropzone tabindex="0" role="button">
-        <span class="st__drop-k">+ Your .kicad_pcb</span>
-        <span class="st__drop-s">Drop it here or choose a file. It is parsed in this tab and never uploaded.</span>
-      </div>
-      <dl class="st__stats" data-stats aria-live="polite">
-        <div><dt>Parts</dt><dd data-stat="footprints">·</dd></div>
-        <div><dt>Traces</dt><dd data-stat="traces">·</dd></div>
-        <div><dt>Pads</dt><dd data-stat="pads">·</dd></div>
-        <div><dt>Vias</dt><dd data-stat="vias">·</dd></div>
-        <div><dt>Layers</dt><dd data-stat="layers">·</dd></div>
-      </dl>
-    </aside>
-
-    <section class="st__main" aria-labelledby="st-monitor">
-      <p class="st__k st__k--dark"><span class="st__z" aria-hidden="true">B</span><span id="st-monitor">Monitor</span><span class="st__live" data-live>Live · drawn in this tab</span></p>
-      <div class="st__monitor" data-monitor>
-        <i class="st__perf st__perf--l" aria-hidden="true"></i><i class="st__perf st__perf--r" aria-hidden="true"></i>
-        <div class="st__stage" data-stage>
-          <canvas data-out role="img" aria-label="Live preview of the film"></canvas>
-          <p class="st__busy" data-busy hidden><span class="st__spin" aria-hidden="true"></span><span data-busy-say>Reading the board</span></p>
-          <i class="st__corner st__corner--tl" aria-hidden="true"></i><i class="st__corner st__corner--tr" aria-hidden="true"></i><i class="st__corner st__corner--bl" aria-hidden="true"></i><i class="st__corner st__corner--br" aria-hidden="true"></i>
-        </div>
-      </div>
-      <div class="st__score">
-        <div class="st__acts" data-acts aria-hidden="true"></div>
-        <div class="st__track" data-track role="slider" tabindex="0" aria-label="Playhead" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
-          <div class="st__beats" data-beats aria-hidden="true"></div>
-          <div class="st__cuts" data-cuts aria-hidden="true"></div>
-          <i class="st__fill" data-fill aria-hidden="true"></i>
-          <i class="st__head" data-head aria-hidden="true"></i>
-        </div>
-      </div>
-      <div class="st__transport">
-        <button type="button" class="st__play" data-play aria-label="Pause" aria-pressed="true">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path class="st__ico-pause" d="M4 3h3v10H4zM9 3h3v10H9z" /><path class="st__ico-play" d="M4 2.5v11l9.5-5.5z" /></svg>
+    <section class="st__stage-col pos" aria-label="Film preview">
+      <div class="st__src">
+        <input class="sr-only" type="file" accept=".kicad_pcb" tabindex="-1" aria-hidden="true" data-file />
+        <button type="button" class="st__drop" data-pick>
+          <span class="st__drop-t">Drop your <span class="mono">.kicad_pcb</span></span>
+          <span class="st__drop-s">or choose a file</span>
         </button>
-        <span class="st__tc"><b data-tc>00:00.00</b> / <span data-dur>00:00.00</span></span>
-        <span class="st__read">Frame <b data-frame>000</b> · beat <b data-beat>01</b><span class="st__read-act"> · <b data-act>·</b></span></span>
-        <span class="st__keys" aria-hidden="true">Space · play · ← → · step</span>
+        <p class="st__priv">It opens in this tab. Nothing is uploaded.</p>
+        <p class="st__err" role="alert" data-err hidden></p>
+        <button type="button" class="btn st__own" data-pick>Use your own board</button>
+        <div class="st__sample">
+          <label class="st__or" for="st-sample">or try a sample</label>
+          <span class="st__select">
+            <select id="st-sample" data-sample>
+              <option value="" disabled hidden>Choose a sample</option>
+              {boards.map((b) => <option value={b.id}>{b.name}</option>)}
+            </select>
+          </span>
+        </div>
+      </div>
+
+      <div class="st__film" data-film>
+        <div class="st__monitor" data-monitor>
+          <i class="st__perf st__perf--l" aria-hidden="true"></i><i class="st__perf st__perf--r" aria-hidden="true"></i>
+          <div class="st__stage" data-stage>
+            <canvas data-out role="img" aria-label="Preview of the film"></canvas>
+            <p class="st__busy" data-busy hidden aria-hidden="true"><span class="st__spin"></span><span data-busy-say>Reading your board…</span></p>
+          </div>
+        </div>
+        <div class="st__transport">
+          <button type="button" class="st__play" data-play aria-label="Pause" aria-pressed="true">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path class="st__ico-pause" d="M4 3h3v10H4zM9 3h3v10H9z" /><path class="st__ico-play" d="M4 2.5v11l9.5-5.5z" /></svg>
+          </button>
+          <div class="st__track" data-track role="slider" tabindex="0" aria-label="Playhead" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+            <i class="st__fill" data-fill aria-hidden="true"></i>
+            <i class="st__head" data-head aria-hidden="true"></i>
+          </div>
+          <span class="st__tc"><b data-tc>00:00.00</b> / <span data-dur>00:00.00</span></span>
+        </div>
       </div>
     </section>
 
-    <aside class="st__rail st__rail--cut" aria-labelledby="st-cut">
-      <p class="st__k"><span class="st__z" aria-hidden="true">C</span><span id="st-cut">Cut</span></p>
-      <fieldset class="st__f">
-        <legend>Look <code>--style</code></legend>
+    <div class="st__panel">
+      <fieldset class="st__g">
+        <legend>Look</legend>
         <div class="st__looks">
           {looks.map((l, i) => (
             <label class="st__look"><input type="radio" name="style" value={l.id} checked={i === 0} /><span class="st__look-n">{l.name}</span><span class="st__look-t">{l.text}</span></label>
           ))}
         </div>
+        <p class="st__note" data-live-note hidden>Your board plays as glyph here. Trace renders from the command line.</p>
+        <div class="st__inks" role="radiogroup" aria-label="Palette" data-only="glyph">
+          {inks.map((k, i) => (
+            <label class="st__ink" title={k.text}><input type="radio" name="palette" value={k.id} checked={i === 0} /><i style={`--sw:${PALETTES[k.id].silk};--sw-bg:${PALETTES[k.id].bg}`} aria-hidden="true"></i><span class="sr-only">{k.id}</span></label>
+          ))}
+          <span class="st__ink-n" data-palette-name aria-hidden="true">Mono</span>
+        </div>
       </fieldset>
-      <fieldset class="st__f">
-        <legend>Frame <code>--aspect</code></legend>
+
+      <fieldset class="st__g">
+        <legend>Frame</legend>
         <div class="st__aspects">
           {aspects.map((a) => (
-            <label class="st__aspect" title={a.use}><input type="radio" name="aspect" value={a.id} checked={a.id === '16:9'} /><i style={frameIcon(a.id)} aria-hidden="true"></i><span>{a.id}</span></label>
+            <label class="st__aspect"><input type="radio" name="aspect" value={a.id} checked={a.id === '16:9'} /><i style={frameIcon(a.id)} aria-hidden="true"></i><span class="mono">{a.id}</span></label>
           ))}
         </div>
+        <p class="st__use" data-aspect-use>Launch pages, YouTube, talks</p>
       </fieldset>
-      <fieldset class="st__f" data-only="glyph">
-        <legend>Palette <code>--palette</code></legend>
-        <div class="st__inks">
-          {inks.map((k, i) => (
-            <label class="st__ink" title={k.text}><input type="radio" name="palette" value={k.id} checked={i === 0} /><i style={`--sw:${PALETTES[k.id].silk};--sw-bg:${PALETTES[k.id].bg}`} aria-hidden="true"></i><span>{k.id}</span></label>
-          ))}
-        </div>
-      </fieldset>
-      <fieldset class="st__f">
-        <legend>Title card <code>--title --version</code></legend>
-        <div class="st__pair">
-          <label class="st__in"><span>Name</span><input type="text" name="title" maxlength="32" placeholder="iCEBreaker" autocomplete="off" spellcheck="false" /></label>
-          <label class="st__in st__in--s"><span>Version</span><input type="text" name="version" maxlength="12" placeholder="v1.0e" autocomplete="off" spellcheck="false" /></label>
-        </div>
-      </fieldset>
-      <fieldset class="st__f">
-        <legend>Accent <code>--accent</code></legend>
-        <div class="st__accent">
-          <label class="st__swatch"><input type="color" name="accent" value="#ff4a3d" /><span data-accent-v>Palette head</span></label>
-          <label class="st__check"><input type="checkbox" name="useAccent" /><span>Use it</span></label>
-        </div>
-      </fieldset>
-      <fieldset class="st__f">
-        <legend>Timing <code>--tempo --density --seed</code></legend>
-        <label class="st__range"><span>Tempo</span><input type="range" name="tempo" min="0.75" max="1.5" step="0.05" value="1" /><output data-out-for="tempo">1.00×</output></label>
-        <label class="st__range" data-only="glyph"><span>Density</span><input type="range" name="density" min="0.5" max="1.5" step="0.05" value="1" /><output data-out-for="density">1.00</output></label>
-        <div class="st__seed"><label class="st__in st__in--s"><span>Seed</span><input type="number" name="seed" value="42" min="0" max="99999" inputmode="numeric" /></label><button type="button" class="st__dice" data-dice aria-label="New seed"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" /><circle cx="5.5" cy="5.5" r="1" /><circle cx="10.5" cy="10.5" r="1" /><circle cx="8" cy="8" r="1" /></svg></button></div>
-      </fieldset>
-    </aside>
 
-    <section class="st__out" aria-labelledby="st-out">
-      <p class="st__k st__k--dark"><span class="st__z" aria-hidden="true">D</span><span id="st-out">Output</span><button type="button" class="st__api" data-api><i aria-hidden="true"></i><span data-api-say>Render API · check</span></button></p>
-      <fieldset class="st__fmt">
-        <legend>Format <code>--format</code></legend>
-        {formats.map((f, i) => (
-          <label class="st__chip" title={f.use}><input type="radio" name="format" value={f.id} checked={i === 0} /><span>{f.name}{f.alpha ? <small> α</small> : ''}</span></label>
-        ))}
+      <fieldset class="st__g">
+        <legend>Title card</legend>
+        <div class="st__pair">
+          <label class="st__field"><span>Name</span><input type="text" name="title" maxlength="32" placeholder="iCEBreaker" autocomplete="off" spellcheck="false" data-title /></label>
+          <label class="st__field"><span>Version</span><input type="text" name="version" maxlength="12" placeholder="v1.0e" autocomplete="off" spellcheck="false" /></label>
+        </div>
       </fieldset>
-      <div class="st__cmd"><code data-cmd>npm run reel -- icebreaker.kicad_pcb</code><button type="button" class="st__copy" data-copy-cmd><span data-roll>Copy</span></button></div>
-      <div class="st__go">
-        <button type="button" class="btn btn--solid" data-render><span data-roll data-render-label>Render</span></button>
-        <button type="button" class="btn st__rec" data-record><span data-roll data-record-label>Record in this tab</span></button>
+
+      <details class="st__adv">
+        <summary>Advanced</summary>
+        <div class="st__adv-in">
+          <label class="st__range"><span>Tempo</span><input type="range" name="tempo" min="0.75" max="1.5" step="0.05" value="1" /><output class="mono" data-out-for="tempo">1.00×</output></label>
+          <label class="st__range" data-only="glyph"><span>Density</span><input type="range" name="density" min="0.5" max="1.5" step="0.05" value="1" /><output class="mono" data-out-for="density">1.00</output></label>
+          <div class="st__row">
+            <label class="st__field st__field--seed"><span>Seed</span><input type="number" name="seed" value="42" min="0" max="99999" inputmode="numeric" /></label>
+            <button type="button" class="st__dice" data-dice aria-label="New random seed"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" /><circle cx="5.5" cy="5.5" r="1" /><circle cx="10.5" cy="10.5" r="1" /><circle cx="8" cy="8" r="1" /></svg></button>
+          </div>
+          <div class="st__row">
+            <label class="st__field st__field--accent"><span>Accent</span><input type="color" name="accent" value="#ff4a3d" /></label>
+            <span class="mono st__accent-v" data-accent-v>Default</span>
+            <button type="button" class="st__link" data-accent-reset hidden>Reset</button>
+          </div>
+        </div>
+      </details>
+
+      <fieldset class="st__g st__cmd">
+        <legend>Command line</legend>
+        <div class="st__chips" role="radiogroup" aria-label="Format">
+          {formats.map((f, i) => (
+            <label class="st__chip" title={f.use}><input type="radio" name="format" value={f.id} checked={i === 0} /><span>{f.name.split(' ')[0]}</span></label>
+          ))}
+        </div>
+        <div class="term"><p class="term__body st__cmd-body" data-cmd tabindex="0">npm run reel -- icebreaker.kicad_pcb</p></div>
+        <div class="st__btns">
+          <button type="button" class="btn" data-copy-cmd><span data-roll>Copy command</span></button>
+          <div class="st__render" data-render-box hidden>
+            <button type="button" class="btn" data-render><span data-roll data-render-label>Render</span></button>
+          </div>
+        </div>
+        <ol class="st__jobs" data-jobs aria-live="polite"></ol>
+      </fieldset>
+
+      <div class="st__actions">
+        <button type="button" class="btn btn--solid st__rec" data-record disabled><span data-record-label>Record WebM</span></button>
+        <button type="button" class="btn" data-still disabled>Save still</button>
       </div>
-      <p class="st__note" data-note>Render queues the full-quality film on the render API on this machine. Record captures the live monitor as a WebM, one loop.</p>
-      <ol class="st__jobs" data-jobs aria-live="polite"></ol>
-    </section>
+    </div>
+
+    <p class="st__toast" data-toast aria-hidden="true"></p>
   </div>
 </Base>
 

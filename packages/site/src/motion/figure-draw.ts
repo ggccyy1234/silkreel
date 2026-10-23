@@ -20,8 +20,8 @@ export function project(cam: Cam, u: number, v: number, z: number): Pt {
 }
 
 const f1 = (n: number) => {
-  const t = (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, '')
-  return t === '-0' ? '0' : t
+  const t = Math.round(n * 10)
+  return t === 0 ? '0' : String(t / 10)
 }
 export const pathOf = (pts: readonly Pt[], closed = false) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${f1(x)} ${f1(y)}`).join('') + (closed ? 'Z' : '')
 

@@ -17,7 +17,7 @@ const FAST = ARGS.includes("--fast");
 
 // ---------- the truth the figure shows ----------
 const FILM = { frames: 336, fps: 30, drawings: 168 };
-const CRANK = 6; // frames per second the bench is cranked at in the idle loop
+const CRANK = 24; // frames per second the bench is cranked at in the idle loop: real film speed
 
 // ---------- camera ----------
 // The word runs along u (screen right), v points to the back of the bench, z up. The kit's world is [x, y, z] = [-v, -u, z].
@@ -300,12 +300,11 @@ function bench() {
   out.push(Ln(ticks.minor, { tone: "lo" }), Ln(ticks.major, { tone: "mid" }));
   out.push(Ln(onTop([[0, strip.v + strip.d - 0.2], [0, strip.v + 0.4]], 0.6), { tone: "hi" }));
   out.push(Dt([at(strip.u + 2, strip.v + strip.d / 2, 0.6), at(strip.u + strip.w - 2, strip.v + strip.d / 2, 0.6)], { size: 0.45 }));
-  // the label plate, with the one engraved line the figure carries
+  // the label plate
   const tag = { u: 294, v: -45, w: 62, d: 13, r: 1.4 };
   out.push(S(slab(tag.u, tag.v, tag.w, tag.d, tag.r, 0, 0.8, 4), { tone: "lo", crease: "none" }));
   ground(shapeSlab(tag.u, tag.v, tag.w, tag.d, tag.r, 0, 0.8), "label");
   out.push(Ln(k.planOutline(plan(tag.u + 1.6, tag.v + 1.6, tag.w - 3.2, tag.d - 3.2, 0.6), 0.8, P, 3), { tone: "faint" }));
-  out.push(k.faceTextSvg(faceMatrix(W(tag.u + 6, tag.v + 7.4, 0.8), W(1, 0, 0), W(0, -1, 0)), `${FILM.frames} FR · ${FILM.fps} FPS`, { size: 3.3, tone: "mid" }));
   out.push(Ln(onTop([[tag.u + 6, tag.v + 4.4], [tag.u + 40, tag.v + 4.4]], 0.8) + onTop([[tag.u + 6, tag.v + 3.0], [tag.u + 28, tag.v + 3.0]], 0.8), { tone: "lo", free: true }));
   out.push(Dt([at(tag.u + 3.4, tag.v + tag.d / 2, 0.8), at(tag.u + tag.w - 3.4, tag.v + tag.d / 2, 0.8)], { size: 0.45 }));
   return out.join("");
