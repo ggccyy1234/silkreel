@@ -284,7 +284,7 @@ export function setupHome() {
         copies.push({ el: copy, i, x0: pcx - c.w / 2 })
       }
     }
-    tl.to(count, { '--wipe': '100%', duration: 0.6, ease: 'power3.inOut' }, 0.05)
+    tl.to(count, { '--wipe': '100%', duration: 0.4, ease: 'power2.inOut' }, 0)
     // the copper prints ride the strip as it winds, and each goes out as it reaches the reel
     const ride = () => {
       if (!wind) return
