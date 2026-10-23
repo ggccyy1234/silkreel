@@ -273,6 +273,9 @@
   .st__keys { display: none; }
   .st__out { grid-template-columns: 1fr; padding: 0 14px 18px; }
   .st__go { display: grid; grid-template-columns: 1fr 1fr; }
+  .st__cmd { flex-wrap: wrap; }
+  .st__cmd code { flex-basis: 100%; }
+  .st__copy { margin-left: auto; }
   .st__rail--board { border-right: 0; border-bottom: 1px solid var(--c-ink); }
   .st__boards { grid-auto-flow: column; grid-auto-columns: 72%; overflow-x: auto; scroll-snap-type: x mandatory; mask-image: linear-gradient(90deg, #000 calc(100% - 48px), transparent); }
   .st__board { scroll-snap-align: start; border-right: 1px solid var(--c-line); }

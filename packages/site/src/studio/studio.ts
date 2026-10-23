@@ -218,7 +218,8 @@ export function setupStudio() {
   }
 
   const takeTimeline = (next: Timeline) => {
-    const p = tl ? frame / tl.totalFrames : 0
+    // held still (reduced motion), the monitor parks on the film's hold, where the board is lit, not on its first frame
+    const p = tl ? frame / tl.totalFrames : reduced ? 0.96 : 0
     tl = next
     frame = Math.min(next.totalFrames - 1, p * next.totalFrames)
     stage.parentElement?.style.setProperty('--ar', `${String(next.width)} / ${String(next.height)}`)
