@@ -87,6 +87,19 @@ export function setupHome() {
     const pctx = pulseEl?.getContext('2d')
     while (pulsed < routes.length && (routes[pulsed]?.r ?? 999) <= 130 * Math.min(1, pt)) trace(pctx, routes[pulsed++]?.t ?? [], 1.8)
   }
+  /* the copper plate is drawn into canvases, not set as images, so the leader never becomes the page's largest paint */
+  const copper = new Image()
+  const copperReady = counting ? (copper.src = '/img/icebreaker-cu.webp', copper.decode().then(() => copper, () => null)) : Promise.resolve(null)
+  const paintCopper = (el: HTMLCanvasElement, w = el.clientWidth, h = el.clientHeight) => {
+    void copperReady.then((img) => {
+      if (!img) return
+      const dpr = Math.min(2, devicePixelRatio || 1)
+      el.width = Math.round(w * dpr)
+      el.height = Math.round(h * dpr)
+      el.getContext('2d')?.drawImage(img, 0, 0, el.width, el.height)
+    })
+  }
+  if (counting) for (const el of document.querySelectorAll<HTMLCanvasElement>('canvas.count__board')) paintCopper(el)
   if (counting && routesEl && pulseEl) {
     void fetch('/films/icebreaker-routes.json').then((r) => r.json() as Promise<{ w: number; h: number; u4: [number, number]; t: number[][] }>).then((R) => {
       const norm = Math.hypot(R.w, R.h) / Math.SQRT2
@@ -250,7 +263,7 @@ export function setupHome() {
     const plate = $('[data-count-board]')
     const pr = plate?.getBoundingClientRect()
     const midCell = cellAt((CELLS - 1) / 2)
-    const copies: { el: HTMLImageElement; i: number; x0: number }[] = []
+    const copies: { el: HTMLCanvasElement; i: number; x0: number }[] = []
     if (plate && pr) {
       tl.set([plate, $('[data-count-lit]'), routesEl, pulseEl], { opacity: 0 }, 0)
       const pw = plate.offsetWidth, ph = plate.offsetHeight
@@ -258,10 +271,9 @@ export function setupHome() {
       const turned = pr.height > pr.width ? 90 : 0
       for (let i = 0; i < CELLS; i++) {
         const c = cellAt(i)
-        const copy = document.createElement('img')
-        copy.src = (plate as HTMLImageElement).src
-        copy.alt = ''
+        const copy = document.createElement('canvas')
         copy.className = 'count__copy'
+        paintCopper(copy, pw, ph)
         // sized as the plate is laid out (a phone turns it upright), placed on its centre, and turned flat as it flies
         Object.assign(copy.style, { left: `${String(pcx - pw / 2)}px`, top: `${String(pcy - ph / 2)}px`, width: `${String(pw)}px`, height: `${String(ph)}px` })
         count.append(copy)
