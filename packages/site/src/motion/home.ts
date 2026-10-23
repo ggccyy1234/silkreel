@@ -95,6 +95,9 @@ export function setupHome() {
     // on the last beat the board becomes the film: the copper gives way to the drawings racing past
     const filmEl = count.querySelector<HTMLCanvasElement>('[data-count-film]')
     if (board) leader.to(board, { opacity: 0.95, duration: 0.3, ease: 'power2.out' }, 2 * BEAT)
+    // U4 takes the light: the lit copper spreads out from the chip across the board
+    const lit = $('[data-count-lit]')
+    if (lit) leader.fromTo(lit, { opacity: 1, '--pow': '0%' }, { '--pow': '120%', duration: 0.55, ease: 'power2.in' }, 2 * BEAT + 0.08)
     if (filmEl) leader.to(filmEl, { opacity: 0.22, duration: 0.25, ease: 'power1.out' }, 2 * BEAT + 0.05)
     // the land waits (briefly) for the reel, so the frames have somewhere to go
     leader.seek(ran)
@@ -205,7 +208,7 @@ export function setupHome() {
     const midCell = cellAt((CELLS - 1) / 2)
     const copies: { el: HTMLImageElement; i: number; x0: number }[] = []
     if (plate && pr) {
-      tl.set(plate, { opacity: 0 }, 0)
+      tl.set([plate, $('[data-count-lit]')], { opacity: 0 }, 0)
       for (let i = 0; i < CELLS; i++) {
         const c = cellAt(i)
         const copy = document.createElement('img')
