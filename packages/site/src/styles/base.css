@@ -6,7 +6,7 @@ html {
   transition: background-color 0.6s var(--soft), color 0.6s var(--soft);
 }
 body {
-  min-height: 100dvh; font-family: var(--f-body); font-size: var(--t-body); line-height: 1.5;
+  min-height: 100dvh; font-family: var(--f-body); font-size: var(--t-body); line-height: 1.55;
   -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-kerning: normal; overflow-x: clip;
 }
 img, picture, video, canvas, svg { display: block; max-width: 100%; }
@@ -23,7 +23,7 @@ p { text-wrap: pretty; }
 .skip-link {
   position: fixed; left: 8px; top: 8px; z-index: 100;
   padding: 12px 16px; background: var(--c-ink); color: var(--c-bg); border-radius: 2px;
-  font-family: var(--f-mono); font-size: var(--t-xs); letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: var(--t-s); font-weight: 500;
   translate: 0 -160%; transition: translate var(--t2) var(--seat);
 }
 .skip-link:focus-visible { translate: 0 0; outline-offset: 2px; }
@@ -41,73 +41,48 @@ html.lenis, html.lenis body { height: auto; }
 .wrap { width: 100%; max-width: var(--maxw); margin-inline: auto; padding-inline: var(--gutter); }
 
 /* Type */
-.mega { font-family: var(--f-display); font-weight: 600; font-size: var(--t-mega); line-height: 0.88; letter-spacing: -0.055em; margin-left: -0.055em; }
-.xl { font-family: var(--f-display); font-weight: 600; font-size: var(--t-xl); line-height: 0.92; letter-spacing: -0.048em; margin-left: -0.045em; }
-@media (max-width: 760px) { .xl { line-height: 1.02; } }
-.l { font-family: var(--f-display); font-weight: 500; font-size: var(--t-l); line-height: 1.04; letter-spacing: -0.035em; }
-.m { font-size: var(--t-m); line-height: 1.38; letter-spacing: -0.012em; }
-.lede { font-size: var(--t-m); line-height: 1.42; color: var(--c-muted); max-width: 32ch; letter-spacing: -0.012em; }
+.mega { font-family: var(--f-display); font-weight: 600; font-stretch: 85%; font-size: var(--t-mega); line-height: 0.9; letter-spacing: -0.035em; }
+.xl { font-family: var(--f-display); font-weight: 600; font-stretch: 85%; font-size: var(--t-xl); line-height: 0.96; letter-spacing: -0.03em; }
+.l { font-family: var(--f-display); font-weight: 600; font-stretch: 90%; font-size: var(--t-l); line-height: 1.08; letter-spacing: -0.02em; }
+.m { font-size: var(--t-m); line-height: 1.45; letter-spacing: -0.005em; }
+.lede { font-size: var(--t-m); line-height: 1.45; color: var(--c-muted); max-width: 36ch; letter-spacing: -0.005em; }
 .lede strong, .body strong { color: var(--c-ink); font-weight: 500; }
 .body { color: var(--c-muted); max-width: 46ch; }
 
-/* silkscreen: designators, readouts and every small label */
-.silk { font-family: var(--f-mono); font-size: var(--t-label); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-muted); font-variant-numeric: tabular-nums; }
+/* a small label: only where a bare value would mean nothing without it */
+.silk { font-size: var(--t-label); font-weight: 500; color: var(--c-muted); font-variant-numeric: tabular-nums; }
 .silk b { color: var(--c-ink); font-weight: 500; }
 .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
-.tag { display: inline-flex; align-items: center; gap: 10px; }
-.tag::before { content: ''; width: 6px; height: 6px; border: 1.25px solid currentColor; border-radius: 50%; }
 
-/*
- * Labels advance one frame under the pointer: the word pulls up a line like the strip in the gate,
- * and the red frame line between the two frames passes through the window.
- */
+/* a label that changes value (Copy to Copied) pulls the new word up one line, like the strip advancing a frame */
 .roll { position: relative; display: inline-grid; overflow: clip; vertical-align: top; }
 .roll > span { grid-area: 1 / 1; white-space: nowrap; transition: translate 380ms var(--pull); }
-.roll__b { translate: 0 calc(100% + 3px); box-shadow: 0 -2px 0 -0.5px var(--pencil); }
+.roll__b { translate: 0 calc(100% + 3px); }
 .roll.is-pulling .roll__a { translate: 0 calc(-100% - 3px); }
 .roll.is-pulling .roll__b { translate: 0 0; }
-@media (hover: hover) {
-  :is(a, button):hover .roll__a { translate: 0 calc(-100% - 3px); }
-  :is(a, button):hover .roll__b { translate: 0 0; }
-}
 .roll.is-set > span { transition: none; }
 html:not(.motion) .roll > span { transition: none; }
 html:not(.motion) .roll__b { display: none; }
 html:not(.motion) :is(a, button) .roll__a { translate: none; }
 
-/* Buttons: ink floods up from the base and the label inverts; a red registration tick seats at the left edge */
+/* Buttons: one filled primary per screen, everything else outlined. Hover answers in 200 ms: the fill deepens to red, the outline fills with a tint */
 .btn {
-  --h: 48px;
-  position: relative; isolation: isolate; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
-  height: var(--h); padding: 0 20px; border-radius: 2px;
-  font-size: 0.9375rem; font-weight: 500; letter-spacing: -0.01em; white-space: nowrap; user-select: none;
-  color: var(--c-ink); box-shadow: inset 0 0 0 1px var(--c-line-2);
-  transition: color var(--t2) var(--soft), box-shadow var(--t2) var(--soft), scale var(--t1) var(--soft);
+  --h: 44px;
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  height: var(--h); padding: 0 18px; border-radius: 6px;
+  font-size: 0.9375rem; font-weight: 500; white-space: nowrap; user-select: none;
+  color: var(--c-ink); background: transparent; box-shadow: inset 0 0 0 1px var(--c-line-2);
+  transition: color var(--t2) var(--soft), background-color var(--t2) var(--soft), box-shadow var(--t2) var(--soft), scale var(--t1) var(--soft);
 }
-.btn::before {
-  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--c-ink);
-  transform: scaleY(0); transform-origin: 50% 100%; transition: transform var(--t3) var(--seat);
-}
-.btn::after {
-  content: ''; position: absolute; left: 0; top: 0; width: 100%; height: 3px; background: var(--pencil);
-  scale: 0 1; transform-origin: 0 50%; transition: scale 380ms var(--pull);
-}
-.btn:focus-visible::after { scale: 1 1; }
-.btn:focus-visible { color: var(--c-bg); box-shadow: inset 0 0 0 1px var(--c-ink); }
-.btn:focus-visible::before { transform: scaleY(1); }
 .btn:focus-visible { outline: 2px solid var(--c-ink); outline-offset: 3px; }
-.btn:active { scale: 0.98; }
-.btn--solid { color: var(--c-bg); box-shadow: none; }
-.btn--solid::before { transform: scaleY(1); transition: transform var(--t3) var(--seat), background-color var(--t2) var(--soft); }
-.btn--solid:focus-visible::before { background-color: #c4221a; }
+.btn:active { scale: 0.97; }
+.btn--solid { color: var(--c-bg); background: var(--c-ink); box-shadow: none; }
 @media (hover: hover) {
-  .btn:hover::after { scale: 1 1; }
-  .btn:hover { color: var(--c-bg); box-shadow: inset 0 0 0 1px var(--c-ink); }
-  .btn:hover::before { transform: scaleY(1); }
-  .btn--solid:hover::before { background-color: #c4221a; }
+  .btn:hover { background: rgb(var(--ink-rgb) / 0.06); box-shadow: inset 0 0 0 1px var(--c-ink); }
+  .btn--solid:hover { background: var(--c-red); box-shadow: none; }
 }
 .btn svg { width: 16px; height: 16px; flex: none; }
-.btn .kbd { font-family: var(--f-mono); font-size: var(--t-label); letter-spacing: 0.06em; opacity: 0.6; }
+.btn .kbd { font-family: var(--f-mono); font-size: var(--t-label); opacity: 0.6; }
 
 /* Inline links in prose keep an underline that draws in ink on hover */
 .prose-link {
@@ -117,7 +92,7 @@ html:not(.motion) :is(a, button) .roll__a { translate: none; }
 .prose-link:hover { background-size: 100% 1px, 100% 1px; color: var(--c-ink); }
 
 /* The terminal: a command in a quiet panel, with a copy that confirms itself */
-.term { border-radius: 2px; background: rgb(var(--ink-rgb) / 0.035); box-shadow: inset 0 0 0 1px var(--c-line); overflow: hidden; }
+.term { border-radius: 8px; background: rgb(var(--ink-rgb) / 0.035); box-shadow: inset 0 0 0 1px var(--c-line); overflow: hidden; }
 .term__bar { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 6px 0 16px; border-bottom: 1px solid var(--c-line); }
 .term__bar p { color: var(--c-muted); }
 .term__copy { margin-left: auto; height: 32px; padding: 0 12px; border-radius: 2px; color: var(--c-muted); transition: color var(--t2) var(--soft), background-color var(--t2) var(--soft), scale var(--t1) var(--soft); }

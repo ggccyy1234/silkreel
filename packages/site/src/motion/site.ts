@@ -2,7 +2,6 @@ import { gsap } from 'gsap'
 import { DECODE_IN } from '@silk-reel/choreo'
 import { initScroll, onScroll } from '../engine/scroll'
 import { prefersReducedMotion } from '../engine/env'
-import { onSound, play, setSound, soundOn } from './sound'
 
 const STEP = 1 / 15
 
@@ -49,21 +48,9 @@ export function rollTo(el: HTMLElement, text: string) {
   }, 380)
 }
 
-function soundToggle() {
-  const btn = document.querySelector<HTMLButtonElement>('[data-sound-toggle]')
-  const state = document.querySelector<HTMLElement>('[data-sound-state]')
-  const paint = (on: boolean) => {
-    btn?.setAttribute('aria-pressed', String(on))
-    if (state) state.textContent = on ? 'on' : 'off'
-  }
-  paint(soundOn())
-  onSound(paint)
-  btn?.addEventListener('click', () => { setSound(!soundOn()); play('click-2', 0.4) })
-}
-
 /** on the home page the nav marks the section in view */
 function navState() {
-  const links = [...document.querySelectorAll<HTMLAnchorElement>('[data-nav]')].filter((a) => a.dataset.nav === 'film' || a.dataset.nav === 'make')
+  const links = [...document.querySelectorAll<HTMLAnchorElement>('[data-nav]')].filter((a) => a.dataset.nav === 'film')
   const sections = links.map((a) => document.getElementById(a.dataset.nav ?? '')).filter((s): s is HTMLElement => s !== null)
   if (!sections.length) return
   const io = new IntersectionObserver((entries) => {
@@ -87,7 +74,6 @@ export function copyButtons(root: ParentNode = document) {
       const was = label?.querySelector('.roll__a')?.textContent ?? label?.textContent ?? ''
       navigator.clipboard.writeText(b.dataset.copy ?? '').then(() => {
         if (label) rollTo(label, 'Copied')
-        play('click-1', 0.35)
         setTimeout(() => { if (label) rollTo(label, was) }, 1600)
       }, () => { /* the command stays selectable in the page */ })
     })
@@ -105,7 +91,6 @@ export function boot() {
   })
   decodeMark()
   document.querySelectorAll<HTMLElement>('[data-roll]').forEach((el) => { roll(el) })
-  soundToggle()
   navState()
   copyButtons()
 }

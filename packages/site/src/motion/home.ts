@@ -11,7 +11,6 @@ import { prefersReducedMotion } from '../engine/env'
 import { ReelGL } from '../reel/reel-gl'
 import type { ReelPose } from '../reel/reel-gl'
 import { FH, FW, GAP, LF, M, N, RED, WS, buildAtlas, buildHead, drawDrawing, isHero } from '../reel/strip'
-import { play } from './sound'
 import { rollTo } from './site'
 
 gsap.registerPlugin(ScrollTrigger)
@@ -590,11 +589,9 @@ export function setupHome() {
       monitor.setPalette(state.ink)
       fitStage()
       paintCmd()
-      play('switch', 0.4)
       return
     }
     showMonitor()
-    play('click-2', 0.3)
   }
 
   /* the pickers are native popovers; they open under their word and close on a pick, Escape or a click away */
@@ -688,7 +685,6 @@ export function setupHome() {
     void filmOf(state.board, state.aspect).then((film) => {
       recording = true
       takeBtn.setAttribute('aria-busy', 'true')
-      play('seat', 0.45)
       const c = exportCanvas(state.aspect)
       const pal = PALETTES[state.ink]
       drawStill(c, film, 0, pal)
@@ -742,7 +738,6 @@ export function setupHome() {
         own.before(o)
       }
       pick('board', b.id)
-      play('seat', 0.5)
       $('#make')?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth' })
       toast(`Filmed ${b.name}: ${b.footprints.toLocaleString('en-US')} parts became ${b.glyphs.toLocaleString('en-US')} glyphs.`)
     }, (err: unknown) => { toast(`Could not film that board: ${err instanceof Error ? err.message : String(err)}`) })
