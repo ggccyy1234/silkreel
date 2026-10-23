@@ -77,7 +77,7 @@ const sheets = [
 </script>
 <style>
   /* the footer is a KiCad drawing sheet: zone markers round the frame, fab notes, and the title block in its corner */
-  .ft { position: relative; z-index: 3; padding: clamp(72px, 10vh, 120px) var(--gutter) var(--gutter); background: var(--c-bg); overflow-x: clip; }
+  .ft { position: relative; z-index: 3; padding: clamp(40px, 5vh, 56px) var(--gutter) var(--gutter); background: var(--c-bg); overflow-x: clip; }
   .ft__sheet { display: grid; grid-template-columns: 20px minmax(0, 1fr) 20px; grid-template-rows: 20px auto 20px; border: 1.5px solid var(--c-ink); }
   .ft__zones { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(6, 1fr); }
   .ft__zones--top { border-bottom: 1px solid var(--c-ink); }

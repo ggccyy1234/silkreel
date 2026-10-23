@@ -181,7 +181,7 @@ html.gl .hero__poster { visibility: hidden; }
 .cmd__p { color: #ff4a3d; }
 .cmd__fixed { color: #8a8a84; }
 .tok {
-  position: relative; display: inline-flex; align-items: baseline; gap: 0.6ch; padding: 0 0.25ch; margin: 0 -0.25ch; color: #f4f4f0; white-space: nowrap;
+  position: relative; display: inline-flex; align-items: baseline; gap: 0.6ch; padding: 2px 0.25ch; margin: -2px -0.25ch; min-height: 24px; color: #f4f4f0; white-space: nowrap;
   background: linear-gradient(#ff4a3d, #ff4a3d) 0 100% / 100% 1px no-repeat; transition: background-color var(--t2) var(--soft), color var(--t2) var(--soft), scale var(--t1) var(--soft);
 }
 .tok__f { color: #a9a9a3; }

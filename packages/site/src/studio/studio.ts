@@ -209,7 +209,7 @@ export function setupStudio() {
 
   const paintScore = (t: Timeline) => {
     actsNow = actsOf(t)
-    if (actsEl) actsEl.innerHTML = actsNow.map((x, i) => `<span class="st__act" style="left:${(x.a * 100).toFixed(3)}%;width:${((x.b - x.a) * 100).toFixed(3)}%" data-i="${String(i)}"><b>${String(i + 1).padStart(2, '0')}</b>${x.b - x.a < 0.09 ? '' : ` ${x.name}`}</span>`).join('')
+    if (actsEl) actsEl.innerHTML = actsNow.map((x, i) => `<span class="st__act" style="left:${(x.a * 100).toFixed(3)}%;width:${((x.b - x.a) * 100).toFixed(3)}%" data-i="${String(i)}"><b>${String(i + 1).padStart(2, '0')}</b>${x.b - x.a < 0.09 ? '' : `<span class="st__act-n"> ${x.name}</span>`}</span>`).join('')
     if (beatsEl && !beatsEl.childElementCount) beatsEl.innerHTML = Array.from({ length: 25 }, (_, i) => `<i style="left:${((i / 24) * 100).toFixed(3)}%"${i % 4 === 0 ? ' class="is-bar"' : ''}></i>`).join('')
     const cuts = t.style === 'trace' ? t.scene.shots.filter((s) => s.cut === true).map((s) => s.t) : []
     if (cutsEl) cutsEl.innerHTML = cuts.map((c) => `<i style="left:${(c * 100).toFixed(3)}%"><span>Cut</span></i>`).join('')
