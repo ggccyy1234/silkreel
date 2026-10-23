@@ -112,7 +112,7 @@
 }
 
 /* 404: the board did not power on */
-.lost { min-height: min(calc(100svh - 150px), 660px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: clamp(32px, 5vw, 80px); padding: 112px var(--gutter) 0; }
+.lost { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: clamp(32px, 5vw, 80px); padding: 112px var(--gutter) 8px; }
 .lost__say { display: grid; gap: 24px; justify-items: start; }
 .lost__frame { position: relative; aspect-ratio: 16 / 9; background: var(--stock); outline: 1px solid var(--pencil); }
 .lost__film { width: 100%; height: 100%; opacity: 0; transition: opacity 0.6s var(--soft); }
