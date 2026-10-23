@@ -137,6 +137,9 @@ export function setupHome() {
     if (board) leader.to(board, { opacity: 0.95, duration: 0.3, ease: 'power2.out' }, 2 * BEAT)
     // U4 takes the light: the lit copper spreads out from the chip across the board
     const lit = $('[data-count-lit]')
+    // the 1 steps back once drawn, so U4 is clear when it takes the light
+    const one = digits[2]
+    if (one) leader.to(one, { opacity: 0.28, duration: 0.15, ease: 'power1.out' }, 2 * BEAT + 0.3)
     if (lit) leader.fromTo(lit, { opacity: 1, '--pow': '0%' }, { '--pow': '130%', duration: 0.28, ease: 'power1.out' }, 2 * BEAT)
     if (pulseEl) leader.to(pulseEl, { opacity: 0, duration: 0.6, ease: 'power2.out' }, 2 * BEAT + 0.32)
     if (filmEl) leader.to(filmEl, { opacity: 0.22, duration: 0.25, ease: 'power1.out' }, 2 * BEAT + 0.05)
@@ -250,18 +253,23 @@ export function setupHome() {
     const copies: { el: HTMLImageElement; i: number; x0: number }[] = []
     if (plate && pr) {
       tl.set([plate, $('[data-count-lit]'), routesEl, pulseEl], { opacity: 0 }, 0)
+      const pw = plate.offsetWidth, ph = plate.offsetHeight
+      const pcx = pr.left + pr.width / 2, pcy = pr.top + pr.height / 2
+      const turned = pr.height > pr.width ? 90 : 0
       for (let i = 0; i < CELLS; i++) {
         const c = cellAt(i)
         const copy = document.createElement('img')
         copy.src = (plate as HTMLImageElement).src
         copy.alt = ''
         copy.className = 'count__copy'
-        Object.assign(copy.style, { left: `${String(pr.left)}px`, top: `${String(pr.top)}px`, width: `${String(pr.width)}px`, height: `${String(pr.height)}px` })
+        // sized as the plate is laid out (a phone turns it upright), placed on its centre, and turned flat as it flies
+        Object.assign(copy.style, { left: `${String(pcx - pw / 2)}px`, top: `${String(pcy - ph / 2)}px`, width: `${String(pw)}px`, height: `${String(ph)}px` })
         count.append(copy)
+        gsap.set(copy, { rotate: turned })
         // first as one plate down to the strip, then dealt out frame by frame
-        tl.to(copy, { x: midCell.x - pr.left, y: midCell.y - pr.top, scaleX: midCell.w / pr.width, scaleY: midCell.h / pr.height, duration: 0.45, ease: 'power3.inOut' }, 0)
-        tl.to(copy, { x: c.x - pr.left, duration: 0.3, ease: 'power3.inOut' }, 0.4 + 0.02 * Math.abs(i - (CELLS - 1) / 2))
-        copies.push({ el: copy, i, x0: pr.left })
+        tl.to(copy, { x: midCell.x + midCell.w / 2 - pcx, y: midCell.y + midCell.h / 2 - pcy, scaleX: midCell.w / pw, scaleY: midCell.h / ph, rotate: 0, duration: 0.45, ease: 'power3.inOut' }, 0)
+        tl.to(copy, { x: c.x + c.w / 2 - pcx, duration: 0.3, ease: 'power3.inOut' }, 0.4 + 0.02 * Math.abs(i - (CELLS - 1) / 2))
+        copies.push({ el: copy, i, x0: pcx - c.w / 2 })
       }
     }
     tl.to(count, { '--wipe': '100%', duration: 0.6, ease: 'power3.inOut' }, 0.05)
