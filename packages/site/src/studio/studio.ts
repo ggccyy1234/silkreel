@@ -488,7 +488,7 @@ export function setupStudio() {
   // a public visitor is never asked by the browser to reach their local network: the probe runs on a local site, or once a custom API address is set
   if (apiBase || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
     void ping()
-    setInterval(() => { if (!document.hidden) void ping() }, 8000)
+    addEventListener('focus', () => { void ping() })
   }
 
   const jobs = new Map<string, Job & { label: string }>()
