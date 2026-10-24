@@ -10,3 +10,6 @@ review/
 .devin/goal/
 silk-reel-ad-film/
 .snapshots/
+
+# another artist's work, kept for private comparison only (AGENTS.md); never commit
+fixtures/reference/
