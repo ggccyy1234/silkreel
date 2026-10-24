@@ -1,47 +1,114 @@
-# silk reel
+<p align="center">
+  <img src="packages/site/public/og.png" alt="silk reel: a circuit board in, a film out" width="100%" />
+</p>
 
-**KiCad board in, release video out.** silk reel turns a `.kicad_pcb` into a post-ready PCB release film built from the board's real geometry: copper growing out from the hero chip, pads popping as the wavefront reaches them, then zones, silkscreen, and a title card.
+<p align="center">
+  <b>A KiCad board in. A release film out.</b><br />
+  silk reel reads a <code>.kicad_pcb</code> and renders a film of that board, built from its real copper, parts and silkscreen.
+</p>
 
-| Trace Growth | Glyph Loop |
+<p align="center">
+  <img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-ecede9?style=flat-square&labelColor=0b0b0b" />
+  <img alt="Node.js 22 or later" src="https://img.shields.io/badge/node-%E2%89%A522-ecede9?style=flat-square&labelColor=0b0b0b&logo=nodedotjs&logoColor=white" />
+  <img alt="TypeScript, strict" src="https://img.shields.io/badge/TypeScript-strict-ecede9?style=flat-square&labelColor=0b0b0b&logo=typescript&logoColor=white" />
+  <img alt="Input: .kicad_pcb" src="https://img.shields.io/badge/input-.kicad__pcb-ecede9?style=flat-square&labelColor=0b0b0b&logo=kicad&logoColor=white" />
+  <img alt="Output: MP4, GIF, WebM, ProRes" src="https://img.shields.io/badge/output-MP4%20%C2%B7%20GIF%20%C2%B7%20WebM%20%C2%B7%20ProRes-ecede9?style=flat-square&labelColor=0b0b0b" />
+  <img alt="Sound: CC0" src="https://img.shields.io/badge/sound-CC0-d7261e?style=flat-square&labelColor=0b0b0b" />
+</p>
+
+## Two looks, one board
+
+| Trace | Glyph |
 |---|---|
-| ![Trace Growth on iCEBreaker](docs/media/icebreaker-trace.gif) | ![Glyph Loop on iCEBreaker](docs/media/icebreaker-glyph.gif) |
+| ![The Glasgow board as a trace film](docs/media/glasgow-trace.gif) | ![The Glasgow board as a glyph film](docs/media/glasgow-glyph.gif) |
+| The lit board under a camera. Copper routes out from the hero chip, the mask and silkscreen go on, the parts drop onto paste and reflow, and then the board powers on. 12 seconds, with sound. | Every part of the board set as type, in a loop. The hero chip's routes grow, the plan rises, a frame closes around it, and the loop seam is invisible. 11.2 seconds. |
+
+Both films above are the [Glasgow](https://github.com/GlasgowEmbedded/glasgow) rev C3 board, rendered with the commands below.
 
 ## Quick start
 
 ```bash
-npm install
-
-# CLI
-npm run reel -- path/to/board.kicad_pcb --aspect 9:16 --title "iCEBreaker" --version v1.0e -o ice.mp4
-
-# Studio (live preview + export)
-npm run start --workspace=@silk-reel/render-api   # render API on :3102
-npm run dev --workspace=@silk-reel/studio         # studio on :3101
+git clone https://github.com/hridaya423/silkreel
+cd silkreel
+npm ci
+npm run reel -- fixtures/boards/glasgow.kicad_pcb --style trace --aspect 16:9 -o glasgow.mp4
 ```
 
-Requires Node 22+ and `ffmpeg`/`ffprobe` on the PATH. Remotion downloads its headless Chromium on first render.
+You need Node.js 22 or later, and `ffmpeg` and `ffprobe` on your PATH. The first render downloads its own copy of Chromium.
+
+To film your own board, give the CLI its file:
+
+```bash
+npm run reel -- path/to/your-board.kicad_pcb --style glyph --aspect 9:16 --title "Your Board" --version v1.0
+```
+
+A glyph film renders in about ten seconds. A trace film takes one to two minutes on a GPU; `--draft` takes a fraction of that. On a machine without a GPU, put `SILK_REEL_GL=swangle` in front of the command.
 
 ## Options
 
 | flag | values | default |
 |---|---|---|
-| `--style` | `trace` (copper grows from the hero footprint), `glyph` (footprint glyphs in mirrored formations) | `trace` |
+| `--style` | `trace` (the lit board) · `glyph` (parts set as type) | `trace` |
 | `--aspect` | `4:5` 1080×1350 · `1:1` 1080×1080 · `9:16` 1080×1920 · `16:9` 1920×1080 | `4:5` |
 | `--palette` | `copper` · `mono` · `blueprint` · `phosphor` | `copper` (trace), `mono` (glyph) |
-| `--accent` | `#rrggbb` for growth heads / glyph hero | palette head |
-| `--title`, `--version` | title card text; omit for no card | none |
-| `--format` | `mp4` · `gif` (≤720px) · `webm-alpha` · `prores-alpha` (4444) | `mp4` |
-| `--seed`, `--tempo` (0.75–1.5), `--density` (0.5–1.5) | variation and pacing | `42`, `1`, `1` |
-| `-o` | output path | `<board>-<style>-<aspect>.<ext>` next to the input |
+| `--accent` | `#rrggbb` for the hero highlight | the palette's |
+| `--title` | the board's name on a title card; leave it out for no card | none |
+| `--version` | a version under the title; needs `--title` | none |
+| `--format` | `mp4` · `gif` (720 px wide at most) · `webm-alpha` · `prores-alpha` (4444) | `mp4` |
+| `--seed` | any number; each one gives a different variation | `42` |
+| `--tempo` | pace, from `0.75` to `1.5` | `1` |
+| `--draft` | fast preview quality | off |
+| `--no-audio` | leave the score out of a trace film | off |
+| `-o` | output path | `<board>-<style>-<aspect>.<ext>` beside the input |
 
-The alpha formats render with a transparent background, ready to drop over your own footage. Renders are deterministic for a given board and config.
+The alpha formats have a transparent background, so you can put the film over your own footage. The same board and flags always render the same film.
+
+## Studio
+
+The [website](packages/site) has a studio that runs in the browser. It plays both looks for the sample boards and plays your own board as glyph. Your board is read in the tab and never uploaded. It records WebM, saves stills, and writes the command for everything else.
+
+Run the full studio on your machine to render every format from a queue:
+
+```bash
+npm run start --workspace=@silk-reel/render-api   # render API on :3102
+npm run dev --workspace=@silk-reel/studio         # studio on :3101
+```
 
 ## How it works
 
-`ingest` parses the board into a `BoardModel`. `choreo` compiles it into a timeline: for Trace Growth, it picks a hero footprint, builds a copper connectivity graph across layers (vias and through-hole pads bridge them), and schedules growth outward from the hero. `render` draws each frame with Canvas2D, and a WebGL2 pass adds bloom, vignette, and grain. Remotion drives the studio preview and the final encode.
+1. **`ingest`** parses the `.kicad_pcb` into a board model: outline, copper on every layer, pads, vias, zones, footprints and silkscreen.
+2. **`choreo`** compiles the board into a timeline. A trace film is one camera arc on a 24-beat grid: the drawing, the object, a held breath, power-on and a hold. A glyph film picks the hero chip and sets the parts as glyphs across four acts.
+3. **`render`** draws each frame. Trace uses WebGL2: a lit plate with component bodies, a perspective camera, depth of field, HDR bloom and motion blur. Glyph draws with Canvas2D.
+4. **`render-api`** encodes the frames with Remotion and ffmpeg, and lays the score under trace films, mastered to −14 LUFS.
 
-See [AGENTS.md](AGENTS.md) for development commands and the full-video review gate every visual change goes through.
+| package | role |
+|---|---|
+| [`ingest`](packages/ingest) | `.kicad_pcb` parser to `BoardModel` |
+| [`choreo`](packages/choreo) | the style engine: board to `Timeline`, palettes, aspect layout |
+| [`render`](packages/render) | frame drawing, the WebGL2 post pass, the Remotion composition |
+| [`render-api`](packages/render-api) | Fastify API, render queue, `renderFilm()` for every format |
+| [`cli`](packages/cli) | `npm run reel` |
+| [`studio`](packages/studio) | the local studio (Vite and the Remotion Player) |
+| [`site`](packages/site) | the website and its in-browser studio (Astro) |
+| [`metrics`](packages/metrics) | ffmpeg probes and the numeric gate |
 
-## Font
+## Development
 
-Title cards use bundled JetBrains Mono (`packages/render/src/assets/`, SIL Open Font License 1.1, see `OFL.txt`) so renders are identical on every machine.
+```bash
+npx tsc --noEmit         # typecheck
+npx vitest run           # tests
+npx eslint packages      # lint
+npm run test:production  # build the studio and smoke-test it
+```
+
+Every change to how a film looks goes through a full-video review. [AGENTS.md](AGENTS.md) has the commands and the rubric.
+
+## Credits
+
+- **Sample boards:** [iCEBreaker](https://github.com/icebreaker-fpga/icebreaker) © 2019 1BitSquared, CC BY-SA 4.0. [Glasgow](https://github.com/GlasgowEmbedded/glasgow) rev C3, Glasgow Embedded, 0BSD. StickHub, the ECC83 preamp, the ColdFire dev kit and the video board are KiCad demo projects.
+- **Sound:** CC0 recordings from Freesound, listed in [CREDITS.md](packages/render-api/assets/sound/CREDITS.md).
+- **Type:** title cards use JetBrains Mono (SIL Open Font License 1.1, [`OFL.txt`](packages/render/src/assets/OFL.txt)), bundled so renders match on every machine.
+
+## License
+
+silk reel is licensed under the [Apache License 2.0](LICENSE). The sample boards, the sound recordings and the fonts keep their own licenses, listed under Credits.
