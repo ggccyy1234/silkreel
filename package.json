@@ -1,5 +1,20 @@
 {
   "name": "silk-reel",
+  "description": "KiCad board in, release film out: renders a .kicad_pcb as a lit product film or a typographic loop.",
+  "keywords": [
+    "kicad",
+    "pcb",
+    "electronics",
+    "video",
+    "motion-graphics",
+    "remotion",
+    "webgl2"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hridaya423/silkreel.git"
+  },
+  "bugs": "https://github.com/hridaya423/silkreel/issues",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
