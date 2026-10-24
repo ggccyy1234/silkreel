@@ -65,8 +65,8 @@ const looks = [
       <fieldset class="st__g">
         <legend>Look</legend>
         <div class="st__looks">
-          {looks.map((l, i) => (
-            <label class="st__look"><input type="radio" name="style" value={l.id} checked={i === 0} /><span class="st__look-n">{l.name}</span><span class="st__look-t">{l.text}</span></label>
+          {looks.map((l) => (
+            <label class="st__look"><input type="radio" name="style" value={l.id} checked={l.id === 'glyph'} /><span class="st__look-n">{l.name}</span><span class="st__look-t">{l.text}</span></label>
           ))}
         </div>
         <p class="st__note" data-live-note hidden></p>

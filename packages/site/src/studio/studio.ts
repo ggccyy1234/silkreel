@@ -49,7 +49,7 @@ export function setupStudio() {
   const sample = boards.find((b) => b.id === q.get('board'))
   const state: State = {
     board: sample?.id ?? 'icebreaker',
-    style: q.get('style') === 'glyph' ? 'glyph' : 'trace',
+    style: q.get('style') === 'trace' ? 'trace' : 'glyph',
     aspect: (['4:5', '1:1', '9:16', '16:9'] as const).find((a) => a === q.get('aspect')) ?? '16:9',
     palette: (['mono', 'copper', 'blueprint', 'phosphor'] as const).find((p) => p === q.get('palette')) ?? 'mono',
     accent: /^#[0-9a-f]{6}$/i.test(q.get('accent') ?? '') ? q.get('accent') ?? ACCENT : ACCENT,
