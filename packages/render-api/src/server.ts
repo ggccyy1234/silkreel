@@ -7,7 +7,7 @@ import type { Aspect, FilmConfig, Knobs, PaletteId, StyleId, TitleCard } from '@
 import { DEMO_BOARDS, boardFromJson, defaultFilmConfig, isDemoBoardId } from './boards.js'
 import { RenderQueue } from './queue.js'
 import type { RenderQueuePort, RenderSubmission } from './queue.js'
-import { runGate } from './gate.js'
+import { runGate } from '@silk-reel/metrics'
 import { FORMAT_EXT, FORMAT_MIME, OUTPUT_FORMATS } from './render-film.js'
 import type { OutputFormat } from './render-film.js'
 
@@ -15,7 +15,7 @@ const repoRoot = path.resolve(import.meta.dirname, '../../..')
 const allowedVideoRoots = [path.join(repoRoot, 'exports'), path.join(repoRoot, 'fixtures')]
 const FILM_CONFIG_KEYS = ['knobs', 'seed', 'duration', 'output', 'cast', 'style', 'aspect', 'palette', 'accent', 'title', 'transparent'] as const
 const CAST_KEYS = ['preferRefs', 'preferTexts'] as const
-const KNOB_KEYS = ['density', 'texts', 'tempo'] as const
+const KNOB_KEYS = ['texts', 'tempo'] as const
 const STYLE_IDS: readonly StyleId[] = ['trace', 'glyph']
 const ASPECT_IDS: readonly Aspect[] = ['4:5', '1:1', '9:16', '16:9']
 const PALETTE_IDS: readonly PaletteId[] = ['mono', 'copper', 'blueprint', 'phosphor']
@@ -49,7 +49,6 @@ function downloadFilename(id: string, format: OutputFormat): string {
 
 export interface BuildAppOptions {
   queue?: RenderQueuePort
-  runGate?: typeof runGate
 }
 
 type RenderApiError =
@@ -58,8 +57,7 @@ type RenderApiError =
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = fastify({ logger: false, bodyLimit: 64 * 1024 * 1024 })
-  const gateRunner = options.runGate ?? runGate
-  const queue = options.queue ?? new RenderQueue({ runGate: gateRunner })
+  const queue = options.queue ?? new RenderQueue({ runGate })
 
   app.addHook('onReady', async () => {
     await queue.prepare()
@@ -123,28 +121,6 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     reply.header('content-type', FORMAT_MIME[job.format])
     reply.header('content-disposition', `attachment; filename="${downloadFilename(job.id, job.format)}"`)
     return await reply.send(createReadStream(downloadPath))
-  })
-
-  app.post('/gate', async (request, reply) => {
-    const body = (request.body ?? {}) as { videoPath?: string }
-    if (typeof body.videoPath !== 'string' || body.videoPath.length === 0) {
-      return await reply.code(400).send({ error: 'videoPath required' })
-    }
-    const requestedPath = path.isAbsolute(body.videoPath) ? body.videoPath : path.resolve(repoRoot, body.videoPath)
-    if (!allowedVideoRoots.some((root) => isInsideRoot(path.resolve(requestedPath), root))) {
-      return await reply.code(400).send({ error: 'videoPath must live under exports/ or fixtures/' })
-    }
-    const videoPath = await safeFilePath(requestedPath, allowedVideoRoots)
-    if (videoPath === undefined) {
-      return await reply.code(404).send({ error: `no file at ${body.videoPath}` })
-    }
-    const report = await gateRunner(videoPath, {
-      width: 1080,
-      height: 1350,
-      fps: 15,
-      totalFrames: 167
-    })
-    return await reply.send(report)
   })
 
   app.get('/queue', () => {

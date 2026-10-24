@@ -152,17 +152,14 @@ export function studioPort(): number {
   return port
 }
 
-export function createStudioApiPlugin(config: { renderApiUrl?: string } = {}): Plugin {
-  const middleware = createMiddleware(config.renderApiUrl ?? renderApiUrl())
-  return {
-    name: 'silk-reel-studio-api',
-    configureServer(server) {
-      server.middlewares.use(middleware)
-    },
-    configurePreviewServer(server) {
-      server.middlewares.use(middleware)
-    }
+const middleware = createMiddleware(renderApiUrl())
+
+export const studioApiPlugin: Plugin = {
+  name: 'silk-reel-studio-api',
+  configureServer(server) {
+    server.middlewares.use(middleware)
+  },
+  configurePreviewServer(server) {
+    server.middlewares.use(middleware)
   }
 }
-
-export const studioApiPlugin = createStudioApiPlugin()

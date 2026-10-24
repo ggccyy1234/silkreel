@@ -9,6 +9,7 @@ const { title, description = site.description, image = '/og.png', noindex = fals
 const fullTitle = title ? `${title} | ${site.name}` : `${site.name}: ${site.line}`
 const canonical = new URL(Astro.url.pathname, Astro.site ?? site.url).href
 const ogImage = new URL(image, Astro.site ?? site.url).href
+const ogVideo = new URL('/og.mp4', Astro.site ?? site.url).href
 const jsonLd = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
@@ -29,7 +30,7 @@ const jsonLd = {
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
-    <meta name="theme-color" content="#ecebe4" />
+    <meta name="theme-color" content="#ecede9" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="sitemap" href="/sitemap-index.xml" />
     <meta property="og:type" content="website" />
@@ -40,13 +41,17 @@ const jsonLd = {
     <meta property="og:image" content={ogImage} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:video" content={ogVideo} />
+    <meta property="og:video:secure_url" content={ogVideo} />
+    <meta property="og:video:type" content="video/mp4" />
+    <meta property="og:video:width" content="1280" />
+    <meta property="og:video:height" content="720" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={fullTitle} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
-    <link rel="preload" href="/fonts/osifont.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/archivo-var.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/martian-mono-var.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/jetbrains-mono-500-normal.woff2" as="font" type="font/woff2" crossorigin />
     <slot name="head" />
     <script is:inline>

@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { access, rm, writeFile } from 'node:fs/promises'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { GateReport } from './gate.js'
+import type { GateReport } from '@silk-reel/metrics'
 import type { RenderFilmOptions, RenderFilmResult } from './render-film.js'
 import { RenderQueue } from './queue.js'
 import type { RenderJob } from './queue.js'

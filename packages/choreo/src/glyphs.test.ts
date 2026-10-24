@@ -14,7 +14,7 @@ const BOARDS = [
 ]
 
 const castOf = (board: BoardModel, seed = 42) =>
-  buildCast(board, 1, true, makeRng(seed, 'cast'))
+  buildCast(board, true, makeRng(seed, 'cast'))
 
 const footprintByRef = (board: BoardModel, ref: string): Footprint | undefined =>
   board.footprints.find((f) => f.ref === ref)

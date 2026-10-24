@@ -3,7 +3,7 @@
 
 type V2 = readonly [number, number]
 export interface Cam { origin: V2; k: number; sinA: number; cosA: number; sinE: number; cosE: number }
-export type Seg =
+type Seg =
   | { kind: 'line'; a: V2; b: V2; s0: number; s1: number }
   | { kind: 'arc'; c: V2; r: number; a0: number; sweep: number; s0: number; s1: number }
 export interface Film { pitch: number; z: V2; length: number; segs: readonly Seg[]; perf: { w: number; h: number; inset: number }; frame: { gap: number; inset: number } }
@@ -13,7 +13,7 @@ export interface Pack { u: number; v: number; r: number; dir: number; holes: { r
 type Pt = [number, number]
 const TAU = Math.PI * 2
 
-export function project(cam: Cam, u: number, v: number, z: number): Pt {
+function project(cam: Cam, u: number, v: number, z: number): Pt {
   const x = -v
   const y = -u
   return [cam.origin[0] + (x * cam.sinA - y * cam.cosA) * cam.k, cam.origin[1] + ((x * cam.cosA + y * cam.sinA) * cam.sinE - z * cam.cosE) * cam.k]
@@ -23,9 +23,9 @@ const f1 = (n: number) => {
   const t = Math.round(n * 10)
   return t === 0 ? '0' : String(t / 10)
 }
-export const pathOf = (pts: readonly Pt[], closed = false) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${f1(x)} ${f1(y)}`).join('') + (closed ? 'Z' : '')
+const pathOf = (pts: readonly Pt[], closed = false) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${f1(x)} ${f1(y)}`).join('') + (closed ? 'Z' : '')
 
-export function pointAt(segs: readonly Seg[], s: number): Pt {
+function pointAt(segs: readonly Seg[], s: number): Pt {
   const seg = segs.find((g) => s <= g.s1 + 1e-9) ?? segs[segs.length - 1]
   if (!seg) return [0, 0]
   const t = (s - seg.s0) / (seg.s1 - seg.s0 || 1)

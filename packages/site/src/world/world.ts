@@ -6,7 +6,7 @@ import type { Scene } from '@silk-reel/render/film'
 
 export interface Film { key: string; tl: GlyphTimeline; scene: Scene }
 
-export interface Rect { x: number; y: number; w: number; h: number }
+interface Rect { x: number; y: number; w: number; h: number }
 
 /**
  * Where the film sits: `rect` is the frame in CSS px (null = the whole viewport), `zoom` scales the
@@ -36,7 +36,6 @@ const mixHex = (a: string, b: string, t: number) => {
   return '#' + x.map((v, i) => Math.round(v + ((y[i] ?? v) - v) * t).toString(16).padStart(2, '0')).join('')
 }
 
-/** one frame of a film, filling another canvas: exports and stills */
 /** one frame of the film; zoom > 1 moves in on the centre */
 export function drawStill(target: HTMLCanvasElement, film: Film, frame: number, palette: Palette, zoom = 1) {
   const ctx = target.getContext('2d')
@@ -75,46 +74,21 @@ export class World {
   private paletteFrom: Palette = PALETTES.mono
   private paletteTo: Palette = PALETTES.mono
   private paletteT = 1
-  private ground = 1
-  private groundTarget = 1
   private dirty = true
   private lastKey = ''
   private listeners = new Set<(f: FrameInfo) => void>()
   private reduced: boolean
-  /** device px per CSS px; an offscreen world feeding the print fixes its own */
-  private density: number | null
-  /** the thinnest hairline, in device px */
-  private hair: number
-  private drawn = 0
-  private ro: ResizeObserver | null = null
-  private tick = () => { this.update() }
 
-  /** an offscreen world fills the viewport at `density` and is drawn by the print, not shown */
-  constructor(canvas: HTMLCanvasElement, opts: { reduced: boolean; offscreen?: { density: number; hair: number } }) {
+  constructor(canvas: HTMLCanvasElement, opts: { reduced: boolean }) {
     this.canvas = canvas
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('no 2d context')
     this.ctx = ctx
     this.reduced = opts.reduced
-    this.density = opts.offscreen?.density ?? null
-    this.hair = opts.offscreen?.hair ?? 1.6
-    if (!opts.offscreen) {
-      this.ro = new ResizeObserver(() => { this.resize() })
-      this.ro.observe(canvas)
-    }
+    new ResizeObserver(() => { this.resize() }).observe(canvas)
     this.resize()
-    gsap.ticker.add(this.tick)
+    gsap.ticker.add(() => { this.update() })
   }
-
-  destroy() {
-    gsap.ticker.remove(this.tick)
-    this.ro?.disconnect()
-  }
-
-  get current() { return this.film }
-  get size() { return { w: this.w, h: this.h } }
-  /** counts the frames drawn, so a reader knows when the canvas changed */
-  get version() { return this.drawn }
 
   onFrame(fn: (f: FrameInfo) => void) {
     this.listeners.add(fn)
@@ -163,9 +137,6 @@ export class World {
     this.dirty = true
   }
 
-  /** 1 draws the ground, 0 leaves the canvas clear so whatever sits under it shows */
-  setGround(g: number) { this.groundTarget = g; this.dirty = true }
-
   /** the frame the film shows right now */
   frameNow(): number {
     const total = this.film?.tl.totalFrames ?? 1
@@ -174,7 +145,7 @@ export class World {
   }
 
   resize() {
-    this.dpr = this.density ?? Math.min(2, window.devicePixelRatio || 1)
+    this.dpr = Math.min(2, window.devicePixelRatio || 1)
     this.w = this.canvas.clientWidth || window.innerWidth
     this.h = this.canvas.clientHeight || window.innerHeight
     this.canvas.width = Math.round(this.w * this.dpr)
@@ -198,7 +169,6 @@ export class World {
     const tr = t.rect ?? full
     const cr = v.rect ?? full
     v.rect = { x: follow(cr.x, tr.x, 9, dt), y: follow(cr.y, tr.y, 9, dt), w: follow(cr.w, tr.w, 9, dt), h: follow(cr.h, tr.h, 9, dt) }
-    this.ground = follow(this.ground, this.groundTarget, 8, dt)
     if (this.paletteT < 1) {
       this.paletteT = Math.min(1, this.paletteT + dt / 0.6)
       const k = 1 - Math.pow(1 - this.paletteT, 3)
@@ -211,12 +181,11 @@ export class World {
     const frame = this.frameNow()
     const step = Math.floor(this.real * STEP_RATE)
     const k = [frame, step - this.swapAt < OUT_LEN + IN_LEN + 2 * SPREAD ? step : 0, v.zoom.toFixed(4), v.cx.toFixed(4), v.cy.toFixed(4), v.fx.toFixed(4), v.fy.toFixed(4),
-      v.rect.x.toFixed(1), v.rect.y.toFixed(1), v.rect.w.toFixed(1), v.rect.h.toFixed(1), this.ground.toFixed(3), this.palette.bg, this.palette.silk, film.key].join()
+      v.rect.x.toFixed(1), v.rect.y.toFixed(1), v.rect.w.toFixed(1), v.rect.h.toFixed(1), this.palette.bg, this.palette.silk, film.key].join()
     if (!this.dirty && k === this.lastKey) return
     this.lastKey = k
     this.dirty = false
     this.draw(film, frame, step)
-    this.drawn++
     const info = { frame, beat: (frame / film.tl.totalFrames) * 24, film, rect: v.rect }
     this.listeners.forEach((fn) => { fn(info) })
   }
@@ -231,7 +200,7 @@ export class World {
     // the hairline keeps the output's visual weight: thinner under a zoomed camera, never under the floor
     // in a small preview, like a font at its optical size
     const hair = ((2 * Math.min(tl.width, tl.height)) / 1080) * this.dpr * s
-    return Math.max(1 / this.view.zoom, this.hair / hair)
+    return Math.max(1 / this.view.zoom, 1.6 / hair)
   }
 
   private draw(film: Film, frame: number, step: number) {
@@ -241,13 +210,9 @@ export class World {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
     const r = this.target.rect ? this.view.rect : null
     // a framed film carries its own ground inside the frame; the page shows around it
-    if (this.ground > 0.002) {
-      ctx.globalAlpha = this.ground
-      ctx.fillStyle = pal.bg
-      if (r) ctx.fillRect(r.x * this.dpr, r.y * this.dpr, r.w * this.dpr, r.h * this.dpr)
-      else ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
-      ctx.globalAlpha = 1
-    }
+    ctx.fillStyle = pal.bg
+    if (r) ctx.fillRect(r.x * this.dpr, r.y * this.dpr, r.w * this.dpr, r.h * this.dpr)
+    else ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
     if (r) {
       ctx.save()
       ctx.beginPath()

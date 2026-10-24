@@ -29,7 +29,7 @@ html.loading .hd__mark { visibility: hidden; }
 html.reel-live .reel-gl { opacity: 1; }
 
 /* ---------- hero ---------- */
-.hero { --k: clamp(0.7px, calc(100vw / 1440), 1.3px); position: relative; height: 100svh; min-height: 620px; overflow: clip; }
+.hero { --k: clamp(0.6px, calc(100vw / 1440), 1.3px); position: relative; height: 100svh; min-height: 620px; overflow: clip; }
 .hero__reel { position: absolute; inset: 0; pointer-events: none; }
 .hero__poster { width: 100%; height: 100%; object-fit: cover; object-position: left top; translate: 0 -32px; transition: opacity var(--t4) var(--soft); }
 html.reel-live .hero__poster { opacity: 0; }
@@ -41,11 +41,12 @@ html.gl .hero__poster { visibility: hidden; }
   position: absolute; right: var(--gutter); top: calc(78px + 173 * var(--k) + 34px); z-index: 2;
   display: grid; justify-items: end; gap: 20px; text-align: right; max-width: min(880px, 60vw);
 }
-.hero__title { font-family: var(--f-display); font-weight: 600; font-stretch: 85%; font-size: clamp(2.2rem, 0.6rem + 4.4vw, 5.2rem); line-height: 1; letter-spacing: -0.035em; text-wrap: balance; }
-.hero__lede { max-width: 32ch; text-align: left; font-size: var(--t-m); line-height: 1.5; color: var(--c-muted); }
+.hero__title { font-size: clamp(1.4rem, 0.4rem + 2.7vw, 3.3rem); }
+.hero__title .lt svg { margin-left: auto; }
+.hero__lede { max-width: min(32ch, 27vw); text-align: left; font-size: var(--t-m); line-height: 1.5; color: var(--c-muted); }
 .hero__act { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; }
-.hero__cmd { display: flex; align-items: center; gap: 12px; min-height: 44px; min-width: 0; padding: 0 6px 0 14px; }
-.hero__cmd code { min-width: 0; overflow-x: auto; font-family: var(--f-mono); font-size: var(--t-xs); white-space: nowrap; scrollbar-width: none; }
+.hero__cmd { display: flex; align-items: center; gap: 12px; min-height: 44px; min-width: 0; padding: 0 6px 0 14px; background: linear-gradient(rgb(var(--ink-rgb) / 0.035) 0 0) var(--c-bg); }
+.hero__cmd code { min-width: 0; overflow-x: auto; font-family: var(--f-mono); font-size: var(--t-xs); font-stretch: 75%; white-space: nowrap; scrollbar-width: none; }
 .hero__cmd .term__copy { margin-left: 0; border-radius: 6px; }
 
 /* ---------- the gate ---------- */
@@ -61,7 +62,7 @@ html.gl .hero__poster { visibility: hidden; }
 .gate__beam line { stroke: var(--pencil); stroke-width: 1; }
 .gate.is-playing .gate__beam polygon { opacity: 1; }
 .gate__head { position: absolute; left: var(--scr-l); right: var(--gutter); top: clamp(84px, 11vh, 120px); display: flex; justify-content: space-between; align-items: flex-end; gap: 32px; }
-.gate__title { font-family: var(--f-display); font-weight: 600; font-stretch: 85%; font-size: clamp(1.8rem, 0.9rem + 2vw, 2.8rem); line-height: 1.1; letter-spacing: -0.03em; }
+.gate__title { font-size: clamp(1.1rem, 0.6rem + 1.2vw, 1.8rem); }
 .gate__body { max-width: 28ch; font-size: var(--t-body); line-height: 1.5; color: var(--c-muted); }
 .gate__screen { position: absolute; left: var(--scr-l); right: var(--gutter); top: 50%; aspect-ratio: 16 / 9; translate: 0 -42%; background: var(--stock); outline: 1px solid var(--pencil); max-height: 58svh; }
 .gate__screen canvas { width: 100%; height: 100%; }
@@ -69,11 +70,13 @@ html.gl .hero__poster { visibility: hidden; }
 .gate__screen .gate__tc { position: absolute; right: 12px; bottom: 10px; font-family: var(--f-mono); font-size: 12px; color: #a9a9a3; pointer-events: none; }
 
 /* ---------- two looks on one length of stock ---------- */
+.looks__credit { padding: clamp(28px, 5vh, 52px) var(--gutter) 0; color: #8a8a84; }
+.dwg ~ .looks { padding-top: 0; }
 .looks { position: relative; z-index: 1; background: var(--c-bg); padding-top: var(--sec); overflow: clip; }
 /* the looks open inside the stock: one line of type set across both frames, the seam between them running down from it in red */
-.looks__head { display: grid; justify-items: center; gap: 18px; padding: clamp(24px, 5vh, 56px) var(--gutter) clamp(28px, 5vh, 52px); text-align: center; }
-.looks__title { font-family: var(--f-display); font-weight: 600; font-stretch: 85%; font-size: clamp(2.4rem, 0.6rem + 5.4vw, 6.4rem); line-height: 0.96; letter-spacing: -0.035em; color: #f4f4f0; }
-.looks__title span:last-child { color: #ff4a3d; }
+.looks__head { position: relative; z-index: 1; display: grid; justify-items: center; gap: 18px; padding: clamp(24px, 5vh, 56px) var(--gutter) clamp(28px, 5vh, 52px); text-align: center; }
+.looks__title { font-size: clamp(1.5rem, 0.3rem + 3.6vw, 4.1rem); color: #f4f4f0; }
+.looks__title .lt svg { margin-inline: auto; }
 .looks__body { max-width: 40ch; font-size: var(--t-body); line-height: 1.5; color: #a9a9a3; }
 .looks__run { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(20px, 2.5vw, 36px); padding: 0 var(--gutter); }
 .looks__run::before { content: ''; position: absolute; left: 50%; top: calc(-1 * clamp(28px, 5vh, 52px)); bottom: 0; width: 1px; background: #ff4a3d; opacity: 0.7; }
@@ -88,20 +91,53 @@ html.gl .hero__poster { visibility: hidden; }
 .look__k { font-size: var(--t-s); font-weight: 600; color: #f4f4f0; }
 .look__frame { position: relative; aspect-ratio: 16 / 9; background: #050505; overflow: hidden; outline: 1px solid #303030; }
 .look__frame video, .look__frame canvas { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* the trace look is the film the drawing hands over to: it lies on the drawn board, opens out, then lands in its frame (motion/drawing.ts).
+   In flight it passes under the looks heading */
+.look__frame video.is-flying {
+  --fe: 1; position: fixed; left: 0; top: 0; z-index: 0; width: 1280px; height: 720px; max-width: none; transform-origin: 0 0; pointer-events: none;
+  mask-image: linear-gradient(90deg, transparent, #000 calc(var(--fe) * 16%), #000 calc(100% - var(--fe) * 16%), transparent), linear-gradient(transparent, #000 calc(var(--fe) * 22%), #000 calc(100% - var(--fe) * 22%), transparent);
+  mask-composite: intersect;
+}
 .look__say { max-width: 40ch; margin-top: 8px; font-size: var(--t-m); line-height: 1.4; color: #f4f4f0; }
+
+/* ---------- dimensions, drawn the way the sheet draws them: a thin line, filled arrows, the value above the line ---------- */
+.dim {
+  --x: 0px; position: relative; display: block; width: 100%; padding: 0 1px calc(8px + var(--x)); font: inherit; font-size: 10px; line-height: 1; letter-spacing: 0.06em;
+  text-transform: uppercase; text-align: center; white-space: nowrap; color: inherit;
+  background: linear-gradient(currentColor, currentColor) 0 calc(100% - 3px - var(--x)) / 100% 1px no-repeat;
+}
+.dim::before, .dim::after { content: ''; position: absolute; bottom: calc(2px + var(--x)); width: 8px; height: 3px; background: currentColor; }
+.dim::before { left: 0; clip-path: polygon(0 50%, 100% 0, 100% 100%); }
+.dim::after { right: 0; clip-path: polygon(100% 50%, 0 0, 0 100%); }
+
+/* a look's acts under its frame, each span its length on the 24-beat score; the red playhead is the film's beat */
+.acts { position: relative; display: flex; margin: 0; padding: 0; list-style: none; color: #8a8a84; }
+.acts li { min-width: 0; border-left: 1px solid currentColor; container-type: inline-size; transition: color var(--t2) var(--soft); }
+.acts li:last-child { border-right: 1px solid currentColor; }
+.acts li.is-now { color: #f4f4f0; }
+.acts .dim { --x: 4px; padding-top: 12px; letter-spacing: 0.02em; cursor: pointer; }
+.acts .dim:focus-visible { outline: 1px solid #f4f4f0; outline-offset: 2px; }
+@media (hover: hover) { .acts li:hover { color: #f4f4f0; } }
+@container (max-width: 36px) { .acts li:not(.is-now) .dim { font-size: 0; padding-top: 22px; } }
+.acts::after { content: ''; position: absolute; left: calc(var(--p, 0) * 100%); top: 6px; bottom: 0; width: 1px; background: #ff4a3d; pointer-events: none; }
 
 /* ---------- one command: the words are the controls, the film below answers ---------- */
 .make { position: relative; z-index: 1; background: var(--c-bg); padding: var(--sec) var(--gutter) calc(var(--sec) - clamp(40px, 5vh, 56px)); }
 .make__head { display: grid; grid-template-columns: auto minmax(0, 40ch); justify-content: space-between; align-items: baseline; gap: 12px 40px; padding-bottom: 20px; border-bottom: 1px solid var(--c-ink); }
-.make__title { font-family: var(--f-display); font-weight: 600; font-stretch: 85%; font-size: clamp(1.4rem, 0.9rem + 1.2vw, 2.1rem); line-height: 1.1; letter-spacing: -0.03em; }
+.make__title { font-size: clamp(1rem, 0.65rem + 0.8vw, 1.45rem); }
 .make__body { font-size: var(--t-body); line-height: 1.5; color: var(--c-muted); }
 .make__run { margin-top: clamp(24px, 4vh, 40px); }
-.monitor { --ar: 16 / 9; display: grid; justify-items: center; gap: 14px; padding: 28px 24px 16px; background: var(--film-bg, var(--stock)); transition: background-color var(--t3) var(--soft); }
-.monitor__stage { position: relative; aspect-ratio: var(--ar); height: min(68svh, calc((100vw - 2 * var(--gutter) - 48px) / (var(--ar)))); max-width: 100%; }
+.monitor { --ar: 16 / 9; display: grid; justify-items: center; gap: 14px; padding: 40px 40px 16px; background: var(--film-bg, var(--stock)); transition: background-color var(--t3) var(--soft); }
+.monitor__stage { position: relative; container-type: size; aspect-ratio: var(--ar); height: min(68svh, calc((100vw - 2 * var(--gutter) - 80px) / (var(--ar)))); max-width: 100%; }
+/* the frame's output size in pixels, dimensioned on its top and left edges */
+.monitor .dim { position: absolute; z-index: 1; width: 100cqw; left: 0; bottom: calc(100% + 6px); border-inline: 1px solid; color: #8a8a84; }
+.monitor .dim--h { width: 100cqh; bottom: auto; top: 100%; transform-origin: 0 0; transform: rotate(-90deg) translateY(calc(-100% - 6px)); }
 .monitor canvas, .monitor video { position: absolute; inset: 0; width: 100%; height: 100%; }
 .monitor video { object-fit: cover; }
 .monitor [hidden] { display: none; }
-.monitor .monitor__tc { justify-self: end; font-family: var(--f-mono); font-size: 12px; color: #9a9a94; }
+.monitor__foot { justify-self: stretch; display: flex; align-items: baseline; gap: 16px; }
+.monitor__note { font-size: var(--t-xs); color: #9a9a94; }
+.monitor .monitor__tc { margin-left: auto; font-family: var(--f-mono); font-size: 12px; color: #9a9a94; }
 .cmd { display: flex; flex-direction: column; align-items: flex-start; gap: 28px; padding: clamp(28px, 5vh, 56px) clamp(24px, 3vw, 48px) clamp(24px, 4vh, 40px); }
 .cmd__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 0.9ch; font-family: var(--f-mono); font-size: clamp(1.25rem, 0.3rem + 2.5vw, 3rem); line-height: 1.3; letter-spacing: -0.03em; color: #f4f4f0; }
 .cmd__p { color: #ff4a3d; }
@@ -144,8 +180,29 @@ html.gl .hero__poster { visibility: hidden; }
 .pick__o[aria-checked='true']::before { content: ''; position: absolute; left: 4px; top: 50%; width: 3px; height: 14px; translate: 0 -50%; background: var(--pencil); }
 .pick__o[aria-checked='true'] > span:first-child { font-weight: 600; }
 .pick__o--own { margin-top: 4px; box-shadow: inset 0 1px 0 rgb(11 11 11 / 0.14); color: #c4221a; }
-.pick__frame { display: inline-block; border: 1.5px solid currentColor; }
-.pick__ink { width: 12px; height: 12px; border-radius: 50%; background: var(--sw); box-shadow: 0 0 0 3px var(--sw-bg), 0 0 0 4px rgb(11 11 11 / 0.3); }
+/* the grid pickers draw real data: each board's plan from its file (figure/outlines.mts) with its true width,
+   each output frame on one scale, each palette on the film the monitor is playing */
+.pick--grid .pick__list { grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 2px; }
+.pick--boards { --cols: 3; width: min(720px, calc(100vw - 32px)); }
+.pick--aspects, .pick--inks { --cols: 4; width: min(640px, calc(100vw - 32px)); }
+.pick__tile { display: grid; align-content: start; align-items: start; justify-items: center; gap: 8px; min-height: 0; padding: 18px 14px 12px; color: var(--c-muted); }
+.pick__tile[aria-checked='true'] { color: var(--stock); background: rgb(11 11 11 / 0.06); }
+.pick__tile[aria-checked='true']::before { left: 6px; top: 18px; translate: none; }
+.pick__plan { width: 100%; aspect-ratio: 2; overflow: visible; }
+.pick__plan path, .pick__plan circle { fill: none; stroke: currentColor; vector-effect: non-scaling-stroke; }
+.pick__plan .pick__edge { stroke-width: 1.4; }
+.pick__plan .pick__parts { stroke-width: 0.6; opacity: 0.55; }
+.pick__plan .pick__hero { fill: var(--pencil); stroke: none; }
+.pick__tile .dim { color: var(--c-muted); font-size: 9px; }
+.pick__id { display: grid; gap: 2px; width: 100%; color: var(--stock); text-align: left; }
+.pick__id .silk { text-align: left; }
+.pick__id > span:first-child { font-weight: 600; }
+@media (hover: hover) { .pick__tile:hover { color: var(--stock); } }
+.pick--boards .pick__o--own { grid-column: 1 / -1; }
+.pick__o > span.pick__stage { display: grid; grid-template-rows: 96px auto; justify-items: center; gap: 8px; }
+.pick__frame { display: block; align-self: end; border: 1.5px solid currentColor; }
+.pick__still { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 3px; }
+@media (max-width: 760px) { .pick--grid { --cols: 2; } .pick__tile { padding: 14px 10px 10px; } }
 
 /* ---------- drop, toast ---------- */
 .drop {
@@ -153,7 +210,8 @@ html.gl .hero__poster { visibility: hidden; }
   border: 2px dashed var(--pencil); background: rgb(var(--opal-rgb) / 0.92); opacity: 0; pointer-events: none; transition: opacity var(--t2) var(--soft);
 }
 html.dragging .drop { opacity: 1; }
-.drop__say { font-family: var(--f-display); font-weight: 600; font-stretch: 85%; font-size: var(--t-xl); letter-spacing: -0.03em; }
+.drop__say { font-size: calc(var(--t-xl) * 0.62); }
+.drop__say .lt svg { margin-inline: auto; }
 .drop__note { font-size: var(--t-s); color: var(--c-muted); }
 .toast {
   position: fixed; left: 50%; bottom: 20px; z-index: var(--z-drop); translate: -50% 16px; max-width: min(560px, calc(100vw - 32px));
@@ -167,27 +225,29 @@ html:not(.motion) .gate__pin { height: auto; min-height: 100svh; }
 html:not(.motion) .gate__body { display: none; }
 
 /* ---------- tablet and phone ---------- */
-@media (max-width: 760px) {
+/* the hero stacks its words above the coil below 900 px, where the coil and a right-hand column no longer both fit */
+@media (max-width: 900px) {
   .hero__poster { translate: none; }
   .hero__say { left: var(--gutter); right: var(--gutter); top: 84px; max-width: none; justify-items: start; text-align: left; gap: 14px; }
-  .hero__title { font-size: 2.05rem; }
   .hero__act { justify-content: flex-start; max-width: 100%; }
   .hero__open { display: none; }
   .hero__cmd { max-width: 100%; }
+  .hero__lede { max-width: 32ch; }
+}
+@media (max-width: 760px) {
   .make__head { grid-template-columns: minmax(0, 1fr); }
   /* on a phone the screen takes the width and the strip runs across under it; the light goes up */
   /* the title, screen and strip stand as one block, centred in the pinned screen */
   .gate__pin { --sh: 150px; --scr-w: min(calc(100vw - 2 * var(--gutter)), calc((100svh - 396px) * 16 / 9)); --top: max(72px, calc((100svh - var(--scr-w) * 9 / 16 - var(--sh) - 220px) / 2 + 20px)); --strip-t: calc(var(--top) + 92px + var(--scr-w) * 9 / 16 + 72px); }
   .gate__head { left: var(--gutter); top: var(--top); flex-direction: column; align-items: flex-start; gap: 12px; }
-  .gate__title { font-size: 1.6rem; }
   .gate__body { display: none; }
   .gate__screen { left: 50%; right: auto; top: calc(var(--top) + 92px); translate: -50% 0; width: var(--scr-w); max-height: none; }
   .gate__strip { left: 0; top: var(--strip-t); width: 100%; height: var(--sh); -webkit-mask: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); mask: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); }
   .gate__box { left: 50%; top: calc(var(--strip-t) + var(--sh) / 2); width: calc(var(--sh) * 546 / 494 + 10px); height: calc(var(--sh) * 302 / 494 + 10px); translate: -50% -50%; }
   .looks__run { grid-template-columns: 1fr; row-gap: 48px; }
   .looks__run::before { display: none; }
-  .monitor { padding: 16px 12px 12px; }
-  .monitor__stage { height: min(46svh, calc((100vw - 2 * var(--gutter) - 24px) / (var(--ar)))); }
+  .monitor { padding: 34px 30px 12px; }
+  .monitor__stage { height: min(46svh, calc((100vw - 2 * var(--gutter) - 60px) / (var(--ar)))); }
   .cmd { padding: 20px 16px 22px; gap: 20px; }
   .cmd__line { font-size: 1rem; gap: 8px 0.9ch; }
   .cmd__acts { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }

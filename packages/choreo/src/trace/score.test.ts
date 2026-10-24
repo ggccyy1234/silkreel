@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { resolveConfig } from '../config'
 import type { FilmConfig, TraceScene } from '../types'
-import { compileTrace, makeCam, project, sampleShot, TRACE_ACTS } from './index'
+import { makeCam, project, sampleShot } from './camera'
+import { buildTraceScene, TRACE_ACTS } from './scene'
 import { boardModel } from '../../test/helpers'
 
 const BOARDS = ['glasgow', 'icebreaker', 'StickHub', 'ecc83-pp', 'video', 'kit-dev-coldfire-xilinx_5213']
@@ -10,7 +11,7 @@ function scene(name: string, aspect: FilmConfig['aspect'] = '4:5'): TraceScene {
   const config: FilmConfig = {
     style: 'trace', aspect, knobs: {}, seed: 42, duration: 'auto', output: { width: 1080, height: 1350, fps: 30 }
   }
-  return compileTrace(boardModel(`${name}.kicad_pcb`), resolveConfig(config), 42).scene
+  return buildTraceScene(boardModel(`${name}.kicad_pcb`), resolveConfig(config), 42).scene
 }
 
 describe('the trace score', () => {

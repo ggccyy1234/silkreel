@@ -6,7 +6,7 @@ html {
   transition: background-color 0.6s var(--soft), color 0.6s var(--soft);
 }
 body {
-  min-height: 100dvh; font-family: var(--f-body); font-size: var(--t-body); line-height: 1.55;
+  min-height: 100dvh; font-family: var(--f-body); font-stretch: 87.5%; font-size: var(--t-body); line-height: 1.55;
   -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-kerning: normal; overflow-x: clip;
 }
 img, picture, video, canvas, svg { display: block; max-width: 100%; }
@@ -35,24 +35,25 @@ html.lenis, html.lenis body { height: auto; }
 #main { position: relative; z-index: var(--z-content); }
 
 /* decoded type: words never break mid-way; characters flicker on through the film's patterns */
-.dw { display: inline-block; white-space: nowrap; }
 
 /* Layout */
 .wrap { width: 100%; max-width: var(--maxw); margin-inline: auto; padding-inline: var(--gutter); }
 
 /* Type */
-/* Osifont has one weight: headlines never ask for more, so nothing is faked */
-.mega, .xl, .l, .d { font-family: var(--f-display); font-weight: 400; font-synthesis: none; word-spacing: -0.14em; }
-.mega { font-size: var(--t-mega); line-height: 0.92; letter-spacing: -0.01em; }
-.xl { font-size: var(--t-xl); line-height: 0.98; letter-spacing: -0.005em; }
-.l { font-size: var(--t-l); line-height: 1.08; }
+.xl { font-size: calc(var(--t-xl) * 0.62); line-height: 1; }
+.l { font-size: calc(var(--t-l) * 0.66); line-height: 1; }
+/* stroke lettering (Lettering.astro): each line is an SVG one cap-height tall at 1em, drawn in currentColor */
+.lt { display: block; }
+.lt svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+.lt path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.lt .lt--accent { color: var(--c-red); }
 .m { font-size: var(--t-m); line-height: 1.45; letter-spacing: -0.005em; }
 .lede { font-size: var(--t-m); line-height: 1.45; color: var(--c-muted); max-width: 36ch; letter-spacing: -0.005em; }
 .lede strong, .body strong { color: var(--c-ink); font-weight: 500; }
 .body { color: var(--c-muted); max-width: 46ch; }
 
-/* a spec label, lettered like a drawing's: only beside a real value (a part, a dimension, a count, a figure number) */
-.silk { font-family: var(--f-label); font-size: var(--t-label); font-weight: 400; font-synthesis: none; letter-spacing: 0.1em; text-transform: uppercase; color: var(--c-muted); font-variant-numeric: tabular-nums; }
+/* a small label: only where a bare value would mean nothing without it */
+.silk { font-size: var(--t-label); font-weight: 500; color: var(--c-muted); font-variant-numeric: tabular-nums; }
 .silk b { color: var(--c-ink); font-weight: 500; }
 .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
 
@@ -84,7 +85,6 @@ html:not(.motion) :is(a, button) .roll__a { translate: none; }
   .btn--solid:hover { background: var(--c-red); box-shadow: none; }
 }
 .btn svg { width: 16px; height: 16px; flex: none; }
-.btn .kbd { font-family: var(--f-mono); font-size: var(--t-label); opacity: 0.6; }
 
 /* Inline links in prose keep an underline that draws in ink on hover */
 .prose-link {
@@ -107,11 +107,11 @@ html:not(.motion) :is(a, button) .roll__a { translate: none; }
 /* page to page: the film advances one frame. Both pages sit back into frames on black stock, the strip pulls up one frame past
    the sprockets, and the next page opens to fill the screen (the opt-in sits inline in Base.astro) */
 ::view-transition-group(root) {
-  --hole: rgb(238 243 255 / 0.9);
+  --hole: rgb(236 237 233 / 0.92);
   background:
     linear-gradient(var(--hole) 0 20px, transparent 20px) 2.4vw 0 / 14px 34px repeat-y,
     linear-gradient(var(--hole) 0 20px, transparent 20px) calc(100% - 2.4vw) 0 / 14px 34px repeat-y,
-    #1d4fa3;
+    #0b0b0b;
   animation: frame-perf 0.62s var(--pull) both;
 }
 ::view-transition-old(root), ::view-transition-new(root) { mix-blend-mode: normal; transform-origin: 50% 50%; }

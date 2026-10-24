@@ -55,9 +55,9 @@ describe('seeded determinism', () => {
 })
 
 describe('degenerate-but-legal configs', () => {
-  it('out-of-range density clamps with a warning', () => {
-    const tl = compileTimeline(syntheticBoardWithFootprints(8), cfg({ knobs: { density: 9 } }))
-    expect(tl.warnings.some((w) => w.code === 'knob-clamped' && w.message.includes('density'))).toBe(true)
+  it('out-of-range tempo clamps with a warning', () => {
+    const tl = compileTimeline(syntheticBoardWithFootprints(8), cfg({ knobs: { tempo: 9 } }))
+    expect(tl.warnings.some((w) => w.code === 'knob-clamped' && w.message.includes('tempo'))).toBe(true)
   })
 
   it('duration below the 6s floor clamps with a warning', () => {
@@ -73,7 +73,7 @@ describe('degenerate-but-legal configs', () => {
       compileTimeline(syntheticBoardWithFootprints(4), cfg({ output: { width: 0, height: 1350, fps: 15 } }))
     ).toThrow(/width|output/i)
     expect(() =>
-      compileTimeline(syntheticBoardWithFootprints(4), cfg({ knobs: { density: 'dense' as unknown as number } }))
-    ).toThrow(/density/i)
+      compileTimeline(syntheticBoardWithFootprints(4), cfg({ knobs: { tempo: 'fast' as unknown as number } }))
+    ).toThrow(/tempo/i)
   })
 })

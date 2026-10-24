@@ -15,7 +15,6 @@ export function compileStudioFilm(board: BoardModel, config: FilmConfig) {
 }
 
 export const KNOB_RANGES = {
-  density: { min: 0.5, max: 1.5, step: 0.05 },
   tempo: { min: 0.75, max: 1.5, step: 0.05 },
   texts: { min: 0, max: 1, step: 1 }
 } as const
@@ -58,12 +57,11 @@ export interface StudioState {
 }
 
 export const DEFAULT_KNOBS: StudioKnobs = {
-  density: 1,
   tempo: 1,
   texts: 1
 }
 
-export const STUDIO_FPS = 30
+const STUDIO_FPS = 30
 
 /** studio controls → FilmConfig; an empty title name means no card, palette undefined means the style's default */
 export function studioFilmConfig(s: StudioState): FilmConfig {

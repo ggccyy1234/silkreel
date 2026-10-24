@@ -4,9 +4,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as k from "/Users/hridyaagrawal/.claude/skills/anatomy/kit/iso-kit.mjs";
-import * as G from "/Users/hridyaagrawal/.claude/skills/anatomy/kit/lathe.mjs";
-import * as A from "/Users/hridyaagrawal/.claude/skills/anatomy/kit/audit.mjs";
+import * as k from "./kit/iso-kit.mjs";
+import * as G from "./kit/lathe.mjs";
+import * as A from "./kit/audit.mjs";
 import { create } from "fontkitten";
 import * as D from "../src/motion/figure-draw.ts";
 
@@ -113,7 +113,6 @@ function frontPrism(rings, v0, depth) {
   const runs = [];
   const faces = [];
   const frontEdge = [];
-  const crease = [];
   for (const { ring, hole } of rings) {
     const n = ring.length;
     const front = ring.map(([u, z]) => at(u, v0, z));
@@ -718,7 +717,7 @@ gate();
 tensionArm();
 splicer();
 spareCore();
-const VIEWER = viewer();
+viewer();
 pcb();
 cans();
 const COUNTER_DATA = counter();
@@ -737,7 +736,7 @@ A.auditOrExit(R, P);
 // ---------- output ----------
 const lift = (item) => G.dot3(item.move ?? [0, 0, 0], V);
 const screenOf = (move) => k.axisVector(P, move).map((x) => Math.round(x * 100) / 100);
-const items = R.items.map((item, index) => `<g data-k="${item.key.toFixed(3)}"${item.piece ? ` data-p="${STAGGER.indexOf(item.piece)}" data-l="${lift(item).toFixed(3)}"` : ""}>${item.svg}</g>`);
+const items = R.items.map((item) => `<g data-k="${item.key.toFixed(3)}"${item.piece ? ` data-p="${STAGGER.indexOf(item.piece)}" data-l="${lift(item).toFixed(3)}"` : ""}>${item.svg}</g>`);
 const body = [STATIC, `<g class="sr-items">${items.join("")}</g>`].join("");
 const svg = `<svg class="iso-svg" viewBox="0 0 ${WIDTH} ${HEIGHT}" aria-hidden="true" focusable="false">${body}</svg>`;
 

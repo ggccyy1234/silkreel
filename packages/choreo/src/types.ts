@@ -1,4 +1,4 @@
-import type { BoardModel, Vec2 } from '@silk-reel/ingest'
+import type { Vec2 } from '@silk-reel/ingest'
 
 export type GlyphKind = 'package' | 'text' | 'mark'
 
@@ -33,8 +33,6 @@ export interface AtomState {
   y: number
   rot: number
   scale: number
-  /** unused for glyph placements — visibility comes from decodeAlpha */
-  alpha: number
   /** mirrored copies flip the glyph itself so asymmetric outlines/text render mirrored */
   flipX?: boolean | undefined
   flipY?: boolean | undefined
@@ -46,7 +44,7 @@ export type Tone = 'hero' | 'support' | 'punct' | 'text'
 /** one slot's whole symmetry group — all copies flicker in unison; nothing moves */
 export interface Placement {
   glyphId: string
-  /** static pose of every symmetry copy (x,y,rot,scale,flipX,flipY; alpha unused) */
+  /** static pose of every symmetry copy (x,y,rot,scale,flipX,flipY) */
   atoms: AtomState[]
   /** per-copy tone multiplier, same length as atoms (set by the cell's role) */
   tones: number[]
@@ -108,8 +106,6 @@ export interface TitleCard {
 }
 
 export interface Knobs {
-  /** scales cast size / crowding, 0.5-1.5 */
-  density?: number
   /** silkscreen text glyphs on/off, 0 or 1 */
   texts?: number
   /** playback speed, 0.75-1.5; duration = base / tempo */
@@ -326,4 +322,3 @@ export interface TraceScene {
   callouts: TraceCallout[]
 }
 
-export type CompileTimeline = (board: BoardModel, config: FilmConfig) => Timeline

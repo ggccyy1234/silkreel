@@ -4,8 +4,7 @@ import { ASPECT_SIZE } from './layout'
 import { PALETTES, resolvePalette } from './palette'
 import type { Aspect, CastHints, FilmConfig, Knobs, Palette, PaletteId, StyleId, TitleCard } from './types'
 
-export interface ResolvedKnobs {
-  density: number
+interface ResolvedKnobs {
   texts: number
   tempo: number
 }
@@ -33,8 +32,8 @@ export interface DurationPlan {
   warnings: Array<{ code: string; message: string }>
 }
 
-export const MIN_FILM_SECONDS = 6
-export const MAX_FILM_SECONDS = 20
+const MIN_FILM_SECONDS = 6
+const MAX_FILM_SECONDS = 20
 
 function bounded(
   field: string,
@@ -111,12 +110,11 @@ export function resolveConfig(config: FilmConfig): ResolvedConfig {
   const knobs: Knobs = config.knobs
   if (typeof knobs !== 'object') throw new ChoreoConfigError('knobs', knobs, 'expected a knobs object')
 
-  const density = bounded('density', knobs.density, 0.5, 1.5, 1)
   const texts = bounded('texts', knobs.texts, 0, 1, 1)
   const tempo = bounded('tempo', knobs.tempo, 0.75, 1.5, 1)
 
   const knobWarnings: Array<{ code: string; message: string }> = []
-  for (const [field, result] of Object.entries({ density, texts, tempo })) {
+  for (const [field, result] of Object.entries({ texts, tempo })) {
     if (result.requested !== undefined && result.value !== result.requested) {
       knobWarnings.push({
         code: 'knob-clamped',
@@ -179,7 +177,7 @@ export function resolveConfig(config: FilmConfig): ResolvedConfig {
     palette: resolvePalette(style, paletteIdRaw as PaletteId | undefined, config.accent),
     title,
     transparent,
-    knobs: { density: density.value, texts: texts.value, tempo: tempo.value },
+    knobs: { texts: texts.value, tempo: tempo.value },
     seed: config.seed,
     cadence,
     durationSeconds: durationRaw,
@@ -192,7 +190,7 @@ export function resolveConfig(config: FilmConfig): ResolvedConfig {
 }
 
 /** the loop's content doesn't scale with board size — a fixed 11.2s glyph cycle, 12s for trace */
-export function autoDurationSeconds(style: StyleId): number {
+function autoDurationSeconds(style: StyleId): number {
   return style === 'glyph' ? 11.2 : 12
 }
 

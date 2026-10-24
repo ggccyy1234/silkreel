@@ -160,6 +160,9 @@
 .st__cmd-body:focus-visible { outline: 2px solid var(--c-ink); outline-offset: -2px; border-radius: 8px; }
 .st__flag { white-space: nowrap; }
 .st__btns { display: flex; gap: 12px; }
+.st__setup > * + * { margin-top: 12px; }
+.st__setup:has([value='cmd']:checked) .st__setup-agent, .st__setup:has([value='agent']:checked) .st__setup-cmd { display: none; }
+.st__setup .term__body { font-size: var(--t-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .st__btns > .btn, .st__render { flex: 1; min-width: 0; }
 .st__render .btn { width: 100%; }
 .st__jobs { list-style: none; padding: 0; display: grid; gap: 8px; max-height: 176px; overflow-y: auto; scrollbar-width: thin; }

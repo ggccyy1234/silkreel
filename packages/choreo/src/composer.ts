@@ -4,7 +4,8 @@ import type { ActPlan, Cell, Role, Room } from './acts'
 import { CELL_KINDS, cellGlyph, cellId, heroChip, takeCensus } from './cells'
 import type { CellKind, Census } from './cells'
 import { DECODE_IN } from './decode'
-import { buildCast } from './glyphs'
+import { mod } from './curves'
+import { buildCast, REFDES, VALUE } from './glyphs'
 import { safeArea } from './layout'
 import { makeRng } from './rng'
 import type { Rng } from './rng'
@@ -20,8 +21,6 @@ import type { AtomState, FormationEvent, Glyph, Placement, TimelineWarning, Tone
  * residue is the first frame of the loop.
  */
 
-/** decode steps per beat — every act boundary lands on this grid */
-export const BEAT_STEPS = 7
 const DECODE_IN_STEPS = DECODE_IN[0]?.length ?? 5
 /** a full loop is 24 beats (168 steps, 11.2s) */
 const LOOP_BEATS = 24
@@ -56,7 +55,6 @@ const ROLE_KIND: Record<Role, Tone> = {
   anchor: 'support', body: 'support', edge: 'punct', joint: 'punct', accent: 'punct', hero: 'hero', text: 'text'
 }
 
-const mod = (a: number, n: number): number => ((a % n) + n) % n
 
 export interface ComposeResult {
   cast: Glyph[]
@@ -101,7 +99,7 @@ function expand(cell: Cell, scale: number, text: boolean): AtomState[] {
   const rot = cell.rot ?? 0
   const fx = cell.flipX === true
   const fy = cell.flipY === true
-  const base: AtomState = { x, y, rot, scale, alpha: 1, flipX: fx, flipY: fy }
+  const base: AtomState = { x, y, rot, scale, flipX: fx, flipY: fy }
   // words never mirror: copies move, the text stays readable
   const flip = (ax: boolean, ay: boolean): AtomState =>
     text ? { ...base, x: ax ? -x : x, y: ay ? -y : y } : { ...base, x: ax ? -x : x, y: ay ? -y : y, flipX: ax ? !fx : fx, flipY: ay ? !fy : fy }
@@ -168,8 +166,6 @@ function growthDistances(units: Unit[], seeds: Vec2[]): number[] {
   return dist.map((d) => (d === Infinity ? 0 : d))
 }
 
-const REFDES = /^[A-Z]{1,3}\d+$/
-const VALUE = /^\d+(\.\d+)?[pnuµmkKM]?[FHΩR]?$/
 
 /**
  * Two short words off the board's own silk — net names, block labels — for
@@ -214,7 +210,6 @@ export function composeFilm(
   const warnings: TimelineWarning[] = []
   const { cast: bench, warnings: castWarnings } = buildCast(
     board,
-    resolved.knobs.density,
     resolved.knobs.texts >= 0.5,
     makeRng(seed, 'cast'),
     resolved.cast
@@ -328,7 +323,7 @@ export function composeFilm(
   // seed marks: the next act's first dots appear while the last act strips
   for (const [ai, act] of acts.entries()) {
     const t = SCORE[ai] as ActTiming
-    const atoms = act.seeds.map((p) => ({ x: p.x * PITCH, y: p.y * PITCH, rot: 0, scale: 0.8 * PITCH, alpha: 1 }))
+    const atoms = act.seeds.map((p) => ({ x: p.x * PITCH, y: p.y * PITCH, rot: 0, scale: 0.8 * PITCH }))
     units.push({
       act: ai,
       lag: 1,

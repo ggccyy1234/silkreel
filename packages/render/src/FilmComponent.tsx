@@ -50,7 +50,7 @@ export function drawAnnotations(ctx: CanvasRenderingContext2D, anns: Annotation[
   }
 }
 
-export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, quality, children }) => {
+export const Film: React.FC<FilmProps> = ({ timeline, grain = true, quality, children }) => {
   useFont()
   const frame = useCurrentFrame()
   const { width, height } = useVideoConfig()
@@ -120,4 +120,3 @@ export const FilmCanvas: React.FC<FilmProps> = ({ timeline, grain = true, qualit
   )
 }
 
-export const Film: React.FC<FilmProps> = (props) => <FilmCanvas {...props} />

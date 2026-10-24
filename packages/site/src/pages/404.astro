@@ -1,12 +1,13 @@
 ---
 import Base from '../layouts/Base.astro'
 import Footer from '../components/Footer.astro'
+import Lettering from '../components/Lettering.astro'
 import '../styles/docs.css'
 ---
 <Base title="Not found" image="/og-404.png" description="There is no page at this address. Go back to the film or read the docs." noindex>
   <section class="lost">
     <div class="lost__say">
-      <h1 class="xl">This page never powered on.</h1>
+      <h1 class="xl"><Lettering text="This page never powered on." /></h1>
       <p class="lede">There is no page at this address.</p>
       <div class="lost__actions">
         <a class="btn btn--solid" href="/">Back to the film</a>

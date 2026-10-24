@@ -2,7 +2,7 @@ import type { Aspect, GlyphTimeline } from '@silk-reel/choreo'
 import { filmFrom } from './world'
 import type { Film } from './world'
 
-export const ASPECTS: Aspect[] = ['4:5', '1:1', '9:16', '16:9']
+const ASPECTS: Aspect[] = ['4:5', '1:1', '9:16', '16:9']
 const slug = (a: Aspect) => a.replace(':', 'x')
 
 const cache = new Map<string, Promise<Film>>()

@@ -1,9 +1,12 @@
 ---
 import Base from '../layouts/Base.astro'
 import Footer from '../components/Footer.astro'
+import Drawing from '../components/Drawing.astro'
+import Lettering from '../components/Lettering.astro'
 import Mark from '../components/Mark.astro'
-import { PALETTES } from '@silk-reel/choreo'
-import { aspects, boards, inks, site } from '../data/site'
+import { ASPECT_SIZE, PALETTES, TRACE_ACTS } from '@silk-reel/choreo'
+import { acts, aspects, boards, inks, site } from '../data/site'
+import outlines from '../blueprint/outlines.json'
 import '../styles/home.css'
 
 const n = (v: number) => v.toLocaleString('en-US')
@@ -11,10 +14,24 @@ const styles = [
   { id: 'glyph', text: 'Parts set as type' },
   { id: 'trace', text: 'The lit board' }
 ] as const
-const frameIcon = (id: string, size = 18) => {
-  const [w, h] = id.split(':').map(Number) as [number, number]
-  const k = size / Math.max(w, h)
-  return `width:${(w * k).toFixed(1)}px;height:${(h * k).toFixed(1)}px`
+// each look's steps on its 24-beat score, as a chain of spans; a gap between two trace acts is a held pause
+const B = 24
+const beat = (t: number) => Math.round(t * B * 100) / 100
+const traceActs = Object.entries(TRACE_ACTS).map(([k, [a, b]]) => ({ k, a: beat(a), b: beat(b) })).sort((p, q) => p.a - q.a)
+const chain = (starts: { k: string; a: number }[]) => starts.map((s, i) => ({ ...s, b: starts[i + 1]?.a ?? B }))
+const score = {
+  trace: chain(traceActs.flatMap((s, i) => { const next = traceActs[i + 1]; return next && s.b < next.a ? [s, { k: 'wait', a: s.b }] : [s] })),
+  glyph: chain(acts.map((s) => ({ k: s.say, a: s.at })))
+}
+// the board picker draws each board's plan in a 2:1 box; its width dimension spans the drawn outline
+const plan = (id: string) => {
+  const o = outlines[id as keyof typeof outlines]
+  return { ...o, span: Math.min(1, o.w / o.h / 2) * 100 }
+}
+// the aspect picker draws every output frame on one scale: 1920 px is 96 px
+const frame = (id: keyof typeof ASPECT_SIZE) => {
+  const { width, height } = ASPECT_SIZE[id]
+  return { width, w: (width / 20).toFixed(1), h: (height / 20).toFixed(1) }
 }
 ---
 <Base>
@@ -28,7 +45,7 @@ const frameIcon = (id: string, size = 18) => {
       </div>
     </div>
     <div class="drop" data-drop aria-hidden="true">
-      <p class="drop__say">Drop your board</p>
+      <p class="drop__say"><Lettering text="Drop your board" align="middle" /></p>
       <p class="drop__note">Nothing leaves this tab.</p>
     </div>
     <div class="toast" data-toast role="status" aria-live="polite"></div>
@@ -42,7 +59,7 @@ const frameIcon = (id: string, size = 18) => {
       </picture>
     </div>
     <div class="hero__say">
-      <h1 id="hero-title" class="hero__title">A circuit board in.<br />A film out.</h1>
+      <h1 id="hero-title" class="hero__title"><Lettering text={"A circuit board in.\nA film out."} weight={0.06} align="end" /></h1>
       <p class="hero__lede">Give silk reel a KiCad board file. Get a release film of that board.</p>
       <div class="hero__act">
         <div class="term hero__cmd">
@@ -60,7 +77,7 @@ const frameIcon = (id: string, size = 18) => {
       <div class="gate__box" aria-hidden="true"></div>
       <svg class="gate__beam" data-beam aria-hidden="true"><defs><linearGradient id="beam-light" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0.95" /><stop offset="1" stop-color="#fff" stop-opacity="0.18" /></linearGradient></defs><polygon data-beam-poly /><line data-beam-a /><line data-beam-b /></svg>
       <div class="gate__head">
-        <h2 id="gate-title" class="gate__title">Every frame,<br />in your hands.</h2>
+        <h2 id="gate-title" class="gate__title"><Lettering text={"Every frame,\nin your hands."} /></h2>
         <p class="gate__body">Scroll to run the film one frame at a time.</p>
       </div>
       <div class="gate__screen" data-screen tabindex="0" role="slider" aria-label="The iCEBreaker glyph film, frame in the gate" aria-valuemin="0" aria-valuemax="335" aria-valuenow="0" aria-valuetext="Frame 0 of 336" aria-keyshortcuts="Space ArrowLeft ArrowRight">
@@ -70,34 +87,39 @@ const frameIcon = (id: string, size = 18) => {
     </div>
   </section>
 
+  <Drawing />
+
   <section class="looks" id="board" aria-labelledby="looks-title">
     <div class="stock pos">
       <div class="looks__head">
-        <h2 id="looks-title" class="looks__title"><span>Two looks.</span> <span>One board.</span></h2>
+        <h2 id="looks-title" class="looks__title"><Lettering text={"Two looks.\nOne board."} accent={1} weight={0.06} align="middle" /></h2>
         <p class="looks__body">Pick a style. Each film is built from the same board file.</p>
       </div>
       <div class="looks__run">
         <figure class="look" data-look="trace">
           <figcaption class="look__k">Trace</figcaption>
           <div class="look__frame">
-            <video data-look-video muted loop playsinline preload="none" poster="/films/trace/icebreaker-poster.webp" width="1280" height="720" aria-label="The iCEBreaker trace film"><source src="/films/trace/icebreaker-720.mp4" type="video/mp4" /></video>
+            <video data-look-video muted loop playsinline preload="none" poster="/films/trace/glasgow-poster.webp" width="1280" height="720" aria-label="The Glasgow trace film"><source src="/films/trace/glasgow-540.mp4" type="video/mp4" /></video>
           </div>
+          <ol class="acts" data-acts aria-label="Steps of the trace film">{score.trace.map((s) => <li data-at={s.a} data-end={s.b} style={`flex:${s.b - s.a}`}><button type="button" class="dim" aria-label={`Play from ${s.k}`}>{s.k}</button></li>)}</ol>
           <p class="look__say">The lit board under a camera, from bare copper to powered on.</p>
         </figure>
         <figure class="look" data-look="glyph">
           <figcaption class="look__k">Glyph</figcaption>
           <div class="look__frame">
-            <canvas data-look-film role="img" aria-label="The iCEBreaker glyph film"></canvas>
+            <canvas data-look-film role="img" aria-label="The Glasgow glyph film"></canvas>
           </div>
+          <ol class="acts" data-acts aria-label="Steps of the glyph film">{score.glyph.map((s) => <li data-at={s.a} data-end={s.b} style={`flex:${s.b - s.a}`}><button type="button" class="dim" aria-label={`Play from ${s.k}`}>{s.k}</button></li>)}</ol>
           <p class="look__say">Every part of the board set as type, in a loop.</p>
         </figure>
       </div>
+      <p class="looks__credit silk">Glasgow rev C3 · Glasgow Embedded · 0BSD · iCEBreaker © 2019 1BitSquared · CC BY-SA 4.0</p>
     </div>
   </section>
 
   <section class="make" id="make" aria-labelledby="make-title">
     <div class="make__head">
-      <h2 id="make-title" class="make__title">One command. Any board.</h2>
+      <h2 id="make-title" class="make__title"><Lettering text="One command. Any board." weight={0.08} /></h2>
       <p class="make__body">Change a word and the film below follows. Copy the line to render it on your machine.</p>
     </div>
     <div class="make__run">
@@ -119,16 +141,25 @@ const frameIcon = (id: string, size = 18) => {
         <div class="monitor__stage" data-monitor-stage>
           <canvas data-monitor-film role="img" aria-label="The film for the command"></canvas>
           <video data-monitor-video muted loop playsinline preload="none" aria-label="The trace film for the command" hidden></video>
+          <span class="dim dim--w" data-dim-w>{ASPECT_SIZE['16:9'].width} px</span>
+          <span class="dim dim--h" data-dim-h>{ASPECT_SIZE['16:9'].height} px</span>
         </div>
-        <p class="monitor__tc silk" aria-hidden="true" data-monitor-tc>00:00.00</p>
+        <div class="monitor__foot">
+          <p class="monitor__note" data-monitor-note hidden></p>
+          <p class="monitor__tc silk" aria-hidden="true" data-monitor-tc>00:00.00</p>
+        </div>
       </div>
     </div>
 
-    <div class="pick" id="pick-board" popover data-pick="board">
+    <div class="pick pick--grid pick--boards" id="pick-board" popover data-pick="board">
       <div class="pick__list" role="menu" aria-label="Board">
-        {boards.map((b, i) => (
-          <button type="button" role="menuitemradio" class="pick__o" data-v={b.id} aria-checked={i === 0 ? 'true' : 'false'}><span>{b.name}</span><span class="silk">{n(b.footprints)} parts</span></button>
-        ))}
+        {boards.map((b, i) => { const o = plan(b.id); return (
+          <button type="button" role="menuitemradio" class="pick__o pick__tile" data-v={b.id} aria-checked={i === 0 ? 'true' : 'false'}>
+            <svg class="pick__plan" viewBox={`-1 -1 ${o.w + 2} ${o.h + 2}`} aria-hidden="true"><path class="pick__parts" d={o.parts} /><path class="pick__hero" d={o.hero} /><path class="pick__edge" d={o.outline} />{o.holes.map(([x, y, r]) => <circle class="pick__edge" cx={x} cy={y} r={r} />)}</svg>
+            <span class="dim" aria-hidden="true" style={`width:${o.span.toFixed(1)}%`}>{o.w} mm</span>
+            <span class="pick__id"><span>{b.name}</span><span class="silk">{n(b.footprints)} parts</span></span>
+          </button>
+        )})}
         <button type="button" role="menuitem" class="pick__o pick__o--own" data-own><span>Your own board…</span><span class="silk">Stays in this tab</span></button>
       </div>
     </div>
@@ -139,17 +170,23 @@ const frameIcon = (id: string, size = 18) => {
         ))}
       </div>
     </div>
-    <div class="pick" id="pick-aspect" popover data-pick="aspect">
+    <div class="pick pick--grid pick--aspects" id="pick-aspect" popover data-pick="aspect">
       <div class="pick__list" role="menu" aria-label="Aspect">
-        {aspects.map((a) => (
-          <button type="button" role="menuitemradio" class="pick__o" data-v={a.id} aria-checked={a.id === '16:9' ? 'true' : 'false'}><span><i class="pick__frame" aria-hidden="true" style={frameIcon(a.id)}></i>{a.id}</span><span class="silk">{a.use}</span></button>
-        ))}
+        {aspects.map((a) => { const f = frame(a.id); return (
+          <button type="button" role="menuitemradio" class="pick__o pick__tile" data-v={a.id} aria-checked={a.id === '16:9' ? 'true' : 'false'}>
+            <span class="pick__stage" aria-hidden="true"><i class="pick__frame" style={`width:${f.w}px;height:${f.h}px`}></i><span class="dim" style={`width:${f.w}px`}>{f.width} px</span></span>
+            <span class="pick__id"><span>{a.id}</span><span class="silk">{a.use}</span></span>
+          </button>
+        )})}
       </div>
     </div>
-    <div class="pick" id="pick-palette" popover data-pick="palette">
+    <div class="pick pick--grid pick--inks" id="pick-palette" popover data-pick="palette">
       <div class="pick__list" role="menu" aria-label="Palette">
         {inks.map((k, i) => (
-          <button type="button" role="menuitemradio" class="pick__o" data-v={k.id} aria-checked={i === 0 ? 'true' : 'false'}><span><i class="pick__ink" aria-hidden="true" style={`--sw:${PALETTES[k.id].silk};--sw-bg:${PALETTES[k.id].bg}`}></i>{k.id}</span></button>
+          <button type="button" role="menuitemradio" class="pick__o pick__tile" data-v={k.id} aria-checked={i === 0 ? 'true' : 'false'}>
+            <canvas class="pick__still" data-still={k.id} style={`background:${PALETTES[k.id].bg}`} aria-hidden="true"></canvas>
+            <span class="pick__id"><span>{k.id}</span><span class="silk">{k.text}</span></span>
+          </button>
         ))}
       </div>
     </div>

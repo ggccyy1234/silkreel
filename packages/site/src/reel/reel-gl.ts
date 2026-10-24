@@ -77,7 +77,6 @@ const hex3 = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)
 
 export class ReelGL {
   private gl: WebGL2RenderingContext
-  private prog: WebGLProgram
   private u: Record<string, WebGLUniformLocation | null> = {}
   private sizes = { atlas: [1, 1], head: [1, 1] }
   readonly canvas: HTMLCanvasElement
@@ -100,7 +99,6 @@ export class ReelGL {
     gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FRAG))
     gl.linkProgram(prog)
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) ?? 'link')
-    this.prog = prog
     gl.useProgram(prog)
     for (const n of ['uRes', 'uK', 'uC', 'uLeader', 'uEx', 'uAtlas', 'uAtlasSize', 'uT', 'uHead', 'uHeadSize', 'uTH', 'uGround']) this.u[n] = gl.getUniformLocation(prog, n)
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer())
@@ -129,8 +127,6 @@ export class ReelGL {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
   }
-
-  setGround(hex: string) { this.gl.uniform3fv(this.u.uGround ?? null, hex3(hex)) }
 
   draw(pose: ReelPose, dpr: number) {
     const gl = this.gl

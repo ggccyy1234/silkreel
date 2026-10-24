@@ -3,7 +3,6 @@ import type { FastifyInstance } from 'fastify'
 import path from 'node:path'
 import { mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { buildApp } from './server.js'
-import type { GateExpectations, GateReport } from './gate.js'
 import type { RenderJob, RenderQueuePort, RenderSubmission } from './queue.js'
 import type { OutputFormat } from './render-film.js'
 
@@ -226,7 +225,7 @@ describe('render-api contract', () => {
       const submitted = await app.inject({
         method: 'POST',
         url: '/render',
-        payload: { demoId: 'ecc83-pp', filmConfig: { knobs: { density: 1.2 } } }
+        payload: { demoId: 'ecc83-pp', filmConfig: { knobs: { tempo: 1.2 } } }
       })
       expect(submitted.statusCode).toBe(202)
       const submittedBody: JobResponse = submitted.json()
@@ -313,58 +312,5 @@ describe('render-api contract', () => {
     } finally {
       await rm(testExports, { recursive: true, force: true })
     }
-  })
-
-  it('gate endpoint validates path scope', async () => {
-    await withApp(new StubQueue(), async (app) => {
-      const missing = await app.inject({
-        method: 'POST',
-        url: '/gate',
-        payload: { videoPath: '/etc/passwd' }
-      })
-      expect(missing.statusCode).toBe(400)
-      const absent = await app.inject({
-        method: 'POST',
-        url: '/gate',
-        payload: { videoPath: 'fixtures/nope.mp4' }
-      })
-      expect(absent.statusCode).toBe(404)
-    })
-  })
-
-  it('uses an injected gate runner for the fixed canonical expectation', async () => {
-    const calls: Array<{ videoPath: string; totalFrames: number }> = []
-    const runGate = (videoPath: string, expectations: GateExpectations): Promise<GateReport> => {
-      calls.push({ videoPath, totalFrames: expectations.totalFrames })
-      return Promise.resolve({
-        file: videoPath,
-        passed: true,
-        facts: {
-          width: expectations.width,
-          height: expectations.height,
-          fps: expectations.fps,
-          durationSeconds: expectations.totalFrames / expectations.fps,
-          frameCount: expectations.totalFrames,
-          codec: 'h264',
-          pixFmt: 'yuv420p',
-          audioStreamCount: 0
-        },
-        rules: []
-      })
-    }
-    const app = buildApp({ queue: new StubQueue(), runGate })
-    try {
-      const response = await app.inject({
-        method: 'POST',
-        url: '/gate',
-        payload: { videoPath: 'fixtures/boards/ecc83-pp.kicad_pcb' }
-      })
-      expect(response.statusCode).toBe(200)
-      expect(response.json<GateReport>().passed).toBe(true)
-    } finally {
-      await app.close()
-    }
-    expect(calls).toHaveLength(1)
-    expect(calls[0]?.totalFrames).toBe(167)
   })
 })

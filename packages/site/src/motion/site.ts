@@ -19,7 +19,7 @@ function decodeMark() {
 }
 
 /** a label rolls up one line under the pointer, like the strip advancing a frame; the copy below it is for the eye only */
-export function roll(el: HTMLElement, text?: string) {
+function roll(el: HTMLElement, text?: string) {
   const label = text ?? el.querySelector('.roll__a')?.textContent ?? el.textContent
   const a = document.createElement('span')
   const b = document.createElement('span')
@@ -67,7 +67,7 @@ function navState() {
   ;[document.getElementById('top'), document.querySelector('footer')].forEach((el) => { if (el) clear.observe(el) })
 }
 
-export function copyButtons(root: ParentNode = document) {
+function copyButtons(root: ParentNode = document) {
   root.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((b) => {
     const label = b.querySelector<HTMLElement>('[data-copy-label]')
     b.addEventListener('click', () => {

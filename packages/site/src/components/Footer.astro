@@ -1,19 +1,7 @@
 ---
 import FooterFigure from './FooterFigure.astro'
-const links = [
-  { href: '/#film', label: 'Film' },
-  { href: '/studio/', label: 'Studio' },
-  { href: '/docs/', label: 'Docs' }
-]
 ---
 <footer class="ft">
-  <div class="ft__row">
-    <a class="ft__word" href="/" aria-label="silk reel, home">silk reel</a>
-    <nav class="ft__nav" aria-label="Footer">
-      {links.map((l) => <a class="prose-link" href={l.href}>{l.label}</a>)}
-    </nav>
-    <p class="ft__credits">Boards: iCEBreaker © 2019 1BitSquared, CC BY-SA 4.0 · Glasgow, rev C3 · KiCad demo projects. Type: Instrument Sans and JetBrains Mono, OFL.</p>
-  </div>
   <FooterFigure />
 </footer>
 <script>
@@ -31,12 +19,5 @@ const links = [
 </script>
 <style>
   .ft { position: relative; z-index: 3; padding: clamp(40px, 5vh, 56px) var(--gutter) var(--gutter); background: var(--c-bg); overflow-x: clip; }
-  .ft__row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 32px; }
-  .ft__word { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; font-size: 1.0625rem; letter-spacing: -0.02em; white-space: nowrap; }
-  .ft__nav { display: flex; gap: 24px; }
-  .ft__nav a { position: relative; font-size: var(--t-s); }
-  .ft__nav a::before { content: ''; position: absolute; inset: -14px -6px; }
-  .ft__credits { flex: 1 1 28rem; min-width: 0; font-size: var(--t-s); line-height: 1.5; color: var(--c-muted); text-wrap: pretty; }
-  @media (min-width: 861px) { .ft__credits { text-align: right; } }
   :global(html:not(.motion) .ft__fig) { cursor: auto; }
 </style>

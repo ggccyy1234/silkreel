@@ -226,7 +226,7 @@ export function classifyKicad(root: SExprNode[], fileName: string): BoardModel {
   function silkFor(layerId: string): SilkLayer {
     let s = silkscreen[layerId]
     if (!s) {
-      s = { lines: [], arcs: [], texts: [] }
+      s = { lines: [], texts: [] }
       silkscreen[layerId] = s
     }
     return s
@@ -825,14 +825,17 @@ function normalizeAngle(a: number): number {
   return x
 }
 
-export function approximateArc(a: Vec2, m: Vec2, b: Vec2, maxSegmentLength = 0.4): Vec2[] {
+// arcs and circles become polylines with segments no longer than this, in mm
+const MAX_SEGMENT = 0.4
+
+function approximateArc(a: Vec2, m: Vec2, b: Vec2): Vec2[] {
   const geo = circleFrom3(a, m, b)
   if (geo === undefined) return [a, b]
   const dir = normalizeAngle(geo.midAngle - geo.startAngle) >= 0 ? 1 : -1
   let sweep = dir * normalizeAngle(geo.endAngle - geo.startAngle)
   if (sweep < 0) sweep += 2 * Math.PI
   if (sweep === 0) sweep = 2 * Math.PI
-  const steps = Math.min(96, Math.max(2, Math.ceil((geo.r * sweep) / maxSegmentLength)))
+  const steps = Math.min(96, Math.max(2, Math.ceil((geo.r * sweep) / MAX_SEGMENT)))
   const out: Vec2[] = []
   for (let i = 0; i <= steps; i++) {
     const t = geo.startAngle + (sweep * i) / steps
@@ -841,9 +844,9 @@ export function approximateArc(a: Vec2, m: Vec2, b: Vec2, maxSegmentLength = 0.4
   return out
 }
 
-function approximateFullCircle(c: Vec2, r: number, maxSegmentLength = 0.4): Vec2[] {
+function approximateFullCircle(c: Vec2, r: number): Vec2[] {
   const safeR = r > 0 ? r : 0.01
-  const steps = Math.min(96, Math.max(8, Math.ceil((2 * Math.PI * safeR) / maxSegmentLength)))
+  const steps = Math.min(96, Math.max(8, Math.ceil((2 * Math.PI * safeR) / MAX_SEGMENT)))
   const out: Vec2[] = []
   for (let i = 0; i <= steps; i++) {
     const t = (2 * Math.PI * i) / steps

@@ -112,7 +112,7 @@ describe('composeFilm cast', () => {
   it('cast hints promote the listed refs and texts into the cast', () => {
     // compileTimeline's cast is trimmed to placed glyphs — the hint contract
     // lives in buildCast
-    const { cast } = buildCast(boardModel('icebreaker.kicad_pcb'), 1, true, makeRng(42, 'cast'), {
+    const { cast } = buildCast(boardModel('icebreaker.kicad_pcb'), true, makeRng(42, 'cast'), {
       preferRefs: ['P1', 'J31'],
       preferTexts: ['iCEBreaker', 'FPGA']
     })
@@ -147,7 +147,7 @@ describe('composeFilm cast', () => {
   it('embeds silkscreen labels inside package glyphs', () => {
     // label embedding lives in buildCast — the timeline's cast is trimmed to
     // placed glyphs, and pkg:* silhouettes are not placed by the cell score
-    const { cast } = buildCast(boardModel('icebreaker.kicad_pcb'), 1, true, makeRng(42, 'cast'))
+    const { cast } = buildCast(boardModel('icebreaker.kicad_pcb'), true, makeRng(42, 'cast'))
     const labelled = cast.filter((g) => g.kind === 'package' && (g.labels?.length ?? 0) > 0)
     expect(labelled.length).toBeGreaterThan(0)
     for (const g of labelled) {

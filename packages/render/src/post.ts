@@ -1,7 +1,7 @@
 // WebGL2 post pass: soft-knee bright pass -> dual-Kawase blur pyramid ->
 // composite (bloom + vignette + grain/dither). Stateless per frame; the caller
 // uploads the freshly drawn 2D canvas each render.
-export interface PostOptions {
+interface PostOptions {
   /** 0..1 bloom strength (palette.bloom) */
   bloom: number
   grain: boolean
@@ -59,13 +59,14 @@ void main(){ vec2 f = vec2(uv.x, 1.0 - uv.y); // canvas texture is top-down
 
 const LEVELS = 5 // dual-Kawase depth: half-res bright + 5 down / 5 up
 
-function compileShader(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader | undefined {
+export function compileShader(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader | undefined {
   const sh = gl.createShader(type)
   if (sh === null) return undefined
   gl.shaderSource(sh, src)
   gl.compileShader(sh)
   if (gl.getShaderParameter(sh, gl.COMPILE_STATUS) !== true) {
-    console.warn(`post shader: ${gl.getShaderInfoLog(sh) ?? 'compile failed'}`)
+    // eslint-disable-next-line no-console
+    console.warn(`shader: ${gl.getShaderInfoLog(sh) ?? 'compile failed'}`)
     gl.deleteShader(sh)
     return undefined
   }
@@ -84,6 +85,7 @@ function linkProgram(gl: WebGL2RenderingContext, fragSrc: string, vert: WebGLSha
   gl.linkProgram(prog)
   gl.deleteShader(frag)
   if (gl.getProgramParameter(prog, gl.LINK_STATUS) !== true) {
+    // eslint-disable-next-line no-console
     console.warn(`post program: ${gl.getProgramInfoLog(prog) ?? 'link failed'}`)
     gl.deleteProgram(prog)
     return undefined

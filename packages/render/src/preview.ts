@@ -15,7 +15,7 @@ export interface Preview {
   dispose(): void
 }
 
-/** the render pipeline without Remotion: the same frames FilmCanvas draws, for a live page */
+/** the render pipeline without Remotion: the same frames Film draws, for a live page */
 export function createPreview(canvas: HTMLCanvasElement, quality: TraceQuality = { subframes: 1, mapScale: 1.25 }): Preview {
   void loadFont()
   let post: Post | null | undefined

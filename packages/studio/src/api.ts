@@ -93,8 +93,8 @@ export function summarize(board: BoardModel, fileName: string): BoardSummary {
     elements += c.traces.length + c.pads.length + c.vias.length + c.zones.length
   }
   for (const s of Object.values(board.silkscreen)) {
-    silkMarkCount += s.lines.length + s.texts.length + s.arcs.length
-    elements += s.lines.length + s.texts.length + s.arcs.length
+    silkMarkCount += s.lines.length + s.texts.length
+    elements += s.lines.length + s.texts.length
   }
   return {
     board,
@@ -148,7 +148,7 @@ interface RenderJobResponse {
   metricsError?: string
 }
 
-export type JobPhase = 'pending' | 'rendering' | 'done' | 'error' | 'cancelled'
+type JobPhase = 'pending' | 'rendering' | 'done' | 'error' | 'cancelled'
 
 export interface ExportJob {
   jobId: string

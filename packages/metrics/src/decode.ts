@@ -100,17 +100,14 @@ export async function probeVideo(videoPath: string): Promise<VideoFacts> {
 
 export async function* decodeGrayFrames(
   videoPath: string,
-  spec: { width: number; height: number },
-  options: { everyNthFrame?: number } = {}
+  spec: { width: number; height: number }
 ): AsyncGenerator<DecodedFrame> {
   const ffmpeg = await resolveBinary(FFMPEG_CANDIDATES)
-  const everyNth = Math.max(1, options.everyNthFrame ?? 1)
-  const vf = everyNth > 1 ? `format=gray,select=not(mod(n\\,${everyNth}))` : 'format=gray'
 
   const child = spawn(ffmpeg, [
     '-nostdin',
     '-i', videoPath,
-    '-vf', vf,
+    '-vf', 'format=gray',
     '-f', 'rawvideo',
     '-pix_fmt', 'gray',
     '-'
@@ -134,7 +131,7 @@ export async function* decodeGrayFrames(
   const stdout = child.stdout
   const frameSize = spec.width * spec.height
   let frameIndex = 0
-  const failures: Error[] = []
+  let failure: Error | undefined
 
   try {
     for (;;) {
@@ -155,12 +152,8 @@ export async function* decodeGrayFrames(
         })
       }
     })
-    if (code !== 0) {
-      const failure = new Error(`ffmpeg exited ${code} decoding ${videoPath}: ${stderrTail.trim()}`)
-      failures.push(failure)
-    }
+    if (code !== 0) failure = new Error(`ffmpeg exited ${code} decoding ${videoPath}: ${stderrTail.trim()}`)
   }
-  const failure = failures[0]
   if (failure !== undefined) throw failure
 }
 

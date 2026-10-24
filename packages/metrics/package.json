@@ -11,9 +11,6 @@
     "lint": "eslint src",
     "test": "vitest run",
     "build": "tsc --noEmit",
-    "gate": "tsx src/cli.ts ../../fixtures/canonical.mp4",
-    "metrics:gate": "tsx src/cli.ts ../../fixtures/canonical.mp4"
-  },
-  "dependencies": {},
-  "devDependencies": {}
+    "gate": "tsx src/cli.ts ../../fixtures/canonical.mp4"
+  }
 }

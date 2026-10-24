@@ -10,7 +10,7 @@ import type { FormationId, Glyph } from './types'
  * previous act strips back toward them, so every act hands off like a match
  * cut instead of a fade.
  */
-export type Sym = 'single' | 'rot2' | 'mirrorX' | 'quad'
+type Sym = 'single' | 'rot2' | 'mirrorX' | 'quad'
 export type Role = 'anchor' | 'body' | 'edge' | 'joint' | 'accent' | 'hero' | 'text'
 
 export interface Cell {

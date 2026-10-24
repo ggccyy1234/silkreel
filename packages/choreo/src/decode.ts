@@ -1,4 +1,4 @@
-import { smooth01 } from './curves'
+import { mod, smooth01 } from './curves'
 
 /**
  * Decode flicker: a unit blinks on through a 5-step pattern, holds, then blinks
@@ -25,7 +25,6 @@ export const DECODE_OUT: number[][] = [
 const IN_LEN = DECODE_IN[0]?.length ?? 0
 const OUT_LEN = DECODE_OUT[0]?.length ?? 0
 
-const mod = (a: number, n: number): number => ((a % n) + n) % n
 
 /**
  * visibility 0..1 of a unit at loop step `step` (integer for twos; fractional

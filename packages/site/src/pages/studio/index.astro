@@ -69,7 +69,7 @@ const looks = [
             <label class="st__look"><input type="radio" name="style" value={l.id} checked={i === 0} /><span class="st__look-n">{l.name}</span><span class="st__look-t">{l.text}</span></label>
           ))}
         </div>
-        <p class="st__note" data-live-note hidden>Your board plays as glyph here. Trace renders from the command line.</p>
+        <p class="st__note" data-live-note hidden></p>
         <div class="st__inks" role="radiogroup" aria-label="Palette" data-only="glyph">
           {inks.map((k, i) => (
             <label class="st__ink" title={k.text}><input type="radio" name="palette" value={k.id} checked={i === 0} /><i style={`--sw:${PALETTES[k.id].silk};--sw-bg:${PALETTES[k.id].bg}`} aria-hidden="true"></i><span class="sr-only">{k.id}</span></label>
@@ -100,7 +100,6 @@ const looks = [
         <summary>Advanced</summary>
         <div class="st__adv-in">
           <label class="st__range"><span>Tempo</span><input type="range" name="tempo" min="0.75" max="1.5" step="0.05" value="1" /><output class="mono" data-out-for="tempo">1.00×</output></label>
-          <label class="st__range" data-only="glyph"><span>Density</span><input type="range" name="density" min="0.5" max="1.5" step="0.05" value="1" /><output class="mono" data-out-for="density">1.00</output></label>
           <div class="st__row">
             <label class="st__field st__field--seed"><span>Seed</span><input type="number" name="seed" value="42" min="0" max="99999" inputmode="numeric" /></label>
             <button type="button" class="st__dice" data-dice aria-label="New random seed"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" /><circle cx="5.5" cy="5.5" r="1" /><circle cx="10.5" cy="10.5" r="1" /><circle cx="8" cy="8" r="1" /></svg></button>
@@ -114,7 +113,7 @@ const looks = [
       </details>
 
       <fieldset class="st__g st__cmd">
-        <legend>Command line</legend>
+        <legend>On your machine</legend>
         <div class="st__chips" role="radiogroup" aria-label="Format">
           {formats.map((f, i) => (
             <label class="st__chip" title={f.use}><input type="radio" name="format" value={f.id} checked={i === 0} /><span>{f.name.split(' ')[0]}</span></label>
@@ -128,6 +127,21 @@ const looks = [
           </div>
         </div>
         <ol class="st__jobs" data-jobs aria-live="polite"></ol>
+        <div class="st__setup" data-setup>
+          <p class="st__note">This tab plays the film and records WebM. MP4, GIF, ProRes, the full trace film with its sound, and trace for your own board render on your machine. Set it up once:</p>
+          <div class="st__chips" role="radiogroup" aria-label="Setup">
+            <label class="st__chip"><input type="radio" name="setup" value="cmd" checked /><span>Commands</span></label>
+            <label class="st__chip"><input type="radio" name="setup" value="agent" /><span>Agent prompt</span></label>
+          </div>
+          <div class="term st__setup-cmd">
+            <div class="term__bar"><p class="silk">Terminal</p><button type="button" class="term__copy silk" data-copy="" data-copy-setup="cmd"><span data-copy-label>Copy</span></button></div>
+            <pre class="term__body"><code data-setup-cmd></code></pre>
+          </div>
+          <div class="term st__setup-agent">
+            <div class="term__bar"><p class="silk">Paste into your coding agent</p><button type="button" class="term__copy silk" data-copy="" data-copy-setup="agent"><span data-copy-label>Copy</span></button></div>
+            <pre class="term__body"><code data-setup-agent></code></pre>
+          </div>
+        </div>
       </fieldset>
 
       <div class="st__actions">

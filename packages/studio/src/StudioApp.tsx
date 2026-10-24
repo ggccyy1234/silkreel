@@ -504,12 +504,6 @@ const PlayerPane: React.FC<{ timeline: Timeline; stale: boolean }> = ({ timeline
   )
 }
 
-const FORMATION_LABELS: Record<string, string> = {
-  route: 'route',
-  plan: 'plan',
-  frame: 'frame'
-}
-
 interface FilmSegment { id: string; beat: number; startPhase: number; endPhase: number }
 
 /** ribbon blocks tile the loop: each glyph formation runs until the next one starts; trace beats laid end to end */
@@ -533,7 +527,7 @@ const FormationRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject
   }
   const p = currentFrame / total
   const active = formations.find((formation) => p >= formation.startPhase && p <= formation.endPhase)
-  const activeLabel = active ? FORMATION_LABELS[active.id] ?? active.id : 'film'
+  const activeLabel = active ? active.id : 'film'
   return (
     <div
       className="act-ribbon"
@@ -579,14 +573,11 @@ const FormationRibbon: React.FC<{ timeline: Timeline; playerRef: React.RefObject
           style={{
             width: `${(formation.endPhase - formation.startPhase) * 100}%`,
             background: i % 2 === 0 ? '#2e2e2e' : '#383838',
-            border: 'none',
-            borderRadius: 0,
-            padding: 0,
             cursor: 'ew-resize'
           }}
           title={`${formation.id}: ${(formation.startPhase * 100).toFixed(0)}%–${(formation.endPhase * 100).toFixed(0)}% of the loop`}
         >
-          <span className="act-label">{FORMATION_LABELS[formation.id] ?? formation.id}</span>
+          <span className="act-label">{formation.id}</span>
         </span>
       ))}
       <span className="ribbon-playhead" aria-hidden="true" style={{ left: `${((currentFrame + 0.5) / total) * 100}%` }} />
@@ -721,7 +712,6 @@ const KnobPanel: React.FC<{
   disabled: boolean
 }> = ({ style, knobs, onKnobs, seed, onSeed, duration, onDuration, disabled }) => {
   const rangeKnobs: Array<{ key: keyof typeof KNOB_RANGES; label: string }> = [
-    { key: 'density', label: 'density' },
     { key: 'tempo', label: 'tempo' },
     ...(style === 'glyph' ? [{ key: 'texts' as const, label: 'texts' }] : [])
   ]

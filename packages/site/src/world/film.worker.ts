@@ -8,7 +8,7 @@ self.onmessage = (e: MessageEvent<{ text: string; name: string }>) => {
     const films = {} as Record<Aspect, GlyphTimeline>
     for (const aspect of Object.keys(ASPECT_SIZE) as Aspect[]) {
       films[aspect] = compileTimeline(board, {
-        style: 'glyph', aspect, knobs: { density: 1, tempo: 1, texts: 1 }, duration: 'auto', seed: 42,
+        style: 'glyph', aspect, knobs: { tempo: 1, texts: 1 }, duration: 'auto', seed: 42,
         output: { ...ASPECT_SIZE[aspect], fps: 30 }
       } as never) as GlyphTimeline
     }

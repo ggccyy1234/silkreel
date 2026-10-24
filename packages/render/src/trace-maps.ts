@@ -268,7 +268,7 @@ function frontRing(l: Light, clip: Path2D, o: { x: number; y: number }, r: numbe
 }
 
 /** how high a part still hangs above its seat: 1 before it drops, 0 once set down */
-export function partDrop(t: number, p: number, hero: boolean): number {
+function partDrop(t: number, p: number, hero: boolean): number {
   const dur = (hero ? 0.75 : 0.3) / 24
   const u = (p - (t - dur)) / dur
   if (u <= 0) return 1

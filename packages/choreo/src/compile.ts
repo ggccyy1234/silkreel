@@ -3,7 +3,7 @@ import { planDuration, resolveConfig } from './config'
 import { composeFilm } from './composer'
 import { safeArea } from './layout'
 import { organicSeed } from './rng'
-import { compileTrace } from './trace/index'
+import { buildTraceScene } from './trace/scene'
 import type { FilmConfig, Timeline } from './types'
 
 export function compileTimeline(board: BoardModel, config: FilmConfig): Timeline {
@@ -23,7 +23,7 @@ export function compileTimeline(board: BoardModel, config: FilmConfig): Timeline
     seedUsed: seed
   }
   if (resolved.style === 'trace') {
-    const t = compileTrace(board, resolved, seed)
+    const t = buildTraceScene(board, resolved, seed)
     return { ...base, style: 'trace', scene: t.scene, warnings: [...duration.warnings, ...resolved.knobWarnings, ...t.warnings] }
   }
   const film = composeFilm(board, resolved, seed, duration.durationSeconds)

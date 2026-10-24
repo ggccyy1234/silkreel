@@ -3,14 +3,14 @@ import { ASPECT_SIZE, DEMO_CAST_HINTS } from '@silk-reel/choreo'
 import type { Aspect, FilmConfig, PaletteId, StyleId, Timeline } from '@silk-reel/choreo'
 import { createPreview } from '@silk-reel/render/preview'
 import { prefersReducedMotion } from '../engine/env'
-import { aspects, boards, formats } from '../data/site'
+import { aspects, boards, formats, site } from '../data/site'
 import { rollTo } from '../motion/site'
 import type { BoardStats, FromWorker, ToWorker } from './studio.worker'
 
 type Format = 'mp4' | 'gif' | 'webm-alpha' | 'prores-alpha'
 interface State {
   board: string; style: StyleId; aspect: Aspect; palette: PaletteId; accent: string; useAccent: boolean
-  title: string; version: string; tempo: number; density: number; seed: number; format: Format
+  title: string; version: string; tempo: number; seed: number; format: Format
 }
 interface Own { id: string; file: string; name: string }
 interface Job { id: string; status: string; progress: number; format: string; error?: string }
@@ -57,7 +57,6 @@ export function setupStudio() {
     title: (q.get('title') ?? '').slice(0, 32),
     version: (q.get('version') ?? '').slice(0, 12),
     tempo: Math.min(1.5, Math.max(0.75, Number(q.get('tempo') ?? 1) || 1)),
-    density: Math.min(1.5, Math.max(0.5, Number(q.get('density') ?? 1) || 1)),
     seed: Number.isInteger(Number(q.get('seed'))) && q.get('seed') !== null ? Number(q.get('seed')) : 42,
     format: (['mp4', 'gif', 'webm-alpha', 'prores-alpha'] as const).find((f) => f === q.get('format')) ?? 'mp4'
   }
@@ -73,7 +72,7 @@ export function setupStudio() {
     for (const name of ['style', 'aspect', 'palette', 'format'] as const) for (const el of field(name)) el.checked = el.value === state[name]
     const set = (name: string, v: string) => { const el = field(name)[0]; if (el) el.value = v }
     set('title', state.title); set('version', state.version); set('accent', state.accent)
-    set('tempo', String(state.tempo)); set('density', String(state.density)); set('seed', String(state.seed))
+    set('tempo', String(state.tempo)); set('seed', String(state.seed))
   }
   const readForm = () => {
     const pick = (name: string) => field(name).find((el) => el.checked)?.value
@@ -84,7 +83,7 @@ export function setupStudio() {
     const val = (name: string) => field(name)[0]?.value ?? ''
     state.title = val('title').trim(); state.version = val('version').trim()
     state.accent = val('accent')
-    state.tempo = Number(val('tempo')) || 1; state.density = Number(val('density')) || 1
+    state.tempo = Number(val('tempo')) || 1
     const seed = Number(val('seed'))
     state.seed = Number.isFinite(seed) ? Math.max(0, Math.min(99999, Math.round(seed))) : 42
   }
@@ -94,7 +93,7 @@ export function setupStudio() {
     const cast = DEMO_CAST_HINTS[state.board]
     return {
       style, aspect: state.aspect, seed: state.seed, duration: 'auto',
-      knobs: { tempo: state.tempo, ...(state.style === 'glyph' ? { density: state.density } : {}) },
+      knobs: { tempo: state.tempo },
       output: { width: even(size.width * scale), height: even(size.height * scale), fps: 30 },
       ...(cast !== undefined ? { cast } : {}),
       ...(state.style === 'glyph' ? { palette: state.palette } : {}),
@@ -106,8 +105,8 @@ export function setupStudio() {
   /* ---------- the copied command mirrors every control ---------- */
   const cmdEl = $('[data-cmd]', root)
   const command = () => {
-    const file = isOwn() ? own?.file ?? 'board.kicad_pcb' : `${state.board}.kicad_pcb`
-    const quote = (s: string) => (/^[\w.#:-]+$/.test(s) ? s : `"${s.replace(/"/g, '\\"')}"`)
+    const file = isOwn() ? own?.file ?? 'board.kicad_pcb' : `fixtures/boards/${state.board}.kicad_pcb`
+    const quote = (s: string) => (/^[\w./#:-]+$/.test(s) ? s : `"${s.replace(/"/g, '\\"')}"`)
     const parts = ['npm run reel --', quote(file), '--style', state.style, '--aspect', state.aspect]
     if (state.style === 'glyph') parts.push('--palette', state.palette)
     if (state.useAccent) parts.push('--accent', state.accent)
@@ -115,9 +114,30 @@ export function setupStudio() {
     if (state.title && state.version) parts.push('--version', quote(state.version))
     if (state.seed !== 42) parts.push('--seed', String(state.seed))
     if (state.tempo !== 1) parts.push('--tempo', String(state.tempo))
-    if (state.style === 'glyph' && state.density !== 1) parts.push('--density', String(state.density))
     if (state.format !== 'mp4') parts.push('--format', state.format)
     return parts.join(' ')
+  }
+
+  /* ---------- first-time setup on the visitor's machine, as commands or as a prompt for their coding agent ---------- */
+  const setupCmd = $('[data-setup-cmd]', root)
+  const setupAgent = $('[data-setup-agent]', root)
+  const paintSetup = () => {
+    const dir = site.repo.split('/').pop() ?? 'silkreel'
+    const cmd = [`git clone ${site.repo}`, `cd ${dir}`, 'npm ci', command()]
+    if (setupCmd) setupCmd.textContent = ['# needs Node.js 22 or later, ffmpeg and ffprobe', ...cmd.map((c) => `$ ${c}`)].join('\n')
+    const find = isOwn() ? [`My board file is ${own?.file ?? 'board.kicad_pcb'}. Find it on this machine, or ask me for its path, and use that path in the command.`] : []
+    const prompt = [
+      'Set up silk reel on this machine and render a film of my KiCad board.',
+      '',
+      '1. Check that Node.js 22 or later, ffmpeg and ffprobe are installed. Install any that are missing.',
+      `2. Clone ${site.repo} and run npm ci in it.`,
+      ...find.map((l) => `   ${l}`),
+      `3. From the repo root, run: ${command()}`,
+      '4. If the render fails with a GPU or WebGL error, run it again with SILK_REEL_GL=swangle in front of the command.',
+      '5. Tell me the path of the finished video.'
+    ].join('\n')
+    if (setupAgent) setupAgent.textContent = prompt
+    for (const b of root.querySelectorAll<HTMLElement>('[data-copy-setup]')) b.dataset.copy = b.dataset.copySetup === 'agent' ? prompt : cmd.join('\n')
   }
 
   /* ---------- messages: a live region for the screen reader, a toast for the eye, a held error for what failed ---------- */
@@ -356,21 +376,25 @@ export function setupStudio() {
   const titleIn = root.querySelector<HTMLInputElement>('[data-title]')
   const paintControls = () => {
     for (const el of root.querySelectorAll<HTMLElement>('[data-only]')) el.hidden = el.dataset.only !== state.style
-    for (const o of outs) o.textContent = o.dataset.outFor === 'tempo' ? `${state.tempo.toFixed(2)}×` : state.density.toFixed(2)
+    for (const o of outs) o.textContent = `${state.tempo.toFixed(2)}×`
     if (accentSay) accentSay.textContent = state.useAccent ? state.accent : 'Default'
     if (accentReset) accentReset.hidden = !state.useAccent
-    if (liveNote) liveNote.hidden = !(isOwn() && state.style === 'trace')
+    if (liveNote) {
+      liveNote.hidden = state.style !== 'trace'
+      liveNote.textContent = isOwn() ? 'Your board plays as glyph here. Trace renders on your machine.' : 'A draft preview. The full trace film, with its sound, renders on your machine.'
+    }
     if (paletteName) paletteName.textContent = cap(state.palette)
     if (aspectUse) aspectUse.textContent = aspects.find((a) => a.id === state.aspect)?.use ?? ''
     if (titleIn) titleIn.placeholder = boardName()
     paintSample()
-    // each flag wraps with its value, never between them
-    cmdEl?.replaceChildren(...command().split(/ (?=--\w)/).flatMap((part, i) => {
+    // each flag wraps with its value, never between them; the board file wraps on its own
+    cmdEl?.replaceChildren(...command().split(/ (?=--\w)|(?<=^npm run reel --) /).flatMap((part, i) => {
       const span = document.createElement('span')
       span.className = 'st__flag'
       span.textContent = part
       return i ? [' ', span] : [span]
     }))
+    paintSetup()
     const u = new URL(location.href)
     u.search = ''
     const p = u.searchParams
@@ -382,7 +406,6 @@ export function setupStudio() {
     if (state.version) p.set('version', state.version)
     if (state.seed !== 42) p.set('seed', String(state.seed))
     if (state.tempo !== 1) p.set('tempo', String(state.tempo))
-    if (state.density !== 1) p.set('density', String(state.density))
     if (state.format !== 'mp4') p.set('format', state.format)
     history.replaceState(history.state, '', u)
   }
@@ -391,6 +414,7 @@ export function setupStudio() {
     const t = e.target as HTMLInputElement
     if (!t.name) return
     readForm()
+    if (t.name === 'setup') return
     if (t.name === 'accent') state.useAccent = true
     paintControls()
     if (t.name !== 'format') recompile(t.type === 'radio')
@@ -475,6 +499,7 @@ export function setupStudio() {
   const apiBase = (() => { try { return localStorage.getItem(API_KEY) } catch { return null } })()
   const apiURL = apiBase ?? 'http://127.0.0.1:3102'
   const renderBox = $('[data-render-box]', root)
+  const setupBox = $('[data-setup]', root)
   const renderBtn = root.querySelector<HTMLButtonElement>('[data-render]')
   const jobsEl = $('[data-jobs]', root)
   let seen = false
@@ -482,6 +507,7 @@ export function setupStudio() {
     let on = false
     try { on = (await fetch(`${apiURL}/health`, { signal: AbortSignal.timeout(1500) })).ok } catch { on = false }
     if (renderBox) renderBox.hidden = !on
+    if (setupBox) setupBox.hidden = on
     if (on && !seen) void pollQueue()
     seen = on
   }

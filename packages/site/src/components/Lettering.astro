@@ -1,0 +1,8 @@
+---
+// a heading set in KiCad's stroke lettering: real text for assistive tech, the drawn lines for the eye. Lines split on "\n".
+import { lettering } from '../blueprint/draw'
+interface Props { text: string; accent?: number; weight?: number; align?: 'start' | 'middle' | 'end' }
+const { text, accent, weight, align } = Astro.props
+const lines = text.split('\n')
+---
+<span class="sr-only">{lines.join(' ')}</span><span class="lt" aria-hidden="true" set:html={lettering(lines.map((l) => l.toUpperCase()), { weight, align, accent })} />

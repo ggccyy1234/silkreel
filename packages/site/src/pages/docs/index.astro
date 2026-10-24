@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro'
 import Footer from '../../components/Footer.astro'
+import Lettering from '../../components/Lettering.astro'
 import { PALETTES } from '@silk-reel/choreo'
 import { site } from '../../data/site'
 import '../../styles/docs.css'
@@ -61,8 +62,7 @@ const groups: Array<{ name: string; rows: Flag[] }> = [
     name: 'Variation',
     rows: [
       { flag: '--seed', text: 'Picks the variation. The same seed gives the same film.', values: ['A number'], def: '`42`' },
-      { flag: '--tempo', text: 'Sets the pace. Higher is faster and shortens the film.', values: ['`0.75` to `1.5`'], def: '`1`' },
-      { flag: '--density', text: 'How much of the board moves at once.', values: ['`0.5` to `1.5`'], def: '`1`' }
+      { flag: '--tempo', text: 'Sets the pace. Higher is faster and shortens the film.', values: ['`0.75` to `1.5`'], def: '`1`' }
     ]
   }
 ]
@@ -89,7 +89,7 @@ const env = [
 <Base title="Docs" image="/og-docs.png" description="Install silk reel and render a film from a .kicad_pcb. Every flag, format and default, plus the render API for self-hosting.">
   <div class="docs wrap">
     <header class="docs__head">
-      <h1 class="xl">Render a film from the command line.</h1>
+      <h1 class="xl"><Lettering text={"Render a film\nfrom the command line."} /></h1>
       <p class="lede">Install it, point it at a .kicad_pcb, and choose the look with flags. The same board and flags always render the same film.</p>
       <div class="docs__film"><canvas class="docs__frame" data-docs-film width="720" height="720" aria-hidden="true"></canvas></div>
     </header>
@@ -103,7 +103,7 @@ const env = [
 
       <article class="docs__main">
         <section id="install" class="doc">
-          <h2 class="l">Install</h2>
+          <h2 class="l"><Lettering text="Install" weight={0.09} /></h2>
           <p class="body">You need Node.js 22 or later, and <code class="mono">ffmpeg</code> and <code class="mono">ffprobe</code> on your PATH. The first render downloads its own copy of Chromium.</p>
           <div class="term">
             <div class="term__bar"><p class="silk">~/silk-reel</p><button type="button" class="term__copy silk" data-copy="npm install">Copy</button></div>
@@ -113,7 +113,7 @@ const env = [
         </section>
 
         <section id="command" class="doc">
-          <h2 class="l">Render a film</h2>
+          <h2 class="l"><Lettering text="Render a film" weight={0.09} /></h2>
           <p class="body">Give it one board file. Every flag is optional.</p>
           <div class="term">
             <div class="term__bar"><p class="silk">~/silk-reel</p><button type="button" class="term__copy silk" data-copy={site.command}>Copy</button></div>
@@ -123,7 +123,7 @@ const env = [
         </section>
 
         <section id="flags" class="doc">
-          <h2 class="l">Flags</h2>
+          <h2 class="l"><Lettering text="Flags" weight={0.09} /></h2>
           <table class="ref ref--flags" aria-label="Flags">
             <colgroup><col /><col /><col /><col /></colgroup>
             <thead><tr><th scope="col">Flag</th><th scope="col">What it does</th><th scope="col">Values</th><th scope="col">Default</th></tr></thead>
@@ -159,7 +159,7 @@ const env = [
         </section>
 
         <section id="formats" class="doc">
-          <h2 class="l">Formats</h2>
+          <h2 class="l"><Lettering text="Formats" weight={0.09} /></h2>
           <table class="ref ref--formats" aria-label="Formats">
             <colgroup><col /><col /><col /></colgroup>
             <thead><tr><th scope="col">Format</th><th scope="col">Codec</th><th scope="col">Use</th></tr></thead>
@@ -176,7 +176,7 @@ const env = [
         </section>
 
         <section id="self-hosting" class="doc">
-          <h2 class="l">Self-hosting</h2>
+          <h2 class="l"><Lettering text="Self-hosting" weight={0.09} /></h2>
           <p class="body">The render API queues renders over HTTP and runs one at a time. The <a class="prose-link" href="/studio/">studio</a> sends its full-quality renders here, and your own tools can too.</p>
           <div class="term">
             <div class="term__bar"><p class="silk">~/silk-reel</p><button type="button" class="term__copy silk" data-copy="npm run start --workspace=@silk-reel/render-api">Copy</button></div>
@@ -222,6 +222,7 @@ const env = [
   import { ROOM } from '../../world/room'
   import { drawStill } from '../../world/world'
   import { fixtureFilm } from '../../world/films'
+  import { prefersReducedMotion } from '../../engine/env'
 
   // the head carries the same film the home page opens on, looping while it is on screen
   const film = document.querySelector<HTMLCanvasElement>('[data-docs-film]')
@@ -229,7 +230,7 @@ const env = [
     void fixtureFilm('icebreaker', '1:1').then((f) => {
       const total = f.tl.totalFrames
       film.parentElement?.setAttribute('data-on', '')
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) { drawStill(film, f, Math.round(total * 0.66), ROOM, 1.5); return }
+      if (prefersReducedMotion()) { drawStill(film, f, Math.round(total * 0.66), ROOM, 1.5); return }
       let raf = 0, t0 = performance.now(), last = -1
       const step = (now: number) => {
         const frame = Math.floor(((now - t0) / 1000) * 30) % total

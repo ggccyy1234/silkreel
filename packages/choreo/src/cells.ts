@@ -189,7 +189,6 @@ export interface Census {
   body: Array<{ kind: CellKind; w: number }>
   /** board has holes/fiducials — rings join the joint vocabulary */
   holes: boolean
-  vias: number
 }
 
 const BODY: CellKind[] = ['chip', 'leaf', 'pill', 'half', 'pad']
@@ -210,5 +209,5 @@ export function takeCensus(board: BoardModel): Census {
   // sqrt compresses the passive flood; a floor keeps every shape in the mix
   const raw = BODY.map((kind) => ({ kind, w: Math.sqrt(counts.get(kind) ?? 0) + 0.6 }))
   const total = raw.reduce((n, r) => n + r.w, 0)
-  return { body: raw.map((r) => ({ kind: r.kind, w: r.w / total })), holes, vias }
+  return { body: raw.map((r) => ({ kind: r.kind, w: r.w / total })), holes }
 }

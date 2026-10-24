@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { resolveConfig } from '../config'
 import type { Aspect, FilmConfig } from '../types'
-import { compileTrace } from './index'
+import { buildTraceScene } from './scene'
 import { boardModel } from '../../test/helpers'
 
 const BOARDS = [
@@ -30,7 +30,7 @@ for (const name of BOARDS) {
     describe(`${name} @ ${aspect}`, () => {
       const board = boardModel(name)
       const r = resolved(aspect)
-      const { scene } = compileTrace(board, r, 1)
+      const { scene } = buildTraceScene(board, r, 1)
 
       it('packs segs at stride 7, t0 ascending, all t within [0, 0.8]', () => {
         let total = 0
@@ -82,7 +82,7 @@ for (const name of BOARDS) {
 
 describe('camera track', () => {
   it('rides a low-fill board zoomed in, then pulls back to the whole board for the hold', () => {
-    const { scene } = compileTrace(boardModel('video.kicad_pcb'), resolved('4:5'), 1)
+    const { scene } = buildTraceScene(boardModel('video.kicad_pcb'), resolved('4:5'), 1)
     const ts = scene.camera.map((k) => k.t)
     expect(ts).toEqual([...ts].sort((a, b) => a - b))
     expect(Math.max(...scene.camera.map((k) => k.zoom))).toBeGreaterThan(1.3)
@@ -91,19 +91,19 @@ describe('camera track', () => {
     expect(reveal?.t).toBeLessThanOrEqual(0.96 - 1.5 / 12)
   })
   it('keeps a frame-filling board on a gentle push', () => {
-    const { scene } = compileTrace(boardModel('glasgow.kicad_pcb'), resolved('4:5'), 1)
+    const { scene } = buildTraceScene(boardModel('glasgow.kicad_pcb'), resolved('4:5'), 1)
     expect(scene.camera.map((k) => k.zoom)).toEqual([1, 1.05])
   })
 })
 
-describe('compileTrace performance', () => {
+describe('buildTraceScene performance', () => {
   it('compiles video.kicad_pcb in under 4s', () => {
     const board = boardModel('video.kicad_pcb')
     const r = resolved('4:5')
     const t0 = performance.now()
-    compileTrace(board, r, 1)
+    buildTraceScene(board, r, 1)
     const ms = performance.now() - t0
-    console.log(`compileTrace(video) = ${ms.toFixed(0)}ms`)
+    console.log(`buildTraceScene(video) = ${ms.toFixed(0)}ms`)
     expect(ms).toBeLessThan(4000)
   })
 })

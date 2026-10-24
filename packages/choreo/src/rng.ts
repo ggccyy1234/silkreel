@@ -6,7 +6,7 @@ export interface Rng {
   shuffle<T>(items: T[]): T[]
 }
 
-export function mulberry32(seedValue: number): () => number {
+function mulberry32(seedValue: number): () => number {
   let a = seedValue >>> 0
   return () => {
     a = (a + 0x6d2b79f5) | 0
@@ -16,9 +16,8 @@ export function mulberry32(seedValue: number): () => number {
   }
 }
 
-export function makeRng(seed: number | null, streamId: string): Rng {
-  const baseSeed = seed === null ? organicSeed() : seed
-  const streamSeed = mixSeed(baseSeed, hashString(streamId))
+export function makeRng(seed: number, streamId: string): Rng {
+  const streamSeed = mixSeed(seed, hashString(streamId))
   const draw = mulberry32(streamSeed)
   return {
     next: draw,

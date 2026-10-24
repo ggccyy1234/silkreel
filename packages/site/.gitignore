@@ -2,5 +2,11 @@ raw/
 .astro/
 dist/
 .shots/
-public/films/trace/
+public/films/trace/*
+!public/films/trace/icebreaker-540.mp4
+!public/films/trace/icebreaker-poster.webp
+!public/films/trace/glasgow-540.mp4
+!public/films/trace/glasgow-poster.webp
+!public/films/trace/StickHub-540.mp4
+!public/films/trace/StickHub-poster.webp
 public/boards/

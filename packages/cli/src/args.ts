@@ -5,9 +5,9 @@ import type { Aspect, FilmConfig, PaletteId, StyleId } from '@silk-reel/choreo'
 import { FORMAT_EXT, OUTPUT_FORMATS, defaultFilmConfig, isAlphaFormat } from '@silk-reel/render-api'
 import type { OutputFormat } from '@silk-reel/render-api'
 
-export const USAGE = `usage: silk-reel <board.kicad_pcb> [-o out.mp4] [--style trace|glyph]
+const USAGE = `usage: silk-reel <board.kicad_pcb> [-o out.mp4] [--style trace|glyph]
   [--aspect 4:5|1:1|9:16|16:9] [--palette mono|copper|blueprint|phosphor] [--accent #rrggbb]
-  [--title "Name"] [--version v1.0] [--seed N] [--tempo 1] [--density 1]
+  [--title "Name"] [--version v1.0] [--seed N] [--tempo 1]
   [--format mp4|gif|webm-alpha|prores-alpha] [--draft] [--no-audio]`
 
 export interface CliArgs {
@@ -47,7 +47,6 @@ export function parseCliArgs(argv: string[]): CliArgs {
       version: { type: 'string' },
       seed: { type: 'string' },
       tempo: { type: 'string' },
-      density: { type: 'string' },
       format: { type: 'string' },
       draft: { type: 'boolean' },
       'no-audio': { type: 'boolean' }
@@ -69,13 +68,12 @@ export function parseCliArgs(argv: string[]): CliArgs {
   const base = defaultFilmConfig(path.basename(input, '.kicad_pcb'))
   const seed = num('seed', values.seed)
   const tempo = num('tempo', values.tempo)
-  const density = num('density', values.density)
   const config: FilmConfig = {
     ...base,
     style,
     aspect,
     output: { ...base.output, ...ASPECT_SIZE[aspect] },
-    knobs: { ...(tempo !== undefined ? { tempo } : {}), ...(density !== undefined ? { density } : {}) },
+    knobs: tempo !== undefined ? { tempo } : {},
     ...(seed !== undefined ? { seed } : {}),
     ...(palette !== undefined ? { palette } : {}),
     ...(values.accent !== undefined ? { accent: values.accent } : {}),

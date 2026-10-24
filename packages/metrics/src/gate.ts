@@ -1,4 +1,5 @@
 import { probeVideo, decodeGrayFrames } from './decode.js'
+import type { VideoFacts } from './decode.js'
 import { analyzeFrame } from './analyzer.js'
 import type { FrameStats } from './analyzer.js'
 
@@ -11,16 +12,7 @@ export interface GateRuleResult {
 export interface GateReport {
   file: string
   passed: boolean
-  facts: {
-    width: number
-    height: number
-    fps: number
-    durationSeconds: number
-    frameCount: number | undefined
-    codec: string | undefined
-    pixFmt: string | undefined
-    audioStreamCount: number
-  }
+  facts: VideoFacts
   rules: GateRuleResult[]
 }
 
@@ -58,7 +50,7 @@ interface Envelope {
   motionMeanDiff: number
 }
 
-async function measureEnvelope(videoPath: string): Promise<{ facts: Awaited<ReturnType<typeof probeVideo>>; envelope: Envelope }> {
+async function measureEnvelope(videoPath: string): Promise<{ facts: VideoFacts; envelope: Envelope }> {
   const facts = await probeVideo(videoPath)
   const stats: FrameStats[] = []
   let firstData: Uint8Array | undefined
@@ -129,7 +121,7 @@ async function measureEnvelope(videoPath: string): Promise<{ facts: Awaited<Retu
   }
 }
 
-function checkSpec(facts: Awaited<ReturnType<typeof probeVideo>>, expect: GateExpectations): GateRuleResult {
+function checkSpec(facts: VideoFacts, expect: GateExpectations): GateRuleResult {
   const expectedDuration = expect.totalFrames / expect.fps
   const frameCountOk = facts.frameCount === undefined || facts.frameCount === expect.totalFrames
   const durationTolerance = Math.max(1 / expect.fps, 0.05)
@@ -234,16 +226,7 @@ export async function runGate(videoPath: string, expectations: GateExpectations)
   return {
     file: videoPath,
     passed: rules.every((r) => r.passed),
-    facts: {
-      width: facts.width,
-      height: facts.height,
-      fps: facts.fps,
-      durationSeconds: facts.durationSeconds,
-      frameCount: facts.frameCount,
-      codec: facts.codec,
-      pixFmt: facts.pixFmt,
-      audioStreamCount: facts.audioStreamCount
-    },
+    facts,
     rules
   }
 }

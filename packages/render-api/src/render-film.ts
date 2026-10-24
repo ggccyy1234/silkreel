@@ -31,6 +31,8 @@ function codecOptions(format: OutputFormat) {
   }
 }
 
+export const RENDER_ENTRY = new URL('../../render/src/remotion-entry.tsx', import.meta.url).pathname
+
 export interface RenderFilmOptions {
   entryPoint?: string
   bundleLocationOverride?: string
@@ -50,8 +52,7 @@ export interface RenderFilmResult {
 }
 
 export async function renderFilm(options: RenderFilmOptions): Promise<RenderFilmResult> {
-  const entryPoint =
-    options.entryPoint ?? new URL('../../render/src/remotion-entry.tsx', import.meta.url).pathname
+  const entryPoint = options.entryPoint ?? RENDER_ENTRY
   const bundleLocation = options.bundleLocationOverride ?? (await bundle({ entryPoint, onProgress: () => undefined }))
   const format = options.format ?? 'mp4'
   if (isAlphaFormat(format) && !options.inputProps.timeline.transparent) {

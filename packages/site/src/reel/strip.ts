@@ -6,19 +6,19 @@ import type { Film } from '../world/world'
 export const N = 168
 export const LF = 196
 export const WS = 164
-export const FW = 188
-export const FH = 104
-export const GAP = 8
-export const M = 30
-export const PERF_Y = [20, 144] as const
-export const HERO_D = [110, 127] as const
-export const ACT_AT: Record<number, string> = { 0: 'SPINE', 28: 'PILLARS', 84: 'FRAME', 140: 'LOOP' }
-export const COLS = 14
-export const HEAD = 1900
+const FW = 188
+const FH = 104
+const GAP = 8
+const M = 30
+const PERF_Y = [20, 144] as const
+const HERO_D = [110, 127] as const
+const ACT_AT: Record<number, string> = { 0: 'GROW', 28: 'RISE', 84: 'FRAME', 140: 'LOOP' }
+const COLS = 14
+const HEAD = 1900
 
-export const INK = '#0b0b0b'
+const INK = '#0b0b0b'
 export const RED = '#d7261e'
-export const LIGHT = '#ffffff'
+const LIGHT = '#ffffff'
 
 /** the board's part of the 16:9 film, as fractions of the frame */
 const CROP = { x: 414 / 1920, y: 236 / 1080, w: 1092 / 1920, h: 603 / 1080 }
@@ -50,7 +50,7 @@ function perf(ctx: CanvasRenderingContext2D, x: number, y: number, t: number) {
 }
 
 /** one length of stock: the frame, its perforations and the edge print, at (x, y) in a horizontal strip */
-export function drawCell(ctx: CanvasRenderingContext2D, film: Film, d: number, x: number, y: number, t: number) {
+function drawCell(ctx: CanvasRenderingContext2D, film: Film, d: number, x: number, y: number, t: number) {
   ctx.fillStyle = INK
   ctx.fillRect(x, y, LF * t, WS * t)
   const fx = x + (GAP / 2) * t, fy = y + M * t
@@ -97,7 +97,7 @@ export async function buildAtlas(film: Film, t: number, onProgress: (p: number) 
 }
 
 /** the head leader: blank stock, then the name printed on the film */
-export function buildHead(t: number, title = 'silk reel') {
+export function buildHead(t: number) {
   const c = document.createElement('canvas')
   c.width = Math.ceil(HEAD * t)
   c.height = Math.ceil(WS * t)
@@ -110,6 +110,6 @@ export function buildHead(t: number, title = 'silk reel') {
   ctx.textBaseline = 'middle'
   ctx.font = `500 ${FH * 0.92 * t}px ${MONO}`
   ctx.fillStyle = '#f4f4f0'
-  ctx.fillText(title, (LF + 70) * t, (M + FH / 2 + FH * 0.04) * t)
+  ctx.fillText('silk reel', (LF + 70) * t, (M + FH / 2 + FH * 0.04) * t)
   return c
 }

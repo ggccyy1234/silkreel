@@ -22,7 +22,7 @@ const tracePath = (ctx: CanvasRenderingContext2D, path: FlatPath): void => {
   for (let i = 2; i + 1 < path.length; i += 2) ctx.lineTo(path[i] as number, path[i + 1] as number)
 }
 
-export const OUTLINE_HEADS = 8
+const OUTLINE_HEADS = 8
 
 /** the point `frac` of the way along a polyline */
 const pointAt = (path: FlatPath, frac: number): [number, number] => {
@@ -87,7 +87,7 @@ const withAlpha = (hex: string, a: number): string => {
   return `rgba(${r},${g},${b},${a})`
 }
 
-export function sampleCamera(keys: CameraKey[], p: number, W: number, H: number): Omit<CameraKey, 't'> {
+function sampleCamera(keys: CameraKey[], p: number, W: number, H: number): Omit<CameraKey, 't'> {
   const first = keys[0]
   if (first === undefined) return { cx: W / 2, cy: H / 2, zoom: 1 }
   let k = 0

@@ -70,8 +70,8 @@ try {
 try {
   const ref = execFileSync('git', ['-C', root, 'show', 'HEAD:fixtures/reference/pcbanimation.mp4'])
   writeFileSync(path.join(out, 'reference.mp4'), ref)
+  rows.unshift('<figure><video src="reference.mp4" autoplay loop muted playsinline></video><figcaption>reference (memo1ers)</figcaption></figure>')
 } catch { /* reference missing — skip */ }
-rows.unshift('<figure><video src="reference.mp4" autoplay loop muted playsinline></video><figcaption>reference (memo1ers)</figcaption></figure>')
 writeFileSync(path.join(out, 'index.html'), `<!doctype html><meta charset=utf-8><style>body{background:#111;color:#ccc;font:12px ui-monospace;display:flex;flex-wrap:wrap;gap:12px}video{height:420px;background:#000}</style>${rows.join('\n')}`)
 writeFileSync(path.join(out, 'notes.md'), notes.join('\n'))
 console.log(`review -> ${out}`)

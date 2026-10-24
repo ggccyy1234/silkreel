@@ -2,6 +2,7 @@ import { makeCam, norm, sampleShot } from '@silk-reel/choreo'
 import type { Cam, CameraShot, TraceTimeline } from '@silk-reel/choreo'
 import { createMaps, drawMaps } from './trace-maps'
 import type { MapSet, Region } from './trace-maps'
+import { compileShader } from './post'
 
 /**
  * The lit trace renderer. The board is a physical plate on a dark studio
@@ -500,19 +501,6 @@ type GL = WebGL2RenderingContext
 
 interface Target { tex: WebGLTexture; fbo: WebGLFramebuffer; w: number; h: number }
 
-function compile(gl: GL, type: number, src: string): WebGLShader | undefined {
-  const sh = gl.createShader(type)
-  if (sh === null) return undefined
-  gl.shaderSource(sh, src)
-  gl.compileShader(sh)
-  if (gl.getShaderParameter(sh, gl.COMPILE_STATUS) !== true) {
-    // eslint-disable-next-line no-console
-    console.warn(`trace-gl shader: ${gl.getShaderInfoLog(sh) ?? 'compile failed'}`)
-    return undefined
-  }
-  return sh
-}
-
 class Prog {
   private readonly loc = new Map<string, WebGLUniformLocation | null>()
   constructor(private readonly gl: GL, readonly p: WebGLProgram) {}
@@ -550,8 +538,8 @@ class Prog {
 }
 
 function link(gl: GL, vs: string, fs: string): Prog | undefined {
-  const v = compile(gl, gl.VERTEX_SHADER, vs)
-  const f = compile(gl, gl.FRAGMENT_SHADER, fs)
+  const v = compileShader(gl, gl.VERTEX_SHADER, vs)
+  const f = compileShader(gl, gl.FRAGMENT_SHADER, fs)
   if (v === undefined || f === undefined) return undefined
   const p = gl.createProgram() as WebGLProgram | null
   if (p === null) return undefined
@@ -970,11 +958,13 @@ export function createTraceGL(width: number, height: number, quality: TraceQuali
           g.bindBuffer(g.ARRAY_BUFFER, partBuf)
           const stride = 16 * 4
           const locs = ['aBox', 'aMeta', 'aLabel', 'aSkew'].map((n) => g.getAttribLocation(P.part.p, n))
-          const point = (first: number): void => locs.forEach((loc, i) => {
-            g.enableVertexAttribArray(loc)
-            g.vertexAttribPointer(loc, 4, g.FLOAT, false, stride, first * stride + i * 16)
-            g.vertexAttribDivisor(loc, 1)
-          })
+          const point = (first: number): void => {
+            for (const [i, loc] of locs.entries()) {
+              g.enableVertexAttribArray(loc)
+              g.vertexAttribPointer(loc, 4, g.FLOAT, false, stride, first * stride + i * 16)
+              g.vertexAttribDivisor(loc, 1)
+            }
+          }
           tex(0, atlasTex)
           P.part.use().m4('uVP', c.vp).f('uP', q).f('uDur', tl.durationSeconds)
             .i('tAtlas', 0).f('uCell', 1 / ATLAS_COLS, 1 / ATLAS_ROWS).v3('uFinish', linear(m.finish)).v3('uLed', warmC)

@@ -193,8 +193,8 @@ function packageCandidates(board: BoardModel): PackageCandidate[] {
 
 /** refdes ("R12"), raw values ("4.7uF") and single glyphs are noise — the
  *  legible cast is real words: logos, names, warnings */
-const REFDES = /^[A-Z]{1,3}\d+$/
-const VALUE = /^\d+(\.\d+)?[pnuµmkKM]?[FHΩR]?$/
+export const REFDES = /^[A-Z]{1,3}\d+$/
+export const VALUE = /^\d+(\.\d+)?[pnuµmkKM]?[FHΩR]?$/
 /** texts smaller than this on the front layer never survive the stage scale */
 const FRONT_TEXT_MM = 0.8
 
@@ -346,7 +346,6 @@ export interface CastResult {
 
 export function buildCast(
   board: BoardModel,
-  density: number,
   textsEnabled: boolean,
   rng: Rng,
   hints?: CastHints
@@ -354,7 +353,7 @@ export function buildCast(
   const warnings: TimelineWarning[] = []
   const cast: Glyph[] = []
 
-  const packageCount = Math.min(MAX_PACKAGE_GLYPHS, Math.max(5, Math.round(7 * density)))
+  const packageCount = Math.min(MAX_PACKAGE_GLYPHS, 7)
   const candidates = packageCandidates(board)
   const prefer = new Set(hints?.preferRefs ?? [])
   const preferred = candidates.filter((c) => prefer.has(c.ref))
@@ -390,7 +389,7 @@ export function buildCast(
         warnings.push({ code: 'cast-hint-miss', message: `cast.preferTexts: no silkscreen text ${JSON.stringify(v)}` })
       }
     }
-    const textCount = Math.min(MAX_TEXT_GLYPHS, Math.max(2, Math.round(3 * density)))
+    const textCount = Math.min(MAX_TEXT_GLYPHS, 3)
     // hinted lead, then front-silk text tall enough to read, then the rest
     const rest = rng.shuffle(all.filter((c) => !wanted.has(c.value)))
     const picked = [

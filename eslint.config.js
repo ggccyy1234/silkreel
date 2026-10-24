@@ -47,7 +47,7 @@ const NODE_BUILTIN_RESTRICTION = {
 }
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/.vite/**', '**/coverage/**', 'packages/site/src/figure/kit/**', 'packages/site/.astro/**', 'packages/site/scripts/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/.vite/**', '**/coverage/**', 'packages/site/figure/kit/**', 'packages/site/.astro/**', 'packages/site/scripts/**'] },
   eslint.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {
@@ -116,5 +116,10 @@ export default tseslint.config(
       ...tseslint.configs.disableTypeChecked.languageOptions,
       globals: { window: 'readonly', document: 'readonly', matchMedia: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', IntersectionObserver: 'readonly', requestAnimationFrame: 'readonly' }
     }
+  },
+  {
+    files: ['packages/site/figure/**'],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
+    rules: { 'no-console': 'off' }
   }
 )

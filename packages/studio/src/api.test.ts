@@ -112,7 +112,7 @@ describe('studio export submission', () => {
     const board = boardModel('ecc83-pp.kicad_pcb')
     const filmConfig = {
       style: 'trace' as const, aspect: '9:16' as const, palette: 'phosphor' as const, accent: '#ff00aa', title: { name: 'ECC83', version: 'v2' },
-      knobs: { density: 1, tempo: 1.2 }, seed: 7, duration: 'auto' as const, output: { width: 1080, height: 1920, fps: 30 }
+      knobs: { tempo: 1.2 }, seed: 7, duration: 'auto' as const, output: { width: 1080, height: 1920, fps: 30 }
     }
     await expect(submitExport({ boardJson: board, filmConfig, format: 'webm-alpha' })).resolves.toBe('job-9')
     const [url, init] = fetchMock.mock.calls[0] ?? []

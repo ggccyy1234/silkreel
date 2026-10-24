@@ -198,7 +198,7 @@ describe('drawFrame', () => {
     }
     const placement: Placement = {
       glyphId: glyph.id,
-      atoms: [{ x: 0, y: 0, rot: 0, scale: 0.4, alpha: 1 }],
+      atoms: [{ x: 0, y: 0, rot: 0, scale: 0.4 }],
       tones: [1],
       role: 'hero',
       inStep: 0,

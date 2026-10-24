@@ -134,13 +134,12 @@ export function growthSchedule(segs: GraphSeg[], links: GraphLink[], seeds: Grap
   const start: number[] = []
   const flipped: boolean[] = []
   let maxDist = 0
-  segs.forEach((s, i) => {
-    const [u, v] = ends[i] as [number, number]
+  for (const [u, v] of ends) {
     const du = dist[u] as number
     const dv = dist[v] as number
     flipped.push(dv < du)
     start.push(Math.min(du, dv))
-    maxDist = Math.max(maxDist, Math.max(du, dv))
-  })
+    maxDist = Math.max(maxDist, du, dv)
+  }
   return { start, flipped, linkTime: linkNode.map((id) => dist[id] as number), maxDist }
 }

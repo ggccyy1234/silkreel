@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseKicadPcb } from './kicad-ingest.js'
-import { ingest } from './ingest.js'
 import { IngestError } from './errors.js'
 
 import { join } from 'node:path'
@@ -38,24 +37,7 @@ describe('VAL-INGEST-007 hostile inputs fail with typed errors', () => {
       expect(e.reason.length).toBeGreaterThan(0)
       expect(['SyntaxError', 'RangeError', 'TypeError']).not.toContain((caught as Error).name)
     })
-
-    it(`routes ${c.label} through the generic entry as one typed failure`, () => {
-      expect(() => ingest([{ name: c.name, contents: c.contents }])).toThrow(IngestError)
-    })
   }
-
-  it('emits exactly one error per bad file in a multi-file call', () => {
-    try {
-      ingest([
-        { name: 'good-gerber.gtl', contents: '%FSLAX36Y36*%\nM02*\n' },
-        { name: 'bad.kicad_pcb', contents: 'nonsense' }
-      ])
-      throw new Error('expected rejection')
-    } catch (err) {
-      expect(err).toBeInstanceOf(IngestError)
-      expect(String(err).split('Failed to ingest').length - 1).toBe(1)
-    }
-  })
 })
 
 describe('VAL-INGEST-009 large board parses under 2s', () => {

@@ -54,15 +54,6 @@ export interface Zone {
   netId?: number | undefined
 }
 
-export interface Arc {
-  id: string
-  center: Vec2
-  radius: number
-  startAngle: number
-  endAngle: number
-  width: number
-}
-
 export interface Text {
   id: string
   value: string
@@ -84,13 +75,12 @@ export interface Footprint {
   silkRefs: string[]
 }
 
-export type DrillPlated = boolean
 
 export interface DrillHit {
   id: string
   pos: Vec2
   dia: number
-  plated: DrillPlated
+  plated: boolean
 }
 
 export interface NetNodeRef {
@@ -123,12 +113,11 @@ export interface CopperLayers {
 
 export interface SilkLayer {
   lines: Trace[]
-  arcs: Arc[]
   texts: Text[]
 }
 
 export interface BoardSource {
-  format: 'kicad' | 'gerber'
+  format: 'kicad'
   files: string[]
   boardName: string
 }

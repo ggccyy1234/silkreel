@@ -7,7 +7,7 @@ import type { CameraShot } from '../types'
  */
 export type V3 = [number, number, number]
 
-export const FOV = (30 * Math.PI) / 180
+const FOV = (30 * Math.PI) / 180
 
 export interface Cam {
   pos: V3

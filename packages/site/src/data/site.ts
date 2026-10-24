@@ -1,10 +1,14 @@
 export const site = {
   name: 'silk reel',
   url: 'https://silkreel.dev',
+  repo: 'https://github.com/hridaya423/silkreel',
   line: 'KiCad in. Film out.',
   description: 'Turn a KiCad board file into a release film: the lit board under a camera, or its parts set as a looping glyph film. Any aspect, any format.',
   command: 'npm run reel -- board.kicad_pcb'
 }
+
+/** the boards whose 16:9 trace film the site ships in public/films/trace (scripts/trace-films.sh) */
+export const traceFilms: readonly string[] = ['icebreaker', 'glasgow', 'StickHub']
 
 export interface BoardInfo {
   id: string
@@ -31,12 +35,12 @@ export const boards: BoardInfo[] = [
   { id: 'video', name: 'Video board', maker: 'KiCad demo', what: 'the densest demo, 7,932 traces', layers: 4, traces: 7932, pads: 2118, vias: 808, footprints: 189, hero: { ref: 'U8', value: 'BT253' } }
 ]
 
-/** the glyph loop's three figures on its 24-beat score (choreo/src/acts.ts); each one's residue seeds the next */
+/** the glyph loop's steps on its 24-beat score (choreo/src/acts.ts), named in plain words */
 export const acts = [
-  { id: 'spine', at: 0, label: 'Spine', text: 'Two arms grow from opposite corners along a stepped diagonal. They meet and throw out a crossing.', view: { zoom: 1.12, fx: 0.5, fy: 0.5 } },
-  { id: 'pillars', at: 4, label: 'Pillars', text: 'The spine folds into the centre. A ring opens there, and two columns climb out of it with mirrored caps.', view: { zoom: 1.32, fx: 0.5, fy: 0.5 } },
-  { id: 'frame', at: 12, label: 'Frame', text: "The caps turn into corner leaves. The parts around the hero chip fill the frame, and the chip itself lands last, drawn from its own pads.", view: { zoom: 1.18, fx: 0.5, fy: 0.5 } },
-  { id: 'loop', at: 20, label: 'Loop', text: 'The frame strips back to its corners, and the corners become the spine again. The last frame runs straight into the first.', view: { zoom: 1.12, fx: 0.5, fy: 0.5 } }
+  { at: 0, say: 'grow' },
+  { at: 4, say: 'rise' },
+  { at: 12, say: 'frame' },
+  { at: 20, say: 'loop' }
 ] as const
 
 export const aspects = [

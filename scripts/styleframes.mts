@@ -6,7 +6,7 @@
 //        --aspect 4:5 --at 0.02,0.3,0.62,0.8 [--animatic] [--smooth]
 //        [--palette mono] [--seed 42] [--out review/styleframes/<style>-<stamp>]
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync, rmSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import { bundle } from '@remotion/bundler'

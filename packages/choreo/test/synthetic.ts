@@ -1,13 +1,13 @@
 import type { BoardModel, Vec2 } from '@silk-reel/ingest'
 
-export interface SyntheticElement {
+interface SyntheticElement {
   id: string
   kind: ElementKindForTests
   pos: Vec2
   size: number
 }
 
-export type ElementKindForTests = 'trace' | 'trace-b' | 'pad' | 'via' | 'zone' | 'text' | 'drill' | 'outline' | 'silk-line'
+type ElementKindForTests = 'trace' | 'trace-b' | 'text'
 
 export function makeSyntheticBoard(elementCount: number): BoardModel {
   const side = Math.ceil(Math.sqrt(elementCount))
@@ -27,7 +27,7 @@ export function makeSyntheticBoard(elementCount: number): BoardModel {
   return syntheticBoardFrom(elements)
 }
 
-export function syntheticBoardFrom(elements: SyntheticElement[]): BoardModel {
+function syntheticBoardFrom(elements: SyntheticElement[]): BoardModel {
   const frontTraces = elements
     .filter((e) => e.kind === 'trace')
     .map((e, i) => ({
@@ -94,7 +94,7 @@ export function syntheticBoardFrom(elements: SyntheticElement[]): BoardModel {
       'F.Cu': { traces: frontTraces, pads: [], vias: [], zones: [] },
       'B.Cu': { traces: backTraces, pads: [], vias: [], zones: [] }
     },
-    silkscreen: { 'F.SilkS': { lines: [], arcs: [], texts } },
+    silkscreen: { 'F.SilkS': { lines: [], texts } },
     footprints: [],
     drill: [],
     nets: [],

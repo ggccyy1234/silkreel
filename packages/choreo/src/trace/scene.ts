@@ -1,4 +1,4 @@
-import type { Arc, BBox, BoardModel, Pad, Vec2 } from '@silk-reel/ingest'
+import type { BBox, BoardModel, Pad, Vec2 } from '@silk-reel/ingest'
 import { fitBoard, safeArea } from '../layout'
 import type { ResolvedConfig } from '../config'
 import type {
@@ -35,7 +35,7 @@ export const TRACE_ACTS: TraceActs = {
 }
 
 /** the flat fallback renderer still reads beats; they follow the acts */
-export const TRACE_BEATS: TraceBeats = {
+const TRACE_BEATS: TraceBeats = {
   outline: [0, B],
   pads: [0, B],
   growth: TRACE_ACTS.draw,
@@ -90,19 +90,6 @@ const flat = (pts: Vec2[], map: (p: Vec2) => Vec2): FlatPath => {
   return out
 }
 
-const arcPoints = (arc: Arc, steps = 16): Vec2[] => {
-  let sweep = arc.endAngle - arc.startAngle
-  while (sweep > Math.PI) sweep -= 2 * Math.PI
-  while (sweep < -Math.PI) sweep += 2 * Math.PI
-  if (sweep === 0) sweep = 2 * Math.PI
-  const out: Vec2[] = []
-  for (let i = 0; i <= steps; i++) {
-    const a = arc.startAngle + (sweep * i) / steps
-    out.push({ x: arc.center.x + arc.radius * Math.cos(a), y: arc.center.y + arc.radius * Math.sin(a) })
-  }
-  return out
-}
-
 const padShape = (pad: Pad): TracePad['shape'] => {
   const w = pad.size.x
   const h = pad.size.y
@@ -142,7 +129,7 @@ function contentBox(board: BoardModel): BBox {
   return { min, max }
 }
 
-export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig, seed = 42): { scene: TraceScene; warnings: TimelineWarning[] } {
+export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig, seed: number): { scene: TraceScene; warnings: TimelineWarning[] } {
   const beats = TRACE_BEATS
   const acts = TRACE_ACTS
   const box = contentBox(board)
@@ -370,10 +357,6 @@ export function buildTraceScene(board: BoardModel, resolved: ResolvedConfig, see
       const f = flat(line.points, map)
       silkRaw.push({ path: f, y: meanY(f) })
     }
-    for (const arc of silk.arcs) {
-      const f = flat(arcPoints(arc), map)
-      silkRaw.push({ path: f, y: meanY(f) })
-    }
   }
   silkRaw.sort((a, b) => a.y - b.y)
   const silkSpan = s1 - s0 - 0.02
@@ -537,7 +520,7 @@ function scheduleEnergy(
   for (const kind of Object.keys(ROLE_TIME) as NetKind[]) {
     const role = ROLE_TIME[kind]
     if (role === undefined) continue
-    const mine = kinds.map((k, i) => i).filter((i) => kinds[i] === kind && (gSegs[i] as number) > 0)
+    const mine = [...kinds.keys()].filter((i) => kinds[i] === kind && (gSegs[i] as number) > 0)
       .sort((a, b) => (gMin[a] as number) - (gMin[b] as number))
     const { start: [s0, s1], d: [d0, d1] } = role
     // a busy board lights a third of its lone signals; a small one lights them all

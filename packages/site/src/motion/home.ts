@@ -1,12 +1,12 @@
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { PALETTES } from '@silk-reel/choreo'
+import { ASPECT_SIZE, PALETTES } from '@silk-reel/choreo'
 import type { Aspect, PaletteId } from '@silk-reel/choreo'
-import { World } from '../world/world'
+import { World, drawStill } from '../world/world'
 import type { Film } from '../world/world'
 import { filmOf, filmOwnBoard, fixtureFilm } from '../world/films'
 import { ROOM } from '../world/room'
-import { boards } from '../data/site'
+import { boards, traceFilms } from '../data/site'
 import { prefersReducedMotion } from '../engine/env'
 import { ReelGL } from '../reel/reel-gl'
 import type { ReelPose } from '../reel/reel-gl'
@@ -17,7 +17,7 @@ gsap.registerPlugin(ScrollTrigger)
 
 const $ = (s: string, r: ParentNode = document) => r.querySelector<HTMLElement>(s)
 const $$ = <T extends Element = HTMLElement>(s: string, r: ParentNode = document): T[] => [...r.querySelectorAll<T>(s)]
-const phone = () => matchMedia('(max-width: 760px)').matches
+const stacked = () => matchMedia('(max-width: 900px)').matches
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
 const pad = (v: number, n = 2) => String(Math.floor(v)).padStart(n, '0')
 const tc = (frame: number) => `${pad(frame / 30 / 60)}:${pad((frame / 30) % 60)}.${pad(((frame / 30) % 1) * 100)}`
@@ -27,8 +27,11 @@ const GROUND = '#ecede9'
 
 /** where the coil sits in the hero: the Paper comp at 1440 × 900, scaled by the viewport */
 function heroPose(): Omit<ReelPose, 'ex'> {
-  if (phone()) return { k: 0.45, cx: -84, ly: 356, leader: innerWidth + 200 }
-  const k = clamp(innerWidth / 1440, 0.7, 1.3)
+  if (stacked()) {
+    const say = document.querySelector<HTMLElement>('.hero__say')
+    return { k: 0.45, cx: -84, ly: Math.max(356, say ? say.offsetTop + say.offsetHeight + 120 : 0), leader: innerWidth + 200 }
+  }
+  const k = clamp(innerWidth / 1440, 0.6, 1.3)
   return { k, cx: innerWidth * 0.05, ly: 78 + 91 * k, leader: innerWidth * 1.1 }
 }
 
@@ -342,10 +345,33 @@ export function setupHome() {
     const look = new World(lookCanvas, { reduced })
     look.setPalette(ROOM, { instant: true })
     look.setView({ zoom: 1920 / 1092, fx: 0.5, fy: 0.5, cx: 0.5, cy: 0.5 }, { instant: true })
-    void heroFilm.then((film) => { look.show(film, { decode: false }); if (reduced) look.scrub(182); else look.seek(182) })
+    void fixtureFilm('glasgow', '16:9').then((film) => { look.show(film, { decode: false }); if (reduced) look.scrub(182); else look.seek(182) })
+    // each film's steps run under its frame: the playhead marks the beat, a click plays on from a step
+    const traceActs = $('[data-look="trace"] [data-acts]') ?? undefined
+    const glyphActs = $('[data-look="glyph"] [data-acts]') ?? undefined
+    const mark = (el: HTMLElement | undefined, beat: number) => {
+      el?.style.setProperty('--p', (beat / 24).toFixed(4))
+      for (const li of el ? $$('li', el) : []) li.classList.toggle('is-now', beat >= Number(li.dataset.at) && beat < Number(li.dataset.end))
+    }
+    const onAct = (el: HTMLElement | undefined, play: (beat: number) => void) => {
+      el?.addEventListener('click', (e) => {
+        const li = (e.target as Element).closest<HTMLElement>('[data-at]')
+        if (li) play(Number(li.dataset.at))
+      })
+    }
+    let glyphTotal = FRAMES
+    look.onFrame((info) => { glyphTotal = info.film.tl.totalFrames; mark(glyphActs, info.beat) })
+    onAct(glyphActs, (beat) => { const f = (beat / 24) * glyphTotal; if (reduced) look.scrub(f); else look.seek(f) })
+    const traceBeat = () => (lookVideo && lookVideo.duration > 0 ? (lookVideo.currentTime / lookVideo.duration) * 24 : 0)
+    onAct(traceActs, (beat) => { if (lookVideo && lookVideo.duration > 0) lookVideo.currentTime = (beat / 24) * lookVideo.duration })
+    lookVideo?.addEventListener('timeupdate', () => { mark(traceActs, traceBeat()) })
+    let lookOn = false
+    const follow = () => { mark(traceActs, traceBeat()); if (lookOn) requestAnimationFrame(follow) }
+    mark(traceActs, 0)
     new IntersectionObserver(([e]) => {
       const on = e?.isIntersecting === true && !reduced
       if (on) { look.play(); void lookVideo?.play().catch(() => { /* the poster stays */ }) } else { look.pause(); look.seek(182); lookVideo?.pause() }
+      if (on && !lookOn) { lookOn = true; requestAnimationFrame(follow) } else if (!on) lookOn = false
     }, { threshold: 0.25 }).observe(lookCanvas)
   }
   if (reduced && lookVideo) lookVideo.controls = true
@@ -358,16 +384,28 @@ export function setupHome() {
   const monitorCanvas = document.querySelector<HTMLCanvasElement>('[data-monitor-film]')
   const monitorVideo = document.querySelector<HTMLVideoElement>('[data-monitor-video]')
   const monitor = new World(monitorCanvas ?? document.createElement('canvas'), { reduced })
+  const STILL = 240
   const state: { board: string; style: Style; aspect: Aspect; ink: PaletteId } = { board: 'icebreaker', style: 'glyph', aspect: '16:9', ink: 'mono' }
   try { const s = localStorage.getItem('sr-ink'); if (s && s in PALETTES) state.ink = s as PaletteId } catch { /* private mode */ }
-  const names = new Map<string, { name: string; file: string; parts: number; own?: true }>(boards.map((b) => [b.id, { name: b.name, file: `${b.id}.kicad_pcb`, parts: b.footprints }]))
+  const names = new Map<string, { name: string; file: string; own?: true }>(boards.map((b) => [b.id, { name: b.name, file: `${b.id}.kicad_pcb` }]))
   monitor.setPalette(state.ink, { instant: true })
 
   const stage = $('[data-monitor-stage]')
   const frameRect = () => ({ x: 0, y: 0, w: stage?.clientWidth ?? 0, h: stage?.clientHeight ?? 0 })
+  // the site ships each trace film at 16:9 only; the command still renders the chosen aspect
+  const shown = (): Aspect => (state.style === 'trace' ? '16:9' : state.aspect)
+  const monitorNote = $('[data-monitor-note]')
   const fitStage = () => {
-    monitorStage?.style.setProperty('--ar', state.aspect.replace(':', ' / '))
+    monitorStage?.style.setProperty('--ar', shown().replace(':', ' / '))
     monitorStage?.style.setProperty('--film-bg', state.style === 'trace' ? '#0b0b0b' : PALETTES[state.ink].bg)
+    if (monitorNote) {
+      monitorNote.hidden = shown() === state.aspect
+      monitorNote.textContent = `Trace previews at 16:9 here. The command renders ${state.aspect}.`
+    }
+    const px = ASPECT_SIZE[shown()]
+    const [w, h] = [$('[data-dim-w]'), $('[data-dim-h]')]
+    if (w) w.textContent = `${px.width} px`
+    if (h) h.textContent = `${px.height} px`
   }
   const monitorTc = $('[data-monitor-tc]')
   monitor.onFrame((info) => { if (monitorTc && state.style === 'glyph') monitorTc.textContent = tc(info.frame) })
@@ -403,9 +441,8 @@ export function setupHome() {
     if (monitorVideo) {
       monitorVideo.hidden = !trace
       if (trace) {
-        const tag = state.aspect === '16:9' ? '' : `-${state.aspect.replace(':', 'x')}`
-        const src = `/films/trace/${state.board}${tag || '-540'}.mp4`
-        if (!monitorVideo.src.endsWith(src)) { monitorVideo.poster = `/films/trace/${state.board}${tag}-poster.webp`; monitorVideo.src = src }
+        const src = `/films/trace/${state.board}-540.mp4`
+        if (!monitorVideo.src.endsWith(src)) { monitorVideo.poster = `/films/trace/${state.board}-poster.webp`; monitorVideo.src = src }
         if (!reduced && monitorOn()) void monitorVideo.play().catch(() => { /* the poster stays */ })
         monitor.pause()
       } else monitorVideo.pause()
@@ -414,7 +451,7 @@ export function setupHome() {
       void filmOf(state.board, state.aspect).then((film) => {
         monitor.show(film, { decode: !instant })
         monitor.setView({ rect: frameRect(), zoom: 1.45, cx: 0.5, cy: 0.5, fx: 0.5, fy: 0.5 }, { instant })
-        if (reduced) monitor.scrub(240)
+        if (reduced) monitor.scrub(STILL)
         else { monitor.seek(182); if (monitorOn()) monitor.play() }
       })
     }
@@ -430,8 +467,16 @@ export function setupHome() {
   addEventListener('resize', () => { monitor.setView({ rect: frameRect() }, { instant: true }) })
 
   const pick = (k: string, v: string) => {
-    if (k === 'board') { if (v === state.board) return; state.board = v; if (names.get(v)?.own) state.style = 'glyph' }
-    else if (k === 'style') { if (v === state.style) return; if (v === 'trace' && names.get(state.board)?.own) { toast('Trace renders on your machine. Your board plays as Glyph here.'); return } state.style = v as Style }
+    const noTrace = (id: string) => `Trace for ${names.get(id)?.name ?? id} renders on your machine. It plays as Glyph here.`
+    if (k === 'board') {
+      if (v === state.board) return
+      state.board = v
+      if (state.style === 'trace' && !traceFilms.includes(v)) { state.style = 'glyph'; if (!names.get(v)?.own) toast(noTrace(v)) }
+    } else if (k === 'style') {
+      if (v === state.style) return
+      if (v === 'trace' && !traceFilms.includes(state.board)) { toast(noTrace(state.board)); return }
+      state.style = v as Style
+    }
     else if (k === 'aspect') { if (v === state.aspect) return; state.aspect = v as Aspect }
     else if (k === 'palette') {
       if (v === state.ink) return
@@ -444,6 +489,20 @@ export function setupHome() {
     }
     showMonitor()
   }
+
+  // each palette tile shows the monitor's film, at the still reduced motion holds, in that palette
+  $('[data-pick="palette"]')?.addEventListener('toggle', (e) => {
+    if (e.newState !== 'open') return
+    void filmOf(state.board, state.aspect).then((film) => {
+      for (const c of $$<HTMLCanvasElement>('[data-still]')) {
+        const dpr = Math.min(2, devicePixelRatio)
+        c.width = Math.round(c.clientWidth * dpr)
+        c.height = Math.round(c.clientHeight * dpr)
+        const fit = Math.min(1, c.height / c.width / (film.tl.height / film.tl.width))
+        drawStill(c, film, STILL, PALETTES[c.dataset.still as PaletteId], 2.4 * fit)
+      }
+    })
+  })
 
   /* the pickers are native popovers; they open under their word and close on a pick, Escape or a click away */
   $$('[data-pick]').forEach((pop) => {
@@ -461,12 +520,14 @@ export function setupHome() {
       ;(items().find((o) => o.getAttribute('aria-checked') === 'true') ?? items()[0])?.focus()
     })
     pop.addEventListener('keydown', (e) => {
-      const back = e.key === 'ArrowUp'
-      if (!back && e.key !== 'ArrowDown') return
+      // in a grid of boards, up and down move a row
+      const row = getComputedStyle(pop.firstElementChild ?? pop).gridTemplateColumns.split(' ').length
+      const step = ({ ArrowLeft: -1, ArrowRight: 1, ArrowUp: -row, ArrowDown: row } as Record<string, number>)[e.key]
+      if (!step) return
       e.preventDefault()
       const list = items()
       const i = list.findIndex((o) => o === document.activeElement)
-      list[(i + (back ? -1 : 1) + list.length) % list.length]?.focus()
+      list[Math.min(list.length - 1, Math.max(0, i + step))]?.focus()
     })
     pop.addEventListener('click', (e) => {
       const o = (e.target as Element).closest<HTMLButtonElement>('.pick__o')
@@ -496,20 +557,23 @@ export function setupHome() {
     if (file.size > 40e6) { toast('That file is over 40 MB. Use the command.'); return }
     toast(`Reading ${file.name}…`)
     filmOwnBoard(file).then((b) => {
-      names.set(b.id, { name: b.name, file: file.name, parts: b.footprints, own: true })
+      names.set(b.id, { name: b.name, file: file.name, own: true })
       const own = $('[data-pick="board"] [data-own]')
       if (own && !$(`[data-pick="board"] [data-v="${CSS.escape(b.id)}"]`)) {
         const o = document.createElement('button')
         o.type = 'button'
-        o.className = 'pick__o'
+        o.className = 'pick__o pick__tile'
         o.setAttribute('role', 'menuitemradio')
         o.dataset.v = b.id
+        const id = document.createElement('span')
         const n = document.createElement('span')
         const k = document.createElement('span')
+        id.className = 'pick__id'
         n.textContent = b.name
         k.className = 'silk'
         k.textContent = `${b.footprints.toLocaleString('en-US')} parts`
-        o.append(n, k)
+        id.append(n, k)
+        o.append(id)
         own.before(o)
       }
       pick('board', b.id)

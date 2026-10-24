@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { resolveConfig } from '../config'
 import type { FilmConfig } from '../types'
-import { compileTrace } from './index'
+import { buildTraceScene } from './scene'
 import { boardModel } from '../../test/helpers'
 
 // regression guard only: pins the approved glasgow 4:5 schedule so later
@@ -15,7 +15,7 @@ describe('approved trace schedule', () => {
     duration: 'auto',
     output: { width: 1080, height: 1350, fps: 30 }
   }
-  const { scene } = compileTrace(boardModel('glasgow.kicad_pcb'), resolveConfig(config), 42)
+  const { scene } = buildTraceScene(boardModel('glasgow.kicad_pcb'), resolveConfig(config), 42)
 
   it('pins seg/pad counts and the earliest growth times', () => {
     const segCount = scene.layers.reduce((n, l) => n + l.segs.length / 7, 0)

@@ -4,13 +4,11 @@ import { randomUUID } from 'node:crypto'
 import { ASPECT_SIZE } from '@silk-reel/choreo'
 import type { FilmConfig, Timeline } from '@silk-reel/choreo'
 import type { GateReport } from '@silk-reel/metrics'
-import { FORMAT_EXT, isAlphaFormat, renderFilm } from './render-film.js'
+import { FORMAT_EXT, RENDER_ENTRY, isAlphaFormat, renderFilm } from './render-film.js'
 import type { OutputFormat } from './render-film.js'
 import { compileFilm, loadDemoBoard, boardFromJson, defaultFilmConfig } from './boards.js'
 import type { DemoBoardId } from './boards.js'
-import { runGate } from './gate.js'
-
-const renderEntryPoint = new URL('../../render/src/remotion-entry.tsx', import.meta.url).pathname
+import { runGate } from '@silk-reel/metrics'
 const exportsRoot = path.resolve(import.meta.dirname, '../../../exports')
 
 export type GateAdvisory =
@@ -50,7 +48,6 @@ type CancelledJob = JobBase & {
 }
 
 export type RenderJob = PendingJob | RenderingJob | DoneJob | ErrorJob | CancelledJob
-export type JobStatus = RenderJob['status']
 
 type SubmissionOptions = { config?: Partial<FilmConfig>; format?: OutputFormat }
 
@@ -157,10 +154,6 @@ export class RenderQueue implements RenderQueuePort {
     return { ...cancelled }
   }
 
-  jobCount(): number {
-    return this.jobs.size
-  }
-
   snapshot(): Map<string, RenderJob> {
     return new Map([...this.jobs.entries()].map(([id, job]) => [id, { ...job }]))
   }
@@ -172,7 +165,7 @@ export class RenderQueue implements RenderQueuePort {
   private async ensureBundle(): Promise<string> {
     if (this.bundleLocation !== undefined) return this.bundleLocation
     if (this.bundlePromise === undefined) {
-      this.bundlePromise = this.bundle(renderEntryPoint).then(
+      this.bundlePromise = this.bundle(RENDER_ENTRY).then(
         (bundleLocation) => {
           this.bundleLocation = bundleLocation
           this.bundlePromise = undefined
@@ -244,7 +237,6 @@ export class RenderQueue implements RenderQueuePort {
       await mkdir(this.exportsRoot, { recursive: true })
       if (this.isCancelled(rendering.id)) return
       await this.renderFilm({
-        entryPoint: renderEntryPoint,
         bundleLocationOverride: bundleLocation,
         inputProps,
         outputLocation,

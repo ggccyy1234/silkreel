@@ -4,8 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./sample-directed": "./src/sample-directed.ts"
+    ".": "./src/index.ts"
   },
   "dependencies": {
     "@silk-reel/ingest": "0.1.0"

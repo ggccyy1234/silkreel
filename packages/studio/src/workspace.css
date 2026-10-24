@@ -514,14 +514,6 @@
   white-space: nowrap;
 }
 
-.beat-mark {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(180deg, var(--warn), transparent);
-}
-
 .ribbon-playhead {
   position: absolute;
   z-index: 2;
@@ -625,72 +617,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.act-list {
-  list-style: none;
-  margin: 0 0 10px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.act-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  background: var(--ground);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  cursor: grab;
-  font-size: 12px;
-  user-select: none;
-  transition: border-color 120ms ease;
-}
-
-.act-row:hover {
-  border-color: #3d3d3d;
-}
-
-.act-row:active {
-  cursor: grabbing;
-}
-
-.act-empty {
-  opacity: 0.45;
-}
-
-.act-grip {
-  color: var(--ink-faint);
-  font-size: 10px;
-}
-
-.act-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.act-flag {
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--warn);
-}
-
-.act-actions {
-  display: flex;
-  gap: 2px;
-}
-
-button.act-move {
-  min-width: 36px;
-  min-height: 36px;
-  padding: 0 4px;
-  line-height: 1;
 }
 
 .knob-grid {
@@ -885,11 +811,6 @@ button.primary:hover:not(:disabled) {
     writing-mode: vertical-rl;
     padding: 4px 0 0;
     font-size: 8px;
-  }
-
-  button.act-move {
-    min-width: 44px;
-    min-height: 44px;
   }
 
   .knob-grid {
