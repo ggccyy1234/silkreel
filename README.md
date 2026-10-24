@@ -20,7 +20,7 @@
 
 | Trace | Glyph |
 |---|---|
-| ![The Glasgow board as a trace film](docs/media/glasgow-trace.gif) | ![The Glasgow board as a glyph film](docs/media/glasgow-glyph.gif) |
+| ![The Glasgow board as a trace film](.github/media/glasgow-trace.gif) | ![The Glasgow board as a glyph film](.github/media/glasgow-glyph.gif) |
 | The lit board under a camera. Copper routes out from the hero chip, the mask and silkscreen go on, the parts drop onto paste and reflow, and then the board powers on. 12 seconds, with sound. | Every part of the board set as type, in a loop. The hero chip's routes grow, the plan rises, a frame closes around it, and the loop seam is invisible. 11.2 seconds. |
 
 Both films above are the [Glasgow](https://github.com/GlasgowEmbedded/glasgow) rev C3 board, rendered with the commands below.

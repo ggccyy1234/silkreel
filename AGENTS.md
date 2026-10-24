@@ -34,7 +34,7 @@ Deterministic tests pass on videos that look like slop. A change to anything vis
 3. Pre-filter: the old defect checks still gate first — no clipping, no dead air, clean loop seam, legible at phone size. A video that fails any of those is a FAIL before taste is scored.
 4. Score every rubric line 1–5 with one concrete sentence per video:
    First frame (worth stopping the scroll?) · Reading path (the eye always knows where to look) · Rhythm (lands on the beat grid; nothing arbitrary) · Breath (sparse↔dense; negative space intended) · Restraint (nothing removable; glow only on energy) · Material (ink/copper/mask look chosen; no blobs or mud) · Signature moment (one beat people remember) · Resolve (invisible loop seam, or one-shot lands on a held hero frame) · Screenshot test (any frame is a poster) · Board truth (the board's designer would recognize it).
-5. My pass requires every line ≥4. Any line <4 means iterate. The final pass is the user's sign-off. Commit the notes under `docs/reviews/`.
+5. My pass requires every line ≥4. Any line <4 means iterate. The final pass is the user's sign-off. Keep the notes under `docs/reviews/` (local only; `docs/` is gitignored).
 
 ## Styleframes: compare against the reference, not just yourself
 

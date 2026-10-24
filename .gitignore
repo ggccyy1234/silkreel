@@ -7,9 +7,16 @@ exports/*.mp4
 fixtures/canonical.mp4
 exports/
 review/
-.devin/goal/
+.devin/
 silk-reel-ad-film/
 .snapshots/
 
 # another artist's work, kept for private comparison only (AGENTS.md); never commit
 fixtures/reference/
+
+# agent and working notes stay local
+.claude/
+docs/
+evidence/
+HANDOFF.md
+progress.md
