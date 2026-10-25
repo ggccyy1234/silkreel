@@ -62,7 +62,7 @@ export function useBoardSources() {
         return (await res.json()) as BoardModel
       }
       if (/\.(gtl|gbl|gml|gko|gts|gbs|gto|gbo|gtp|gbp|drl|drd|xln|cmp|sol|gpi)$/i.test(file.name)) {
-        throw new Error('gerber sets land in m4; drop a .kicad_pcb for now')
+        throw new Error('Gerber import is not supported yet; drop a .kicad_pcb')
       }
       throw new Error('unsupported file; drop a .kicad_pcb')
     } catch (err) {

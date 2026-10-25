@@ -246,8 +246,8 @@ const Landing: React.FC<{
             e.preventDefault()
             setDragOver(true)
           }}
-          onDragLeave={() => {
-            setDragOver(false)
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false)
           }}
           onDrop={(e) => {
             e.preventDefault()
@@ -268,7 +268,7 @@ const Landing: React.FC<{
           <input
             ref={fileInput}
             type="file"
-            accept=".kicad_pcb,.gtl,.gbl,.gml,.gko,.gts,.gbs,.gto,.gbo,.gtp,.gbp,.drl,.drd,.xln,.cmp,.sol,.gpi"
+            accept=".kicad_pcb"
             hidden
             onChange={(e) => {
               const file = e.target.files?.[0]
@@ -281,7 +281,7 @@ const Landing: React.FC<{
           <span>ingest</span><strong>KiCad PCB</strong>
           <span>film</span><strong>trace growth · glyph loop</strong>
           <span>output</span><strong>MP4 · GIF · WebM/ProRes alpha</strong>
-          <p>Gerber sets join the pipeline in m4.</p>
+          <p>Gerber import is not supported yet.</p>
         </aside>
       </div>
       {error !== null && (
@@ -390,18 +390,18 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
             onDuration={props.onDuration}
             disabled={exportBusy}
           />
-          <BoardLedger summary={summary} elementCount={film !== null && film.timeline.style === 'glyph' ? film.timeline.cast.length : 0} />
+          <BoardLedger summary={summary} elementCount={film !== null && film.timeline.style === 'glyph' ? film.timeline.cast.length : null} />
         </aside>
       </div>
     </main>
   )
 }
 
-const BoardLedger: React.FC<{ summary: BoardSummary; elementCount: number }> = ({ summary, elementCount }) => (
+const BoardLedger: React.FC<{ summary: BoardSummary; elementCount: number | null }> = ({ summary, elementCount }) => (
   <section className="panel board-ledger" aria-labelledby="board-ledger-title">
     <div className="panel-heading">
       <h2 id="board-ledger-title">board inventory</h2>
-      <span>{elementCount.toLocaleString()} film elements</span>
+      {elementCount !== null && <span>{elementCount.toLocaleString()} film elements</span>}
     </div>
     <dl className="ledger-grid">
       <div><dt>footprints</dt><dd>{summary.footprintCount}</dd></div>
@@ -478,7 +478,7 @@ const PlayerPane: React.FC<{ timeline: Timeline; stale: boolean }> = ({ timeline
         fps={timeline.fps}
         compositionWidth={timeline.width}
         compositionHeight={timeline.height}
-        style={{ width: '100%', maxHeight: 'calc(100dvh - 160px)', aspectRatio: `${timeline.width} / ${timeline.height}` }}
+        style={{ width: '100%', maxHeight: 'calc(100dvh - 190px)', aspectRatio: `${timeline.width} / ${timeline.height}` }}
         controls={false}
         loop
         acknowledgeRemotionLicense
@@ -677,7 +677,7 @@ const LookPanel: React.FC<{ look: Look; onLook: (patch: Partial<Look>) => void; 
         <input
           type="text"
           aria-label="title card name"
-          placeholder="board name (empty: no card)"
+          placeholder="title card (optional)"
           maxLength={40}
           value={look.title.name}
           disabled={disabled}
@@ -711,39 +711,43 @@ const KnobPanel: React.FC<{
   onDuration: (duration: 'auto' | number) => void
   disabled: boolean
 }> = ({ style, knobs, onKnobs, seed, onSeed, duration, onDuration, disabled }) => {
-  const rangeKnobs: Array<{ key: keyof typeof KNOB_RANGES; label: string }> = [
-    { key: 'tempo', label: 'tempo' },
-    ...(style === 'glyph' ? [{ key: 'texts' as const, label: 'texts' }] : [])
-  ]
+  const tempo = KNOB_RANGES.tempo
+  const tempoValue = knobs.tempo ?? DEFAULT_KNOBS.tempo ?? tempo.min
   return (
     <section className="panel">
       <h2>film</h2>
       <div className="knob-grid">
-        {rangeKnobs.map(({ key, label }) => {
-          const range = KNOB_RANGES[key]
-          const value = knobs[key] ?? DEFAULT_KNOBS[key] ?? range.min
-          const decimals = range.step < 1 ? 2 : 0
-          return (
-            <div className="field range-field" key={key}>
-              <label htmlFor={`knob-${key}`}>{label}</label>
-              <div className="range-row">
-                <input
-                  id={`knob-${key}`}
-                  type="range"
-                  min={range.min}
-                  max={range.max}
-                  step={range.step}
-                  value={value}
-                  disabled={disabled}
-                  onChange={(e) => {
-                    onKnobs({ [key]: Number(e.target.value) })
-                  }}
-                />
-                <output className="range-value">{value.toFixed(decimals)}</output>
-              </div>
-            </div>
-          )
-        })}
+        <div className="field range-field">
+          <label htmlFor="knob-tempo">tempo</label>
+          <div className="range-row">
+            <input
+              id="knob-tempo"
+              type="range"
+              min={tempo.min}
+              max={tempo.max}
+              step={tempo.step}
+              value={tempoValue}
+              disabled={disabled}
+              onChange={(e) => {
+                onKnobs({ tempo: Number(e.target.value) })
+              }}
+            />
+            <output className="range-value">{tempoValue.toFixed(2)}</output>
+          </div>
+        </div>
+        {style === 'glyph' && (
+          <label className="field range-field check-field">
+            <input
+              type="checkbox"
+              checked={(knobs.texts ?? DEFAULT_KNOBS.texts) === 1}
+              disabled={disabled}
+              onChange={(e) => {
+                onKnobs({ texts: e.target.checked ? 1 : 0 })
+              }}
+            />
+            silkscreen texts
+          </label>
+        )}
         <div className="field">
           <label htmlFor="knob-seed">seed</label>
           <div className="range-row">

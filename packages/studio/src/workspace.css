@@ -333,7 +333,7 @@
 .workspace {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  height: 100dvh;
 }
 
 .topbar {
@@ -432,6 +432,7 @@
 .workspace-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-rows: minmax(0, 1fr);
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -450,6 +451,7 @@
 }
 
 .player-wrap {
+  position: relative;
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -536,6 +538,10 @@
 }
 
 .pane-stale {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  left: 10px;
   color: var(--warn);
   font-size: 11px;
 }
@@ -543,7 +549,6 @@
 .controls-pane {
   border-left: 1px solid var(--line-soft);
   overflow-y: auto;
-  max-height: calc(100dvh - 53px);
   background: var(--surface);
 }
 
@@ -645,6 +650,20 @@
   height: 20px;
 }
 
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.check-field input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 .range-value {
   font-size: 11px;
   color: var(--ink-secondary);
@@ -720,14 +739,19 @@ button.primary:hover:not(:disabled) {
     border-left: 1px solid var(--line);
   }
 
+  .workspace {
+    height: auto;
+    min-height: 100dvh;
+  }
+
   .workspace-body {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
   }
 
   .controls-pane {
     border-left: none;
     border-top: 1px solid var(--line-soft);
-    max-height: none;
   }
 
   .demo-grid {
@@ -760,34 +784,26 @@ button.primary:hover:not(:disabled) {
   }
 
   .topbar {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    position: static;
+    flex-wrap: wrap;
     gap: 6px 10px;
     padding: 8px 12px 10px;
   }
 
-  .topbar > .ghost {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
   .board-name {
-    grid-column: 2;
-    grid-row: 1;
+    flex: 1;
+    min-width: 0;
     max-width: none;
     font-size: 14px;
   }
 
   .board-meta {
-    grid-column: 1 / -1;
-    grid-row: 2;
+    flex-basis: 100%;
     font-size: 11px;
   }
 
-  .export-control {
-    grid-column: 1 / -1;
-    grid-row: 3;
-    justify-content: flex-start;
+  .format-select {
+    flex: 1;
   }
 
   .button-link {
@@ -912,6 +928,10 @@ button.primary:hover:not(:disabled) {
   display: grid;
   grid-template-columns: 2fr 1fr;
   gap: 6px;
+}
+
+.format-select {
+  margin: 0;
 }
 
 .format-select select {

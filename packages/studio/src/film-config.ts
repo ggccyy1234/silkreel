@@ -15,8 +15,7 @@ export function compileStudioFilm(board: BoardModel, config: FilmConfig) {
 }
 
 export const KNOB_RANGES = {
-  tempo: { min: 0.75, max: 1.5, step: 0.05 },
-  texts: { min: 0, max: 1, step: 1 }
+  tempo: { min: 0.75, max: 1.5, step: 0.05 }
 } as const
 
 export const STYLES: ReadonlyArray<{ id: StyleId; label: string }> = [
