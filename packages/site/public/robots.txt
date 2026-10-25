@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://silkreel.dev/sitemap-index.xml
+Sitemap: https://silkreel.hridya.tech/sitemap-index.xml

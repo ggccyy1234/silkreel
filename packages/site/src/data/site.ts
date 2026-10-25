@@ -1,6 +1,6 @@
 export const site = {
   name: 'silk reel',
-  url: 'https://silkreel.dev',
+  url: 'https://silkreel.hridya.tech',
   repo: 'https://github.com/hridaya423/silkreel',
   line: 'KiCad in. Film out.',
   description: 'Turn a KiCad board file into a release film: the lit board under a camera, or its parts set as a looping glyph film. Any aspect, any format.',

@@ -2,7 +2,7 @@ import { defineConfig } from 'astro/config'
 import sitemap from '@astrojs/sitemap'
 
 export default defineConfig({
-  site: 'https://silkreel.dev',
+  site: 'https://silkreel.hridya.tech',
   integrations: [sitemap()],
   prefetch: { prefetchAll: true, defaultStrategy: 'viewport' },
   build: { inlineStylesheets: 'auto' },
