@@ -3,6 +3,8 @@ node_modules
 .cad-cache/
 .venv-cad/
 .pip-cache/
+.jlc-cache/
+.easyeda_cache/
 dist
 coverage
 *.tsbuildinfo

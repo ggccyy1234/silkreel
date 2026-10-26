@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     'packages/cad/src/viewer.ts', 'packages/cad/src/types.ts', 'packages/cad/src/manufacturing.ts',
     'packages/cad/src/manufacturing-scene.ts', 'packages/cad/src/manufacturing-plan.ts',
     'fixtures/cad/colored-assembly.step', 'fixtures/cad/assembly.kicad_pcb']) await copy(file)
-  const entries = ['cli', 'setup', 'smoke', 'manufacturing-review', 'generate-test-boards']
+  const entries = ['cli', 'setup', 'bootstrap', 'doctor', 'jlc3d-cli', 'smoke', 'manufacturing-review', 'generate-test-boards']
   for (const entry of entries) await build({ entryPoints: [path.join(repoRoot, `packages/cad/src/${entry}.ts`)],
     outfile: path.join(target, `packages/cad/src/${entry}.js`), bundle: true, platform: 'node', format: 'esm', target: 'node22',
     external: ['three', 'three/*', 'playwright', 'esbuild', '@remotion/*'], legalComments: 'eof' })
@@ -52,6 +52,9 @@ async function main(): Promise<void> {
     engines: { node: '>=22' }, os: ['win32'], cpu: ['x64'],
     repository: { type: 'git', url: 'https://github.com/ggccyy1234/silkreel.git' },
     scripts: { cad: 'node packages/cad/src/cli.js', 'cad:setup': 'node packages/cad/src/setup.js',
+      'cad:jlc': 'node packages/cad/src/jlc3d-cli.js',
+      'cad:doctor': 'node packages/cad/src/doctor.js',
+      'cad:bootstrap': 'node packages/cad/src/bootstrap.js',
       'cad:stages': 'node packages/cad/src/manufacturing-review.js', 'cad:smoke': 'node packages/cad/src/smoke.js',
       'cad:fixtures': 'node packages/cad/src/generate-test-boards.js' }, dependencies }
   // Retain the exact transitive lock entries/integrities; no registry resolution
@@ -73,7 +76,8 @@ async function main(): Promise<void> {
   const commit = (await run('git', ['rev-parse', 'HEAD'], { cwd: repoRoot })).stdout.trim()
   const dirty = Boolean((await run('git', ['status', '--porcelain'], { cwd: repoRoot })).stdout.trim())
   await writeFile(path.join(target, 'BUILD.json'), JSON.stringify({ version: meta.version, sourceCommit: commit, dirty,
-    target: 'win32-x64', externalRuntimes: ['Node.js', 'Python/OpenCascade/Pillow', 'KiCad', 'Chromium'],
+    target: 'win32-x64', externalRuntimes: ['Node.js', 'Python/OpenCascade/Pillow', 'KiCad', 'Chromium',
+      'FFmpeg', 'JLC3D/network (optional for exact model repair)'],
     includesPrivateDesigns: false, includesComponentModels: false, includesInstalledDependencies: false }, null, 2))
   const hashes: string[] = []
   const walk = async (dir: string): Promise<void> => {

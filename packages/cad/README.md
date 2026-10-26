@@ -2,29 +2,44 @@
 
 独立于原来的 trace/glyph 渲染器。输入 `.kicad_pcb` 或整板 `.step/.stp`，输出可旋转查看的真实 CAD 装配、PNG、GLB 和 MP4。不会按位号、焊盘尺寸或封装名字生成替代外形。
 
-本版为 `v0.1.0-cad.1` 预发布版。使用前必须让 Agent 阅读[根目录 README](../../README.md) 的兼容矩阵和完整验收清单；脚本运行本身不依赖 LLM。本页提供技术细节，不能替代逐帧和全片视觉检查。
+本版为 `v0.2.0-cad.1` 预发布版。使用前必须让 Agent 阅读[根目录 README](../../README.md) 的兼容矩阵和完整验收清单；脚本运行本身不依赖 LLM。本页提供技术细节，不能替代逐帧和全片视觉检查。
 
 ## 安装
 
-需要 Node.js 22+、Chrome/Edge/Chromium；发布版仅验证 Windows x64 + KiCad 10。视频编码优先使用安装的 Remotion FFmpeg，找不到时使用 PATH 或 `--ffmpeg`。
+需要 Node.js 22+、Chrome/Edge/Chromium；**KiCad 10 必装**，发布版仅验证 Windows x64 + KiCad 10。KiCad 需包含 `kicad-cli`、`pcbnew` Python 和标准 3D 模型库。不得在 KiCad 缺失时用推测模型继续。视频编码优先使用安装的 Remotion FFmpeg，找不到时使用 PATH 或 `--ffmpeg`。
 
 ```powershell
 npm ci
-# STEP/制造入口另需 Python 3.10–3.13；安装 OpenCascade 与检查用 Pillow 到 .venv-cad
-npm run cad:setup -- --python "D:/Program Files/KiCad/10.0/bin/python.exe"
-# 没有 Chrome/Edge 时可选安装 Chromium
-npx playwright install chromium
+npm run cad:doctor -- --json
+npm run cad:bootstrap -- --python "D:/Program Files/KiCad/10.0/bin/python.exe" --json
 ```
 
 Python 路径应改为本机已有的解释器。PCB 输入使用 KiCad 的模型转换，不依赖这个 Python 环境。已实测平台为 Windows + KiCad 10；其他平台提供路径发现和覆盖参数，尚未实机验证。
+
+Agent 收到仓库/发布包路径和用户指定的安装/工作目录后，应把该位置作为安装根目录，自动发现并配置依赖；不得照抄另一个用户的盘符或缓存路径。`cad:doctor` 检查全套依赖并输出修复命令；`cad:bootstrap` 安装 npm 依赖、OpenCascade/Pillow 与缺少的 Chromium。KiCad 必须先用系统安装器/包管理器安装。
+
+Agent 必须在目标电脑上重新发现路径，不得复用另一台电脑的盘符或用户名。常用覆盖项：
+
+| 覆盖项 | 用途 |
+| --- | --- |
+| `KICAD_CLI` / `--kicad` | `kicad-cli` 可执行文件 |
+| `KICAD_PYTHON` / `--kicad-python` | 能 `import pcbnew` 的 KiCad Python |
+| `CAD_PYTHON` / `--python` | 能 `import OCP` 的 OpenCascade Python |
+| `JLC3D_DOWNLOADER` | 明确指定 `JLC3DDownload.py` 或下载器 EXE |
+| `JLC3D_HOME` | JLC3D 配置目录，默认 `~/.jlc3d` |
+| `JLC3D_DOWNLOAD_PATH` | 覆盖 JLC3D 默认模型目录 |
+| `JLC3D_PROXY` / `--jlc-proxy` | JLC 在线请求代理；也可回退 `HTTPS_PROXY` |
 
 ## 渲染和查看
 
 ```powershell
 npm run cad -- render "board.kicad_pcb" --out exports/cad/board
+npm run cad -- repair-models "board.kicad_pcb"
 npm run cad -- render "board.step" --out exports/cad/step --azimuth=-45 --title "My PCB"
 npm run cad -- serve exports/cad/step --port 3103
 ```
+
+省略 `--out` 时，所有按板输出的命令自动写入 PCB 同目录的 `<板名>-silkreel/`。例如 `/work/board.kicad_pcb` 会写入 `/work/board-silkreel/`，包括图片、GLB、查看器、视频、审计和逐帧报告。
 
 打开打印的 `http://127.0.0.1:3103`。拖动旋转、滚轮缩放、右键平移；可切换正反面、播放转台、保存图片和下载 GLB。服务只监听本机，所有资源在本地。查看器校验模型的 SHA-256。
 
@@ -42,8 +57,12 @@ npm run cad -- serve exports/cad/step --port 3103
 | `audit.json` | PCB 模型的原路径、解析路径、文件哈希、变换和缺失清单 |
 | `index.html`、`viewer.js`、`status.json` | 本地交互查看器；需通过 `serve` 打开 |
 | `.cad-cache/` | 按输入内容、模型文件哈希、转换器和网格参数区分的转换缓存 |
+| `.jlc-cache/` | JLC 元数据和 STEP 精确模型缓存；已验证模型可离线复用 |
+| `model-map.json` / `model-repair.json` | 项目级模型映射及补模来源、哈希、变换和限制记录 |
 
 `prepare` 只转换模型并构建查看器，不启动浏览器拍摄。再次渲染同一个输出目录会复用经过哈希检查的转换缓存。输入文件始终只读。失败任务会写 `status.json`，查看器会拒绝显示上次遗留的结果。
+
+`audit.json` 的 `footprints` 还会列出每个封装的 `value`、`mpn`、`manufacturer`、`supplierPart`、`lcsc`、`package` 和完整属性表，Agent 应据此为缺模封装选择准确型号，而不是仅凭封装名猜测。
 
 ## 旋转拆装与制造流程视频
 
@@ -103,7 +122,38 @@ npm run cad -- render "board.kicad_pcb" --out exports/cad/board `
 }
 ```
 
-使用 `--model-map paths.json`。不会搜索同名文件，不会把相似封装当成替代，也不会自动替换 STEP/WRL 扩展名。没有模型声明的封装列入 `withoutModels`，仅显示 PCB 自身已有的焊盘/丝印；显式隐藏的模型按 KiCad 规则隐藏。启用但缺失的模型会导致非零退出码，没有“忽略缺失”开关。嵌入式 URI/无法解析的库别名也会明确失败，应提供实际文件的显式映射。
+`render`、`reference` 和 `manufacture` 默认先按封装精确型号自动补模；自动修复仍无法满足时会非零退出。`--no-auto-models` 可关闭自动行为并直接按严格模式审计。没有模型声明的机械孔会被识别并跳过；电气封装若没有精确 MPN/LCSC 或无法取得真实放置变换，则停止。
+
+## JLC3D 精确模型获取
+
+发布包包含不依赖 GUI 的 JLC3D 接口封装。查询关键字可以是 PCB 封装的准确器件型号，也可以是 LCSC 编号。先检查本机工具、配置和下载目录：
+
+```powershell
+npm run cad:jlc -- --doctor
+npm run cad:jlc -- --help
+# 解析但不下载
+npm run cad:jlc -- STM32F103C8T6 --package LQFP-48 --dry-run --json
+# 下载到项目内，避免污染全局库
+npm run cad:jlc -- STM32F103C8T6 --package LQFP-48 --out exports/cad-models
+```
+
+脚本发现顺序为 `JLC3D_DOWNLOADER` → `JLC3D_HOME`/`~/.jlc3d/config.ini` → 常见 Downloads/Desktop/Documents/Program Files/Applications 目录。接口链与本地 JLC3D 下载器一致：
+
+```text
+POST /eda/product/search              keyword=<MPN or LCSC>
+POST /devices/searchByIds             uuids[]=<hasDevice>
+POST /components/searchByIds?forceOnline=1  uuids[]=<3D Model UUID>
+GET  modules.lceda.cn/.../<model>
+```
+
+基础地址为 `https://pro.lceda.cn/api`。这是第三方在线服务，可能要求代理、改变或限制访问；请求带重试，元数据与 STEP 默认缓存在输出目录 `.jlc-cache/`，已验证模型可离线复用。失败时保留错误，不得用相似模型冒充。下载结果必须是 `ISO-10303-21` STEP，脚本记录来源、SHA-256、`3D Model Transform` 和 `jlc3d-models.json`。
+
+脚本要求精确型号/编号匹配；同型号存在多个封装候选时用 `--package` 消除歧义，仍不唯一就停止。模型修复分为两类：
+
+- 已声明但缺失：下载同 LCSC 型号，通过显式 `--model-map` 映射回原声明，保留原 offset/rotate/scale。
+- 未声明可见模型：从 PCB 封装的 `Value`、`MPN`、`Manufacturer Part`、`Part Number`、LCSC 等字段取得准确型号，优先从 JLC 补齐；JLC 九元组 `sx,sy,sz,rz,rx,ry,ox,oy,oz` 与实测 STEP 包围盒共同生成 KiCad scale/rotate/offset。仅修改项目内临时 PCB/局部封装副本，不修改原始 PCB、`.kicad_sym` 符号库或共享 `.pretty` 封装库。无法确认型号、封装或变换时停止。
+
+`model-repair.json` 记录原始/副本 PCB 哈希、模型 URL、SHA-256、放置参数、跳过项和失败项，并声明模型来源为“嘉立创EDA/EasyEDA官方库”及 https://lceda.cn/、https://easyeda.com。`easyeda2kicad` 可用于人工核对元数据，但本工具不借此修改共享符号库。JLC 无同型号模型时才考虑原厂 STEP；通用封装模型只能作为明确标注的近似展示，不能通过完整还原验收。
 
 ## 数据如何进入渲染器
 

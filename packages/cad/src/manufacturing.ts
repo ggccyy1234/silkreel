@@ -54,7 +54,8 @@ export async function prepareManufacturing(out: string, pcb: string, manifest: M
   const source = await readFile(pcb, 'utf8'), stack = readStack(source)
   requireQualifiedStack(stack)
   const cli = await findKiCad(kicad)
-  const python = explicitPython ?? path.join(path.dirname(cli), process.platform === 'win32' ? 'python.exe' : 'python3')
+  const python = explicitPython ?? process.env.KICAD_PYTHON
+    ?? path.join(path.dirname(cli), process.platform === 'win32' ? 'python.exe' : 'python3')
   const target = path.join(out, 'manufacturing.json')
   const script = fileURLToPath(new URL('../scripts/manufacturing_layers.py', import.meta.url))
   const { stdout, stderr } = await promisify(execFile)(python, [script, pcb, target], { maxBuffer: 8 * 1024 * 1024 })

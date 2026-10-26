@@ -24,6 +24,9 @@
   "scripts": {
     "cad": "tsx packages/cad/src/cli.ts",
     "cad:setup": "tsx packages/cad/src/setup.ts",
+    "cad:jlc": "tsx packages/cad/src/jlc3d-cli.ts",
+    "cad:doctor": "tsx packages/cad/src/doctor.ts",
+    "cad:bootstrap": "tsx packages/cad/src/bootstrap.ts",
     "cad:package": "tsx packages/cad/src/package-release.ts",
     "cad:stages": "tsx packages/cad/src/manufacturing-review.ts",
     "cad:smoke": "tsx packages/cad/src/smoke.ts",

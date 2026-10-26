@@ -2,15 +2,18 @@ import { parseArgs } from 'node:util'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { prepare, auditInput, requireComplete, runKiCad } from './prepare.js'
+import type { PrepareOptions } from './prepare.js'
 import { buildViewer, serve } from './web.js'
 import { render } from './render.js'
 import { prepareManufacturing } from './manufacturing.js'
 import { exportStep } from './export-step.js'
+import { repairBoardModels } from './model-repair.js'
 
 const help = `PCB CAD — source-faithful KiCad / STEP renderer
 
   npm run cad -- render board.kicad_pcb --out exports/board
   npm run cad -- manufacture board.kicad_pcb --out exports/manufacturing
+  npm run cad -- repair-models board.kicad_pcb
   npm run cad -- render assembly.step --out exports/step
   npm run cad -- audit board.kicad_pcb --out exports/audit
   npm run cad -- prepare assembly.step --out exports/step
@@ -21,6 +24,7 @@ render writes cover/top/bottom.png, turntable.mp4, model.glb and a local viewer.
 prepare writes the portable GLB and viewer without capturing images.
 reference writes KiCad's own top/bottom/isometric images for comparison.
 Missing visible model files are a hard error; there is no inferred fallback.
+render/reference/manufacture try exact JLC model repair by default before stopping.
 
   --kicad PATH          KiCad CLI executable (or KICAD_CLI environment variable)
   --python PATH         Python with cadquery-ocp-novtk (or CAD_PYTHON)
@@ -32,6 +36,7 @@ Missing visible model files are a hard error; there is no inferred fallback.
   --pcb PATH            Matching PCB companion for manufacturing (4/6 Cu layers)
   --allow-incomplete-step  Explicitly accept disclosed missing refs in an existing STEP
   --kicad-python PATH   Python with pcbnew for manufacturing contour extraction
+                        (or KICAD_PYTHON environment variable)
   --fps N              Frame rate (default 30)
   --elevation DEG      Camera elevation above board plane (default 55)
   --azimuth DEG        Initial camera azimuth (default -90)
@@ -39,6 +44,12 @@ Missing visible model files are a hard error; there is no inferred fallback.
   --background #rrggbb Background color (default #edf0f4)
   --transparent        Transparent PNG; MP4 remains opaque
   --title TEXT         Optional caption
+  --out DIR            Output directory (default: <PCB directory>/<board>-silkreel)
+  --no-auto-models     Disable exact-JLC model repair for render/reference/manufacture
+  --jlc-api URL        JLC API base (default https://pro.lceda.cn/api)
+  --jlc-proxy URL      Proxy for JLC requests
+  --jlc-cache DIR      Persistent JLC metadata/STEP cache
+  --model-package REF=PACKAGE  Override package used for an ambiguous part; repeatable
   --still              PNG only, no video
   --browser PATH       Chrome/Edge/Chromium executable
   --ffmpeg PATH        Encoder executable; otherwise use bundled/PATH ffmpeg
@@ -63,11 +74,13 @@ async function main(): Promise<void> {
     elevation: { type: 'string' }, azimuth: { type: 'string' }, side: { type: 'string' }, background: { type: 'string' },
     transparent: { type: 'boolean' }, title: { type: 'string' }, still: { type: 'boolean' },
     browser: { type: 'string' }, ffmpeg: { type: 'string' }, port: { type: 'string' },
-    pcb: { type: 'string' }, 'kicad-python': { type: 'string' }, 'allow-incomplete-step': { type: 'boolean' }
+    pcb: { type: 'string' }, 'kicad-python': { type: 'string' }, 'allow-incomplete-step': { type: 'boolean' },
+    'no-auto-models': { type: 'boolean' }, 'jlc-api': { type: 'string' }, 'jlc-proxy': { type: 'string' },
+    'jlc-cache': { type: 'string' }, 'model-package': { type: 'string', multiple: true }
   } })
   if (values.help || !positionals.length) { console.log(help); return }
   const command = positionals[0] ?? ''
-  if (!['audit', 'prepare', 'render', 'manufacture', 'serve', 'reference'].includes(command)) throw new Error('Expected audit, prepare, render, manufacture, serve or reference. Use --help.')
+  if (!['audit', 'prepare', 'render', 'manufacture', 'serve', 'reference', 'repair-models'].includes(command)) throw new Error('Expected audit, prepare, render, manufacture, repair-models, serve or reference. Use --help.')
   if (positionals.length !== 2) throw new Error(`Expected ${command} <input>. Use --help.`)
   const input = path.resolve(positionals[1] ?? '')
   const number = (name: 'width' | 'height' | 'duration' | 'fps' | 'elevation' | 'azimuth' | 'port' | 'deflection', fallback: number, min: number, max: number, integer = false): number => {
@@ -81,19 +94,43 @@ async function main(): Promise<void> {
     process.once('SIGINT', () => { server.close(); process.exitCode = 0 })
     return
   }
-  const out = path.resolve(values.out ?? path.join('exports', 'cad', path.basename(input, path.extname(input))))
+  // Keep every per-board artifact together beside the source PCB. The source
+  // itself remains read-only; only this dedicated sibling directory is written.
+  const out = path.resolve(values.out ?? path.join(path.dirname(input), `${path.basename(input, path.extname(input))}-silkreel`))
   const variables: Record<string, string> = {}
   for (const entry of values.define ?? []) {
     const separator = entry.indexOf('=')
     if (separator < 1) throw new Error(`Expected --define NAME=VALUE, got ${entry}`)
     variables[entry.slice(0, separator)] = entry.slice(separator + 1)
   }
-  const options = { input, out, kicad: values.kicad, python: values.python, variables,
+  let options: PrepareOptions = { input, out, kicad: values.kicad, python: values.python, variables,
     modelMap: values['model-map'] ? await stringMap(values['model-map']) : {},
     deflectionMm: number('deflection', 0.02, 0.0001, 1) }
   if (values['allow-incomplete-step'] && (command === 'manufacture' || !values.pcb)) throw new Error('--allow-incomplete-step is only for an existing STEP with --pcb; native manufacture is always strict')
+  if (values['no-auto-models'] && command === 'repair-models') throw new Error('repair-models cannot be combined with --no-auto-models')
   await mkdir(out, { recursive: true })
+  let currentRepair: Awaited<ReturnType<typeof repairBoardModels>> | undefined
   try {
+    if (path.extname(input).toLowerCase() === '.kicad_pcb' && ['render', 'manufacture', 'reference', 'repair-models'].includes(command)
+      && !values['no-auto-models']) {
+      const packageOverrides: Record<string, string> = {}
+      for (const entry of values['model-package'] ?? []) {
+        const separator = entry.indexOf('=')
+        if (separator < 1) throw new Error(`Expected --model-package REF=PACKAGE, got ${entry}`)
+        packageOverrides[entry.slice(0, separator)] = entry.slice(separator + 1)
+      }
+      const repair = await repairBoardModels({ ...options, out, api: values['jlc-api'],
+        proxy: values['jlc-proxy'] ?? process.env.JLC3D_PROXY ?? process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY,
+        cacheDir: values['jlc-cache'], packageOverrides })
+      options = { ...options, input: repair.stagedPcb, modelMap: { ...options.modelMap, ...repair.modelMap } }
+      if (repair.records.length) console.log(`Exact JLC model repair: ${repair.records.length} model(s); report: ${repair.reportFile}`)
+      if (command === 'repair-models') {
+        await writeFile(path.join(out, 'status.json'), JSON.stringify({ ok: true }))
+        console.log(`Repair complete: ${repair.stagedPcb}\nModel map: ${repair.modelMapFile ?? 'unchanged'}`)
+        return
+      }
+      currentRepair = repair
+    }
     if (command === 'audit' || command === 'reference') {
       if (path.extname(input).toLowerCase() !== '.kicad_pcb') throw new Error(`${command} requires a .kicad_pcb input`)
       const { audit, stagedSource, kicad } = await auditInput(options)
@@ -118,13 +155,20 @@ async function main(): Promise<void> {
       if (side !== 'top' && side !== 'bottom') throw new Error('--side must be top or bottom')
       const background = values.background ?? '#edf0f4'
       if (!/^#[0-9a-f]{6}$/i.test(background)) throw new Error('--background must be #rrggbb')
-      console.log(`Preparing exact CAD geometry: ${input}`)
+      console.log(`Preparing exact CAD geometry: ${options.input}`)
       if (command === 'manufacture' && path.extname(input).toLowerCase() !== '.kicad_pcb') throw new Error('manufacture requires a .kicad_pcb input')
       const exported = command === 'manufacture' ? await exportStep(options) : undefined
-      const manifest = await prepare({ ...options, input: exported?.step ?? input })
+      const manifest = await prepare({ ...options, input: exported?.step ?? options.input })
       if (exported) {
         manifest.audit = exported.audit
         manifest.notes.push(`${exported.audit.withoutModels.length} source footprint(s) declare no visible model; see audit.withoutModels. No bodies invented.`)
+      }
+      if (currentRepair) {
+        manifest.repair = { sourcePcb: currentRepair.sourcePcb, stagedPcb: currentRepair.stagedPcb,
+          repaired: currentRepair.repaired, report: currentRepair.reportFile, records: currentRepair.records.length }
+        manifest.notes.push(`Exact JLC model repair: ${currentRepair.records.length} model(s); source and symbol libraries were not modified.`)
+        if (currentRepair.records.length) manifest.notes.push('Model source attribution: 嘉立创EDA/EasyEDA官方库, https://lceda.cn/ and https://easyeda.com; model rights remain with their rightsholders.')
+        await writeFile(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2))
       }
       const pcb = exported?.pcb ?? values.pcb
       if (pcb) await prepareManufacturing(out, path.resolve(pcb), manifest, values.kicad, values['kicad-python'], values.title, values['allow-incomplete-step'] ?? false)

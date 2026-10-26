@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { parseSExpr } from '@silk-reel/ingest'
 import type { SExprNode } from '@silk-reel/ingest'
-import type { Audit, ModelReference } from './types.js'
+import type { Audit, FootprintIdentity, ModelReference } from './types.js'
 
 const lists = (n: SExprNode[], name: string): SExprNode[][] => n.filter((v): v is SExprNode[] => Array.isArray(v) && v[0] === name)
 const first = (n: SExprNode[], name: string): SExprNode[] => lists(n, name)[0] ?? []
@@ -90,12 +90,30 @@ export async function auditBoard(input: string, variables: Record<string, string
   const vars: Record<string, string> = { ...env, ...await readVariables(input.replace(/\.kicad_pcb$/i, '.kicad_pro')), ...variables, KIPRJMOD: path.dirname(input) }
   const usedVariables: Record<string, string> = { KIPRJMOD: path.dirname(input) }
   const models: ModelReference[] = []
+  const footprintIdentities: FootprintIdentity[] = []
   const withoutModels: string[] = []
   const hashes = new Map<string, string>()
   const footprints = root.filter((node): node is SExprNode[] => Array.isArray(node) && (node[0] === 'footprint' || node[0] === 'module'))
   for (const fp of footprints) {
     const prop = lists(fp, 'property').find(p => p[1] === 'Reference')
     const ref = atom(prop?.[2]) || atom(lists(fp, 'fp_text').find(p => p[1] === 'reference')?.[2]) || '(unnamed)'
+    const properties = Object.fromEntries(lists(fp, 'property').map(p => [atom(p[1]), atom(p[2])]))
+    const pads = lists(fp, 'pad')
+    const field = (...names: string[]): string | null => {
+      const wanted = new Set(names.map(name => name.toLowerCase().replace(/[^a-z0-9]/g, '')))
+      const match = Object.entries(properties).find(([name]) => wanted.has(name.toLowerCase().replace(/[^a-z0-9]/g, '')))
+      return match?.[1] || null
+    }
+    footprintIdentities.push({ reference: ref, footprint: atom(fp[1]), side: atom(first(fp, 'layer')[1]),
+      value: (field('Value') ?? atom(lists(fp, 'fp_text').find(p => p[1] === 'value')?.[2])) || null,
+      mpn: field('MPN', 'Manufacturer Part', 'Manufacturer Part Number', 'Mfr. Part #', 'Mfr Part', 'Part Number'),
+      manufacturer: field('Manufacturer', 'Mfr', 'Mfr.'),
+      supplierPart: field('Supplier Part', 'JLCPCB Part #'),
+      lcsc: field('LCSC', 'LCSC Part'),
+      package: field('Package', 'Package Name', 'Supplier Footprint'),
+      padCount: pads.length,
+      npthOnly: pads.length > 0 && pads.every(pad => atom(pad[2]) === 'np_thru_hole'),
+      properties })
     const declarations = lists(fp, 'model')
     if (!declarations.some(m => !m.includes('hide') && first(m, 'hide')[1] !== 'yes')) withoutModels.push(ref)
     for (const m of declarations) {
@@ -122,6 +140,7 @@ export async function auditBoard(input: string, variables: Record<string, string
       // package-name lookup, extension substitution, or geometry synthesis.
     }
   }
-  const audit: Audit = { input, sha256: sha256(bytes), models, withoutModels, missing: models.filter(m => m.visible && !m.resolved), variables: usedVariables }
+  const audit: Audit = { input, sha256: sha256(bytes), models, footprints: footprintIdentities, withoutModels,
+    missing: models.filter(m => m.visible && !m.resolved), variables: usedVariables }
   return { audit, stagedSource: rewriteModelPaths(bytes.toString('utf8'), models.map(m => m.resolved)) }
 }

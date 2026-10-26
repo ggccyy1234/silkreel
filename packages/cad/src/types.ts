@@ -16,9 +16,25 @@ export interface Audit {
   input: string
   sha256: string
   models: ModelReference[]
+  footprints: FootprintIdentity[]
   withoutModels: string[]
   missing: ModelReference[]
   variables: Record<string, string>
+}
+
+export interface FootprintIdentity {
+  reference: string
+  footprint: string
+  side: string
+  value: string | null
+  mpn: string | null
+  manufacturer: string | null
+  supplierPart: string | null
+  lcsc: string | null
+  package: string | null
+  padCount: number
+  npthOnly: boolean
+  properties: Record<string, string>
 }
 
 export interface GeometryInfo {
@@ -41,6 +57,7 @@ export interface Manifest {
   tessellationMm: number | null
   geometry: GeometryInfo
   audit: Audit | null
+  repair?: { sourcePcb: string; stagedPcb: string; repaired: boolean; report: string | null; records: number }
   nativeReport?: import('./native.js').NativeReport
   notes: string[]
   manufacturing?: { file: string; sha256: string; pcb: string; pcbSha256: string; duration: number; curveErrorMm: number; missingInStep: string[] }

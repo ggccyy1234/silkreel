@@ -91,6 +91,9 @@ export default tseslint.config(
       'packages/metrics/src/cli.ts',
       'packages/cli/src/cli.ts',
       'packages/cad/src/cli.ts',
+      'packages/cad/src/jlc3d.ts',
+      'packages/cad/src/bootstrap.ts',
+      'packages/cad/src/doctor.ts',
       'packages/render-api/src/scripts/render-canonical.ts',
       'packages/render-api/src/server.ts',
       'packages/studio/src/studio-server.ts'

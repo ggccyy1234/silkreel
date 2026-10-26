@@ -25,13 +25,15 @@ describe('source-only model audit', () => {
     const folder = await fixture()
     await writeFile(path.join(folder, 'part.step'), 'real-file-placeholder')
     const input = path.join(folder, 'board.kicad_pcb')
-    const text = '(kicad_pcb (footprint "Library:Part" (layer "B.Cu") (at 10 20 -35) (property "Reference" "U1") (model "${KIPRJMOD}/part.step" (offset (xyz 1 2 3)) (scale (xyz 1 2 0.5)) (rotate (xyz 4 5 6))) (model "missing.step" (hide yes))) (footprint "Hole" (property "Reference" "H1")))'
+    const text = '(kicad_pcb (footprint "Library:Part" (layer "B.Cu") (at 10 20 -35) (property "Reference" "U1") (property "Value" "MCU") (property "MPN" "STM32F103C8T6") (property "Manufacturer" "ST") (property "LCSC" "C8734") (property "Package" "LQFP-48") (model "${KIPRJMOD}/part.step" (offset (xyz 1 2 3)) (scale (xyz 1 2 0.5)) (rotate (xyz 4 5 6))) (model "missing.step" (hide yes))) (footprint "Hole" (property "Reference" "H1")))'
     await writeFile(input, text)
     const { audit, stagedSource } = await auditBoard(input, {})
     expect(audit.models).toHaveLength(2)
     expect(audit.models[0]).toMatchObject({ ref: 'U1', side: 'B.Cu', position: [10, 20, -35], offset: [1, 2, 3], scale: [1, 2, 0.5], rotation: [4, 5, 6] })
     expect(audit.models[0]?.sha256).toMatch(/^[a-f0-9]{64}$/)
     expect(audit.missing).toHaveLength(0)
+    expect(audit.footprints[0]).toMatchObject({ reference: 'U1', value: 'MCU', mpn: 'STM32F103C8T6',
+      manufacturer: 'ST', lcsc: 'C8734', package: 'LQFP-48', padCount: 0, npthOnly: false })
     expect(audit.withoutModels).toEqual(['H1'])
     expect(stagedSource).toContain('missing.step')
     expect(await readFile(input, 'utf8')).toBe(text)
