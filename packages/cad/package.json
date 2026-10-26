@@ -2,7 +2,15 @@
   "name": "@silk-reel/cad",
   "version": "0.2.0-cad.1",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Source-faithful KiCad and STEP rendering without inferred component geometry",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ggccyy1234/silkreel.git",
+    "directory": "packages/cad"
+  },
+  "homepage": "https://github.com/ggccyy1234/silkreel#readme",
+  "bugs": "https://github.com/ggccyy1234/silkreel/issues",
   "scripts": { "test": "vitest run packages/cad", "typecheck": "tsc --noEmit" }
 }

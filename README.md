@@ -8,6 +8,12 @@
 
 当前版本：`v0.2.0-cad.1`，Windows x64 预发布版。原作者的 trace/glyph 风格渲染器保留在源码中，其器件表达带有推测性；不用于本工具的真实 CAD 验收。原项目说明见 [UPSTREAM_README.md](UPSTREAM_README.md)。
 
+## 开源许可
+
+本仓库及其 GitHub fork 为公开仓库，源码与本次修改沿用上游 [hridaya423/silkreel](https://github.com/hridaya423/silkreel) 的 [Apache License 2.0](LICENSE)。根目录 `LICENSE` 与上游 fork 的许可证文件逐字节一致（Git blob `261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64`）。
+
+仓库 `package.json` 中的 `"private": true` 只用于防止该多包工作区被误发布到 npm，不影响 GitHub 开源性、源码使用或 Apache-2.0 授权。发布 ZIP 中的软件同样使用 Apache-2.0；第三方依赖、KiCad、JLC/EasyEDA 模型、用户 PCB 和字体/音频等仍受各自权利和许可约束，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
 ## 直接交给 Agent 的使用方法
 
 把下面两段替换为实际路径后交给 Agent。`REPO_PATH` 是本仓库或解压包所在位置，`INSTALL_PATH` 是你指定给 Agent 的安装/工作目录；若从源码仓库工作，可以将两者设为同一个目录。

@@ -9,6 +9,7 @@
 - Documented exact model repair for missing and undeclared footprint models while forbidding symbol-library and global shared-footprint mutation; unverifiable placement still stops.
 - Added unified environment inspection/bootstrap and per-board automatic output directories.
 - Added end-to-end automatic model repair with project-local PCB staging, JLC placement transforms, model maps, source provenance and offline cache.
+- Clarified that the public GitHub fork remains Apache-2.0, added CAD package license/repository metadata, and documented that npm `private: true` prevents accidental publishing without changing open-source licensing.
 
 ## v0.1.0-cad.1 — 2026-10-26
 
