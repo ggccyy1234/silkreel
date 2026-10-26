@@ -2,6 +2,12 @@
 
 KiCad board in, release video out. TypeScript monorepo (npm workspaces):
 
+## CAD fork release rules
+
+Read the root README.md and packages/cad/README.md before using the CAD renderer. The root README is the required agent-assisted input, compatibility and per-frame review checklist. Runtime rendering does not call an LLM. Do not infer missing component bodies, solder geometry, board layers or fabrication parameters, and do not bypass compatibility guards to make a job succeed.
+
+For changes isolated to packages/cad, validate that path with native CAD tests, per-frame reports, stage/seek checks, complete frame decoding, all contact sheets, and complete real-speed playback. The original trace/glyph all-board style matrix below applies when those engines are changed; it does not replace or expand the CAD engine's qualification. Preserve the input files, capture limitations honestly, and do not describe automatic playback completion as visual review. Keep private review evidence under ignored docs/reviews/ or exports/, never in release assets. Package with the explicit allowlist in cad:package and smoke-test a fresh extracted ZIP before publishing. The user requesting a release authorizes the necessary commit, tag, push and publication to their fork; no extra approval gate is introduced here.
+
 | package | role |
 |---|---|
 | `packages/ingest` | `.kicad_pcb` parser → `BoardModel` |

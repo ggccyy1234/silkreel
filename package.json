@@ -12,9 +12,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hridaya423/silkreel.git"
+    "url": "git+https://github.com/ggccyy1234/silkreel.git"
   },
-  "bugs": "https://github.com/hridaya423/silkreel/issues",
+  "bugs": "https://github.com/ggccyy1234/silkreel/issues",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -22,6 +22,11 @@
     "packages/*"
   ],
   "scripts": {
+    "cad": "tsx packages/cad/src/cli.ts",
+    "cad:setup": "tsx packages/cad/src/setup.ts",
+    "cad:package": "tsx packages/cad/src/package-release.ts",
+    "cad:stages": "tsx packages/cad/src/manufacturing-review.ts",
+    "cad:smoke": "tsx packages/cad/src/smoke.ts",
     "typecheck": "tsc --noEmit",
     "build": "npm run build --workspaces --if-present",
     "test": "vitest run",
@@ -37,14 +42,18 @@
     "@remotion/bundler": "4.0.515",
     "@remotion/renderer": "4.0.515",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "@types/three": "^0.183.1",
+    "esbuild": "^0.28.1",
     "eslint": "^9.35.0",
     "happy-dom": "^20.11.6",
+    "playwright": "^1.64.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.43.0",

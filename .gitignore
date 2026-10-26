@@ -1,4 +1,8 @@
 node_modules
+.npm-cache/
+.cad-cache/
+.venv-cad/
+.pip-cache/
 dist
 coverage
 *.tsbuildinfo
